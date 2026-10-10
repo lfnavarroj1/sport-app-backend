@@ -1,0 +1,91 @@
+# Emulador oficial de Pub/Sub, solo para el entorno local (infraestructura/02-entorno-local).
+# No reproduce IAM ni cuotas; esas pruebas se hacen en desarrollo GCP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pubsub-emulator
+  labels:
+    app.kubernetes.io/name: pubsub-emulator
+spec:
+  selector:
+    app.kubernetes.io/name: pubsub-emulator
+  ports:
+    - {name: grpc, port: 8085, targetPort: grpc}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pubsub-emulator
+  labels:
+    app.kubernetes.io/name: pubsub-emulator
+    app.kubernetes.io/component: messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pubsub-emulator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pubsub-emulator
+        app.kubernetes.io/component: messaging
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: emulator
+          image: gcr.io/google.com/cloudsdktool/google-cloud-cli:588.0.0-emulators@sha256:be2f0e582a94c9e06e7a384fe2b3b39d590eeb8da65a110eda991598c100fe80
+          command: [gcloud, beta, emulators, pubsub, start, --host-port=0.0.0.0:8085]
+          ports:
+            - {name: grpc, containerPort: 8085}
+          readinessProbe:
+            tcpSocket: {port: grpc}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+---
+# Crea de forma idempotente el tópico de usuarios en el emulador.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: users-management-pubsub-setup
+  labels:
+    app.kubernetes.io/name: users-management
+    app.kubernetes.io/component: pubsub-setup
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: users-management
+        app.kubernetes.io/component: pubsub-setup
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: setup
+          image: sportapp/users-management
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, users_management.workers.pubsub_setup]
+          env:
+            - name: PUBSUB_PROJECT_ID
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_PROJECT_ID}
+            - name: PUBSUB_EMULATOR_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_EMULATOR_HOST}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

@@ -1,0 +1,112 @@
+# Entrega a development después de un merge a develop (ADR-019).
+# BLOQUEADO hasta ratificar: proyectos GCP, Workload Identity Provider, cuenta de servicio,
+# Artifact Registry y destino de despliegue (GKE/Cloud Run). Sin esas variables del
+# Environment `development`, el workflow lo informa y no publica ni despliega nada.
+# Nunca se usan llaves JSON: solo OIDC + Workload Identity Federation.
+name: deliver-development
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deliver-development
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.12.23"
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-24.04
+    environment: development
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.GCP_DELIVERY_SERVICE_ACCOUNT }}
+          REGISTRY: ${{ vars.GCP_ARTIFACT_REGISTRY }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$SERVICE_ACCOUNT" ] && [ -n "$REGISTRY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## BLOQUEADO: entrega a development"
+              echo "Faltan variables del Environment development: GCP_WORKLOAD_IDENTITY_PROVIDER,"
+              echo "GCP_DELIVERY_SERVICE_ACCOUNT y GCP_ARTIFACT_REGISTRY (ADR-017/ADR-019 sin ratificar)."
+              echo "No se publicó ninguna imagen ni se desplegó ningún componente."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: publish (${{ matrix.component }})
+    needs: gate
+    if: needs.gate.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    environment: development
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        component:
+          - users-management
+          - affiliation-management
+          - complementary-services
+          - training-management
+          - events-management
+          - third-party-management
+          - bff-web
+          - bff-mobile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DELIVERY_SERVICE_ACCOUNT }}
+          token_format: access_token
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ vars.GCP_ARTIFACT_REGISTRY_HOST }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - name: Construir una vez y publicar por digest
+        env:
+          REGISTRY: ${{ vars.GCP_ARTIFACT_REGISTRY }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          uv run --no-project python scripts/task.py build "$COMPONENT" \
+            --tag "$GITHUB_SHA" --version "0.0.0-dev+${GITHUB_SHA::12}" --revision "$GITHUB_SHA"
+          docker tag "sportapp/$COMPONENT:$GITHUB_SHA" "$REGISTRY/$COMPONENT:$GITHUB_SHA"
+          docker push "$REGISTRY/$COMPONENT:$GITHUB_SHA"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$REGISTRY/$COMPONENT:$GITHUB_SHA")
+          echo "| $COMPONENT | $GITHUB_SHA | $digest |" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: deploy
+    needs: [gate, publish]
+    if: needs.gate.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    environment: development
+    steps:
+      - name: BLOQUEADO - destino de despliegue no ratificado
+        run: |
+          echo "::error::BLOQUEADO: falta ratificar GKE/Cloud Run de development, job de migraciones y smoke posterior."
+          exit 1

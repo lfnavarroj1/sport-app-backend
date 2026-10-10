@@ -1,0 +1,9 @@
+#!/bin/sh
+# Validación rápida antes de cada commit local (formato, lint, tipos y unitarias).
+# Activación única por clon:  git config core.hooksPath .githooks
+# Ayuda al desarrollador; la autoridad sigue siendo CI.
+set -eu
+if command -v uv >/dev/null 2>&1; then
+  exec uv run python scripts/task.py ci-fast
+fi
+exec py -3.13 -m uv run python scripts/task.py ci-fast

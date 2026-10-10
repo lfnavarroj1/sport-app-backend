@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bff-mobile
+  labels:
+    app.kubernetes.io/name: bff-mobile
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bff-mobile
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bff-mobile
+        app.kubernetes.io/component: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: sportapp/bff-mobile
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8000}
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          # Valores locales iniciales; la capacidad de GKE se fija con experimentos (ADR-011).
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bff-mobile
+  labels:
+    app.kubernetes.io/name: bff-mobile
+spec:
+  selector:
+    app.kubernetes.io/name: bff-mobile
+  ports:
+    - {name: http, port: 80, targetPort: http}

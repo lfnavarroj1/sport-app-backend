@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/usuarios/usuario.registrado.v1.schema.json",
+  "title": "usuario.registrado.v1",
+  "description": "Publicado en sportapp.usuarios.v1 con ordering_key = aggregate_id cuando se registra una cuenta (HU001). Nunca contiene contraseña ni hash.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "usuario.registrado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "gestion-usuarios"},
+    "aggregate_id": {"type": "string", "format": "uuid"},
+    "aggregate_version": {"const": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "Clave de idempotencia del comando que originó el evento."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "full_name", "email", "actor_type", "status", "registered_at"],
+      "properties": {
+        "user_id": {"type": "string", "format": "uuid"},
+        "full_name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "email": {"type": "string", "minLength": 3, "maxLength": 254},
+        "actor_type": {"enum": ["athlete", "organizer", "service_provider"]},
+        "status": {"enum": ["active"]},
+        "registered_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

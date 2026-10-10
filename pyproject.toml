@@ -1,0 +1,110 @@
+[project]
+name = "sportapp-backend"
+version = "0.1.0"
+description = "Workspace del backend de SportApp: microservicios, BFF y librería técnica."
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["libs/*", "services/*", "bff/*"]
+
+[tool.uv.sources]
+sportapp-platform = { workspace = true }
+users-management = { workspace = true }
+affiliation-management = { workspace = true }
+complementary-services = { workspace = true }
+training-management = { workspace = true }
+events-management = { workspace = true }
+third-party-management = { workspace = true }
+bff-web = { workspace = true }
+bff-mobile = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "sportapp-platform",
+    "users-management",
+    "affiliation-management",
+    "complementary-services",
+    "training-management",
+    "events-management",
+    "third-party-management",
+    "bff-web",
+    "bff-mobile",
+    "ruff",
+    "mypy",
+    "coverage[toml]",
+    "bandit",
+    "pip-audit",
+    "jsonschema",
+]
+load = ["locust"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["**/migrations/**/versions"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "N", "SIM", "RUF", "PL", "PT"]
+# N818: las excepciones de dominio se nombran en lenguaje de negocio (EmailAlreadyRegistered).
+ignore = ["PLR0913", "N818"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "S105", "S106", "PLR2004", "PT009", "PT027", "SIM117"]
+"scripts/**" = ["S603", "S607", "PLR2004", "T201"]
+"load/**" = ["S311"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "sportapp_platform",
+    "users_management",
+    "affiliation_management",
+    "complementary_services",
+    "training_management",
+    "events_management",
+    "third_party_management",
+    "bff_web",
+    "bff_mobile",
+]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+plugins = ["pydantic.mypy"]
+explicit_package_bases = true
+exclude = ["/migrations/"]
+
+[[tool.mypy.overrides]]
+# El SDK de Google no publica marcador py.typed.
+module = ["google.cloud.*", "google.api_core.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+parallel = true
+data_file = "reports/coverage/.coverage"
+source_pkgs = [
+    "sportapp_platform",
+    "users_management",
+    "affiliation_management",
+    "complementary_services",
+    "training_management",
+    "events_management",
+    "third_party_management",
+    "bff_web",
+    "bff_mobile",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_empty = true
+
+[tool.coverage.xml]
+output = "reports/coverage/coverage.xml"
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "load"]

@@ -4,6 +4,38 @@ Repositorio ejecutable del backend de SportApp: microservicios FastAPI, BFF web 
 
 La arquitectura y las decisiones viven en la documentación central (`documentacion/arquitectura`), no en este repositorio. Ante cualquier diferencia prevalece esa documentación.
 
+> ¿Primera vez en este repositorio? Siga [Entorno local paso a paso](#entorno-local-paso-a-paso).
+
+## Tabla de contenido
+
+- [Estado](#estado)
+- [Stack fijado](#stack-fijado)
+- [Estructura](#estructura)
+- [Comandos](#comandos)
+- [Configuración](#configuración)
+- [Entorno local paso a paso](#entorno-local-paso-a-paso)
+  - [Resumen rápido](#resumen-rápido)
+  - [Lista de control](#lista-de-control)
+  - [1. Qué se va a construir](#1-qué-se-va-a-construir)
+  - [2. Antes de empezar: terminal y carpeta](#2-antes-de-empezar-terminal-y-carpeta)
+  - [3. Verificar Python](#3-verificar-python)
+  - [4. Verificar Docker Desktop y WSL 2](#4-verificar-docker-desktop-y-wsl-2)
+  - [5. Instalar uv y dejarlo en el PATH](#5-instalar-uv-y-dejarlo-en-el-path)
+  - [6. Instalar las dependencias del proyecto](#6-instalar-las-dependencias-del-proyecto)
+  - [7. Activar Kubernetes en Docker Desktop](#7-activar-kubernetes-en-docker-desktop)
+  - [8. Verificar el clúster y entender los contextos](#8-verificar-el-clúster-y-entender-los-contextos)
+  - [9. Generar las contraseñas locales](#9-generar-las-contraseñas-locales)
+  - [10. Construir las imágenes](#10-construir-las-imágenes)
+  - [11. Desplegar y seguir el arranque](#11-desplegar-y-seguir-el-arranque)
+  - [12. Usar los servicios: documentación y prueba de HU001](#12-usar-los-servicios-documentación-y-prueba-de-hu001)
+  - [13. Recolectar diagnóstico para pedir ayuda](#13-recolectar-diagnóstico-para-pedir-ayuda)
+  - [14. Detener, reiniciar y limpiar](#14-detener-reiniciar-y-limpiar)
+  - [15. Glosario](#15-glosario)
+  - [Estado de verificación de esta guía](#estado-de-verificación-de-esta-guía)
+- [Integración continua](#integración-continua)
+- [Documentación relacionada](#documentación-relacionada)
+- [Pendiente de decisión (no implementado)](#pendiente-de-decisión-no-implementado)
+
 ## Estado
 
 Todos los componentes exponen `/health/live` y `/health/ready`. Historias implementadas en backend:
@@ -83,102 +115,6 @@ Reglas que verifican las pruebas de arquitectura (`tests/unit/test_architecture.
 
 En los dominios CQRS, `/health/ready` solo depende de la base de escritura. Si cae la de lectura, los comandos continúan.
 
-## Primeros pasos (una sola vez por equipo)
-
-> Si es la primera vez o algo falla, siga la [guía detallada del entorno local](docs/guia-entorno-local-kubernetes.md) (secciones 2 a 6). Cubre estos mismos pasos con más explicación y soluciones a errores frecuentes.
-
-Ejecute estos pasos **en orden**, en una terminal de **PowerShell** abierta en la carpeta `backend`. No continúe al siguiente paso si el anterior no muestra el resultado esperado.
-
-Requisitos previos instalados: **Python 3.13** (comando `py -3.13 --version`) y **Docker Desktop** en ejecución.
-
-### Paso 1. Instalar uv
-
-> ¿No conoce uv? El [curso corto de uv](docs/curso-uv.md) explica en 60 a 90 minutos qué es, cómo funciona y cómo lo usa este backend. Incluye prácticas y autoevaluación.
-
-```powershell
-py -3.13 -m pip install --user uv==0.12.23
-```
-
-Resultado esperado, uno de estos dos:
-- `Successfully installed uv-0.12.23`: se instaló ahora.
-- `Requirement already satisfied: uv==0.12.23 ...`: ya estaba instalado; no hay que hacer nada más.
-
-Puede aparecer un aviso sobre una versión más nueva de pip; se puede ignorar.
-
-> `--user` instala uv para su usuario de Windows, **no** dentro del `.venv` del proyecto. Es lo correcto: uv es la herramienta que después crea y administra el `.venv` (paso 5).
-
-### Paso 2. Agregar uv al PATH del usuario
-
-`pip --user` deja `uv.exe` en `C:\Users\<su-usuario>\AppData\Roaming\Python\Python313\Scripts`, y Windows no busca programas en esa carpeta. Hay que agregarla **una sola vez** a la variable `Path` de su usuario. Use **una** de las dos opciones.
-
-#### Opción A: por comando (PowerShell)
-
-**2.1 Comprobar si ya está agregada.** Pegue esta línea:
-
-```powershell
-[Environment]::GetEnvironmentVariable("Path", "User") -split ";" | Select-String -SimpleMatch "Python313\Scripts"
-```
-
-- Si muestra una línea como `C:\Users\...\Roaming\Python\Python313\Scripts`, ya está agregada: salte al **Paso 3**.
-- Si **no muestra nada**, falta agregarla: continúe con 2.2.
-
-**2.2 Agregar la carpeta.** Pegue esta línea **una sola vez**:
-
-```powershell
-[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:APPDATA\Python\Python313\Scripts", "User")
-```
-
-Este comando **no muestra ningún mensaje**: si no aparece un error en rojo, funcionó. No lo repita, porque agregaría la carpeta dos veces.
-
-**2.3 Verificar.** Repita el comando de 2.1. Ahora debe mostrar la línea con `Python313\Scripts`.
-
-#### Opción B: por la interfaz de Windows
-
-1. Pulse la tecla Windows, escriba **"variables de entorno"** y abra **"Editar las variables de entorno de esta cuenta"**.
-2. En **"Variables de usuario para <su-usuario>"** seleccione **Path** y pulse **Editar...**.
-3. Pulse **Nuevo** y pegue: `%APPDATA%\Python\Python313\Scripts`
-4. Pulse **Aceptar** en las dos ventanas.
-
-En ambas opciones el cambio solo afecta a su usuario y no requiere permisos de administrador.
-
-### Paso 3. Cerrar y volver a abrir la terminal
-
-El nuevo PATH solo lo ven las terminales abiertas **después** del paso 2:
-- **Terminal integrada de VS Code:** cierre **VS Code completo** y vuelva a abrirlo; abrir una pestaña nueva no basta.
-- **PowerShell independiente:** cierre la ventana y abra otra en la carpeta `backend`.
-
-### Paso 4. Verificar uv
-
-```powershell
-uv --version
-```
-
-Resultado esperado: `uv 0.12.23`.
-
-Si aparece *"The term 'uv' is not recognized..."*, el paso 2 no se ejecutó o la terminal no se reabrió (paso 3). Mientras tanto puede usar la forma larga, anteponiendo `py -3.13 -m` a cada comando `uv`:
-
-```powershell
-py -3.13 -m uv --version
-```
-
-### Paso 5. Instalar las dependencias del proyecto
-
-```powershell
-uv sync --frozen
-```
-
-Resultado esperado: crea la carpeta `.venv` e instala las versiones exactas de `uv.lock`.
-
-### Paso 6. Comprobar que todo funciona
-
-```powershell
-uv run python scripts/task.py ci-fast
-```
-
-Resultado esperado: formato, lint, tipos y pruebas unitarias terminan sin errores (`OK` en cada suite).
-
-Con esto el equipo está listo. Para levantar todo el sistema en Kubernetes local, continúe con [Entorno Kubernetes local](#entorno-kubernetes-local).
-
 ## Comandos
 
 Todos se ejecutan desde la raíz del repositorio. CI invoca exactamente estos mismos comandos.
@@ -239,201 +175,871 @@ Observabilidad incluida:
 - `X-Correlation-ID` se acepta (solo si es un UUID) y siempre se devuelve.
 - Errores con el formato común (propuesto) `code`, `message`, `correlation_id` y `details`.
 
-## Entorno Kubernetes local
+## Entorno local paso a paso
 
-La plataforma local definida por ADR-018 es el **Kubernetes integrado en Docker Desktop**:
+Esta guía lleva desde un equipo Windows sin nada configurado hasta tener todo el backend corriendo en el **Kubernetes integrado en Docker Desktop**, la plataforma local definida por ADR-018:
+
 - contexto `docker-desktop`;
 - namespace `sportapp-local`;
 - manifiestos Kustomize en `deploy/k8s/overlays/local`.
 
-Con este entorno quedan arriba, con un solo despliegue:
-- PostgreSQL, con una base por dominio;
-- el emulador de Pub/Sub;
-- las migraciones;
-- los 6 microservicios y los 2 BFF;
-- el publicador de la outbox de usuarios.
-
-Cada componente sirve su documentación OpenAPI en `/docs`.
+Al final podrá abrir la documentación OpenAPI en el navegador y probar el registro de usuarios (HU001).
 
 > **Regla de seguridad:** todos los comandos indican `--context docker-desktop --namespace sportapp-local`. El equipo puede tener acceso a clústeres GKE, y un `kubectl` sin contexto explícito podría modificarlos.
 
-> 📘 **Guía detallada:** [docs/guia-entorno-local-kubernetes.md](docs/guia-entorno-local-kubernetes.md). Explica cada paso con el resultado esperado, los problemas frecuentes y cómo recolectar diagnóstico. Úsela si es la primera vez o si algo no funciona. Esta sección es el resumen.
+Cada paso indica:
 
-**Antes de empezar:** complete [Primeros pasos](#primeros-pasos-una-sola-vez-por-equipo). `uv --version` debe responder `uv 0.12.23`.
+- **Para qué sirve.**
+- **Qué ejecutar.** Comandos para **PowerShell**, uno por bloque.
+- **Qué debe ver.** El resultado esperado.
+- **Si no ve eso.** La causa probable y la solución.
 
-**Resumen del orden de ejecución.** El detalle de cada paso está más abajo.
+No avance al siguiente paso hasta que el actual muestre el resultado esperado. Si algo falla y no está en esta guía, vaya a la [sección 13](#13-recolectar-diagnóstico-para-pedir-ayuda) y comparta esa salida.
 
-| Paso | Qué hacer | Frecuencia |
+### Resumen rápido
+
+Para quien ya hizo la configuración inicial (secciones 2 a 6). La columna *Sección* indica dónde está el detalle de cada paso.
+
+| Sección | Qué hacer | Frecuencia |
 | --- | --- | --- |
-| 1 | Activar Kubernetes en Docker Desktop (interfaz gráfica) | Una vez |
-| 2 | `kubectl --context docker-desktop get nodes` → nodo `Ready` | Una vez |
-| 3 | `uv run python scripts/task.py k8s-secrets` | Una vez |
-| 4 | `uv run python scripts/task.py build all` | Cada vez que cambie el código |
-| 5 | `kubectl --context docker-desktop --namespace sportapp-local apply --kustomize deploy/k8s/overlays/local` | Cada despliegue |
-| 6 | `kubectl --context docker-desktop --namespace sportapp-local get pods` → todo `Running`/`Completed` | Cada despliegue |
-| 7 | `port-forward` y abrir `http://127.0.0.1:8000/docs` | Cuando quiera usar los servicios |
+| [7](#7-activar-kubernetes-en-docker-desktop) | Activar Kubernetes en Docker Desktop (interfaz gráfica) | Una vez |
+| [8](#8-verificar-el-clúster-y-entender-los-contextos) | `kubectl --context docker-desktop get nodes` → nodo `Ready` | Una vez |
+| [9](#9-generar-las-contraseñas-locales) | `uv run python scripts/task.py k8s-secrets` | Una vez |
+| [10](#10-construir-las-imágenes) | `uv run python scripts/task.py build all` | Cada vez que cambie el código |
+| [11](#11-desplegar-y-seguir-el-arranque) | `kubectl --context docker-desktop --namespace sportapp-local apply --kustomize deploy/k8s/overlays/local` | Cada despliegue |
+| [11.5](#115-estado-final-esperado) | `kubectl --context docker-desktop --namespace sportapp-local get pods` → todo `Running`/`Completed` | Cada despliegue |
+| [12](#12-usar-los-servicios-documentación-y-prueba-de-hu001) | `port-forward` y abrir `http://127.0.0.1:8000/docs` | Cuando quiera usar los servicios |
 
-### 1. Activar Kubernetes en Docker Desktop (una sola vez)
+### Lista de control
 
-1. Abra Docker Desktop y verifique que el motor esté en ejecución.
-2. En el menú lateral seleccione **Kubernetes**. Si aparece la pantalla *Enable Kubernetes*, pulse **Create cluster**. En versiones anteriores la opción es *Settings → Kubernetes → Enable Kubernetes*.
-3. Elija el aprovisionador **kubeadm** (un nodo):
-   - comparte el motor Docker del equipo, así que las imágenes `sportapp/*:local` quedan disponibles sin cargarlas aparte;
-   - ADR-018 también admite `kind`, pero con `kind` las imágenes deben cargarse en el clúster antes de desplegar.
-4. Confirme y espere a que el estado de Kubernetes quede en verde (*running*). La primera vez puede tardar varios minutos, porque descarga las imágenes del clúster.
-5. Recursos recomendados en *Settings → Resources*: al menos 4 CPU y 8 GB de memoria.
+Marque cada casilla al terminar el paso. Así sabe en qué punto está si se interrumpe.
 
-### 2. Verificar el clúster
+- [ ] 3. `py -3.13 --version` → `Python 3.13.x`
+- [ ] 4. `docker info` responde y Docker Desktop está en verde
+- [ ] 5. `uv --version` → `uv 0.12.23`
+- [ ] 6. `uv sync --frozen` termina sin errores y `ci-fast` termina con `OK` en todas las suites
+- [ ] 7. Kubernetes en verde en Docker Desktop
+- [ ] 8. `kubectl --context docker-desktop get nodes` → `Ready`
+- [ ] 9. Existe `deploy\k8s\overlays\local\secrets.local.env`
+- [ ] 10. Hay 8 imágenes `sportapp/*:local`
+- [ ] 11. Todos los pods en `Running` o `Completed`
+- [ ] 12. `http://127.0.0.1:8000/docs` abre en el navegador
 
-#### 2.1 Contextos disponibles
+### 1. Qué se va a construir
+
+```text
+ Navegador (Swagger /docs)
+        │  port-forward 8000
+        ▼
+ ┌──────────────────────── Kubernetes de Docker Desktop (namespace sportapp-local) ───────────────────────┐
+ │                                                                                                        │
+ │  bff-web ──► users-management ──► postgres (bases usuarios_write / usuarios_read y las de otros dominios)│
+ │  bff-mobile                         ▲                                                                   │
+ │  affiliation-management ────────────┤                                                                   │
+ │  complementary-services ────────────┤                                                                   │
+ │  training-management ───────────────┤                                                                   │
+ │  events-management ─────────────────┘                                                                   │
+ │  third-party-management                                                                                 │
+ │                                                                                                        │
+ │  users-management-outbox-publisher ──► pubsub-emulator (tópico sportapp.usuarios.v1)                   │
+ │                                                                                                        │
+ │  Jobs que se ejecutan una vez: 8 migraciones de base de datos + creación del tópico                    │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Inventario exacto de lo que se crea (34 recursos):
+
+| Tipo | Cantidad | Nombres |
+| --- | ---: | --- |
+| Namespace | 1 | `sportapp-local` |
+| StatefulSet | 1 | `postgres` |
+| Deployment | 10 | `bff-web`, `bff-mobile`, `users-management`, `affiliation-management`, `complementary-services`, `training-management`, `events-management`, `third-party-management`, `users-management-outbox-publisher`, `pubsub-emulator` |
+| Job | 9 | `users-management-migrate-write`, `users-management-migrate-read`, `affiliation-management-migrate-main`, `complementary-services-migrate-main`, `training-management-migrate-write`, `training-management-migrate-read`, `events-management-migrate-write`, `events-management-migrate-read`, `users-management-pubsub-setup` |
+| Service | 10 | uno por Deployment de aplicación, más `postgres` y `pubsub-emulator` |
+| ConfigMap | 2 | `sportapp-runtime-<hash>` (configuración) y `postgres-init-<hash>` (script que crea las bases) |
+| Secret | 1 | `sportapp-database-<hash>` (contraseñas del paso 9) |
+
+Tiempo estimado la primera vez: **20 a 40 minutos**. Gran parte es descarga de imágenes; solo la del emulador de Pub/Sub pesa unos 1,7 GB.
+
+### 2. Antes de empezar: terminal y carpeta
+
+**Para qué sirve:** todos los comandos suponen PowerShell abierta en la carpeta `backend` del proyecto.
+
+1. Abra **PowerShell**. Sirve la terminal integrada de VS Code (menú *Terminal → New Terminal*, perfil *PowerShell*) o la aplicación *Windows PowerShell*.
+2. Vaya a la carpeta del backend:
+
+```powershell
+cd "D:\04 - Mestría en Ingeniería de Software\08 - Ciclo 8\Proyecto final II\aplicacion_proyecto_final\backend"
+```
+
+3. Verifique que está en el lugar correcto:
+
+```powershell
+Test-Path .\scripts\task.py
+```
+
+**Qué debe ver:** `True`.
+
+**Si ve `False`:** no está en la carpeta `backend`. Repita el `cd`; la ruta va entre comillas porque tiene espacios y tildes.
+
+> **Importante:** use **PowerShell**, no *Git Bash* ni *CMD*. Los comandos de esta guía usan sintaxis de PowerShell.
+
+### 3. Verificar Python
+
+**Para qué sirve:** el backend usa Python 3.13, y uv se instala con él.
+
+```powershell
+py -3.13 --version
+```
+
+**Qué debe ver:** `Python 3.13.x` (por ejemplo `Python 3.13.2`).
+
+| Si ve | Causa | Solución |
+| --- | --- | --- |
+| `No suitable Python runtime found` | Python 3.13 no está instalado | Instale Python 3.13 desde python.org, marcando *Add python.exe to PATH* y *py launcher*; luego abra una terminal nueva. |
+| `py : The term 'py' is not recognized` | Falta el lanzador `py` | Reinstale Python 3.13 marcando *py launcher*. |
+
+### 4. Verificar Docker Desktop y WSL 2
+
+**Para qué sirve:** Docker Desktop construye las imágenes y aloja el clúster Kubernetes. En Windows funciona sobre WSL 2, el subsistema de Linux.
+
+#### 4.1 Docker Desktop abierto y en verde
+
+1. Abra **Docker Desktop** desde el menú Inicio.
+2. Espere a que el indicador inferior izquierdo diga **Engine running** (en verde).
+
+#### 4.2 Docker responde desde la terminal
+
+```powershell
+docker version --format "Cliente {{.Client.Version}} / Servidor {{.Server.Version}}"
+```
+
+**Qué debe ver:** dos versiones, por ejemplo `Cliente 29.8.1 / Servidor 29.8.1`.
+
+| Si ve | Causa | Solución |
+| --- | --- | --- |
+| `error during connect` o `The system cannot find the file specified` | Docker Desktop no está iniciado o aún está arrancando | Ábralo y espere *Engine running*. |
+| `docker : The term 'docker' is not recognized` | Docker Desktop no está instalado o la terminal se abrió antes de instalarlo | Instálelo y abra una terminal nueva. |
+
+#### 4.3 WSL 2 activo
+
+```powershell
+wsl --status
+```
+
+**Qué debe ver:** `Default Version: 2` (o `Versión predeterminada: 2`).
+
+**Si dice versión 1 o WSL no está instalado:** ejecute `wsl --install` en una PowerShell **como administrador**, reinicie Windows y vuelva a abrir Docker Desktop.
+
+#### 4.4 Memoria disponible para Docker
+
+El entorno completo usa aproximadamente **4 a 6 GB de RAM**.
+
+- **Con WSL 2** (lo normal), la memoria la decide Windows. Si el equipo tiene 8 GB o menos, cierre otras aplicaciones pesadas antes del paso 11.
+- **Si Docker Desktop muestra límites** en *Settings (engranaje) → Resources → Advanced*, asigne al menos **4 CPU y 8 GB**, y pulse *Apply & restart*.
+
+### 5. Instalar uv y dejarlo en el PATH
+
+**Para qué sirve:** uv administra Python y las dependencias del proyecto, como npm en Angular o Gradle en Android. Todos los comandos del proyecto se ejecutan con `uv run ...`.
+
+> ¿No conoce uv? El curso corto de uv está en la documentación central del proyecto, en `documentacion/formacion/curso-uv.md`.
+
+#### 5.1 Instalar uv
+
+```powershell
+py -3.13 -m pip install --user uv==0.12.23
+```
+
+**Qué debe ver**, uno de estos dos:
+
+- `Successfully installed uv-0.12.23`: se instaló ahora.
+- `Requirement already satisfied: uv==0.12.23 ...`: ya estaba instalado; no hay que hacer nada más.
+
+Un aviso sobre una versión nueva de pip se puede ignorar.
+
+> `--user` instala uv para **su usuario de Windows**, en `C:\Users\<usuario>\AppData\Roaming\Python\Python313\Scripts\uv.exe`. **No** lo instala dentro del `.venv` del proyecto, y eso es lo correcto: uv es quien crea el `.venv` (paso 6).
+
+#### 5.2 Comprobar si la carpeta de uv está en el PATH
+
+Windows no busca programas en la carpeta anterior hasta que se agrega a la variable `Path`.
+
+```powershell
+[Environment]::GetEnvironmentVariable("Path", "User") -split ";" | Select-String -SimpleMatch "Python313\Scripts"
+```
+
+- **Muestra una línea** con `...\Roaming\Python\Python313\Scripts`: ya está; salte al **5.4**.
+- **No muestra nada:** continúe con **5.3**.
+
+#### 5.3 Agregar la carpeta al PATH (una sola vez)
+
+Elija **una** opción.
+
+**Opción A, por comando.** Pegue esta línea completa y pulse Enter **una sola vez**:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:APPDATA\Python\Python313\Scripts", "User")
+```
+
+- **No muestra ningún mensaje.** Si no aparece texto en rojo, funcionó.
+- **No la repita:** agregaría la carpeta dos veces.
+- **Si PowerShell muestra `>>`:** la línea quedó incompleta al pegarla. Pulse `Ctrl+C` y pegue de nuevo la línea completa.
+
+**Opción B, por la interfaz de Windows:**
+
+1. Pulse la tecla Windows y escriba **variables de entorno**.
+2. Abra **Editar las variables de entorno de esta cuenta**.
+3. En la parte superior (**Variables de usuario**), seleccione **Path** y pulse **Editar...**.
+4. Pulse **Nuevo** y pegue: `%APPDATA%\Python\Python313\Scripts`
+5. Pulse **Aceptar** en las dos ventanas.
+
+Después de cualquiera de las dos opciones, repita el comando de **5.2**: ahora debe mostrar la línea.
+
+#### 5.4 Cerrar y volver a abrir la terminal
+
+El cambio del PATH solo lo ven las terminales **nuevas**:
+
+- **Terminal de VS Code:** cierre **VS Code completo** (todas sus ventanas) y vuelva a abrirlo. Abrir otra pestaña de terminal **no basta**.
+- **PowerShell independiente:** cierre la ventana y abra otra.
+
+Luego vuelva a la carpeta `backend` (paso 2).
+
+#### 5.5 Verificar uv
+
+```powershell
+uv --version
+```
+
+**Qué debe ver:** `uv 0.12.23`.
+
+| Si ve | Causa | Solución |
+| --- | --- | --- |
+| `uv : The term 'uv' is not recognized...` | La carpeta no está en el PATH o la terminal no se reabrió | Repita 5.2; si no muestra la línea, haga 5.3; luego 5.4. |
+| Otra versión de uv | Hay otra instalación de uv con prioridad | Ejecute `Get-Command uv` para ver cuál se usa. Funciona igual si es 0.12.x; si no, reinstale la versión indicada. |
+
+> **Alternativa temporal:** mientras resuelve el PATH, anteponga `py -3.13 -m` a cualquier comando `uv`. Por ejemplo, `py -3.13 -m uv run python scripts/task.py build all` funciona siempre.
+
+### 6. Instalar las dependencias del proyecto
+
+#### 6.1 Crear el entorno virtual
+
+**Para qué sirve:** crea la carpeta `.venv` con las versiones exactas fijadas en `uv.lock`.
+
+```powershell
+uv sync --frozen
+```
+
+**Qué debe ver:** líneas como `Resolved ... packages` e `Installed ...`, o nada si ya estaba al día. No debe haber errores.
+
+**Si falla `uv sync`** con errores de red o certificados: la red bloquea la descarga desde `pypi.org`. Pruebe con otra red o configure el proxy de su organización.
+
+#### 6.2 Comprobar el proyecto con `ci-fast`
+
+**Para qué sirve:** comprueba en menos de un minuto que el código de su copia está sano: dependencias coherentes, formato, estilo, tipos y pruebas unitarias. Hágalo **antes** de construir imágenes (paso 10). Un error que aquí se detecta en segundos le costaría 5 a 15 minutos de build más un despliegue para descubrirlo en Kubernetes.
+
+```powershell
+uv run python scripts/task.py ci-fast
+```
+
+**Qué debe ver:** tarda unos **30 a 60 segundos** (37 s en el equipo de desarrollo). La salida sigue este orden:
+
+```text
+$ ...uv.exe lock --check
+Resolved 125 packages in 3ms
+$ ...python.exe -m ruff format --check .
+170 files already formatted
+$ ...python.exe -m ruff check .
+All checks passed!
+$ ...python.exe -m mypy -p sportapp_platform -p users_management ... -p bff_mobile
+Success: no issues found in 105 source files
+$ ...python.exe -m mypy scripts
+Success: no issues found in 2 source files
+$ ...python.exe -m coverage run ... -m unittest discover -s libs\sportapp_platform\tests\unit ...
+test_not_found_uses_common_format (...) ... ok
+...
+Ran 33 tests in 2.522s
+OK
+   (se repite "Ran N tests ... OK" para cada uno de los 9 paquetes)
+```
+
+- Las cantidades (`125 packages`, `170 files`, `33 tests`) crecen a medida que se agrega código; lo importante es que no haya errores.
+- Las líneas JSON con `request.completed` o `outbox.published` en medio de las pruebas son **logs normales** de la aplicación, no errores.
+- Al terminar bien, el comando vuelve al prompt sin mensajes en rojo. Puede confirmarlo con `$LASTEXITCODE`, que debe valer `0`.
+
+#### 6.3 Qué hace `ci-fast` por dentro
+
+##### El comando, palabra por palabra
+
+| Parte | Qué hace |
+| --- | --- |
+| `uv run` | Ejecuta lo que sigue **dentro** del entorno `.venv` del proyecto. Antes revisa que `.venv` coincida con `uv.lock` y, si falta algo, lo instala. No hace falta activar el entorno a mano. |
+| `python` | El Python 3.13 de `.venv`, no el Python global de Windows. |
+| `scripts/task.py` | El **ejecutor de tareas** del repositorio. Reúne todos los comandos del proyecto (`build`, `test`, `lint`, `smoke`...) para que cualquier persona y el CI los ejecuten igual. |
+| `ci-fast` | El nombre de la tarea. Es un **agregado**: no hace nada propio, solo ejecuta otras tareas en orden. |
+
+En `scripts/task.py` la tarea es solo esto:
+
+```python
+def ci_fast(_):
+    _sequence(lock_check, format_check, lint, typecheck)
+    _sequence(test, suite="unit")
+```
+
+##### Los cinco pasos, en orden
+
+Cada línea de la salida que empieza con `$ ` es el comando exacto que se está ejecutando. Puede copiarlo para repetir solo ese paso.
+
+| # | Tarea | Herramienta | Qué verifica | Por qué importa |
+| ---: | --- | --- | --- | --- |
+| 1 | `lock-check` | `uv lock --check` | Que `uv.lock` corresponde exactamente a los `pyproject.toml` del workspace. | Si alguien agregó una dependencia y no regeneró el lock, las imágenes (que se construyen con `uv sync --frozen`) fallarían o usarían versiones distintas a las probadas. Va primero porque, si falla, todo lo demás estaría probando otro conjunto de librerías. |
+| 2 | `format-check` | `ruff format --check .` | Que todos los `.py` tienen el formato acordado (líneas de máximo 100 caracteres, comillas, sangría). **No modifica archivos.** | Evita diferencias de formato en los commits y en las revisiones. |
+| 3 | `lint` | `ruff check .` | Errores probables y malas prácticas: imports sin usar, variables sin definir, orden de imports, reglas de seguridad (`S`, equivalentes a Bandit), complejidad, nombres. Las reglas están en `[tool.ruff.lint]` del `pyproject.toml` raíz. | Atrapa errores antes de ejecutar el código. |
+| 4 | `typecheck` | `mypy` en modo **estricto** | Que los tipos son coherentes en los 9 paquetes (`sportapp_platform`, 6 microservicios, 2 BFF) y en `scripts/`. Por ejemplo, que no se pase un `str` donde se espera un `UUID`, o que no se olvide manejar un `None`. | Python no revisa tipos al ejecutar; mypy encuentra esos errores sin necesidad de una prueba que los provoque. |
+| 5 | `test unit` | `unittest` bajo `coverage` | Ejecuta la carpeta `tests/unit` de cada paquete por separado: primero la librería `libs/sportapp_platform`, luego los 6 servicios y los 2 BFF. Hoy son **117 pruebas** (33 de la librería, 45 de usuarios, 10 del BFF web y 29 entre los otros 6 componentes). | Las pruebas unitarias comprueban reglas de dominio, casos de uso y la API **sin infraestructura**: usan dobles en memoria en lugar de PostgreSQL o Pub/Sub. |
+
+##### Cómo se comporta
+
+- **Se detiene en el primer fallo.** Si el paso 3 falla, los pasos 4 y 5 no se ejecutan. Corrija y vuelva a ejecutar `ci-fast` completo.
+- **No modifica su código.** Solo revisa. El único archivo que escribe son los datos de cobertura en `reports/coverage/`, una carpeta ignorada por Git.
+- **No necesita Docker, PostgreSQL, Pub/Sub ni Kubernetes.** Funciona aunque Docker Desktop esté cerrado.
+- **No aplica el umbral de cobertura del 80 %.** Mide la cobertura, pero el umbral lo exigen `ci-full` y la tarea `coverage`.
+- **Código de salida:** `0` si todo pasa, distinto de `0` si algo falla. Así lo usan el hook de Git y el CI.
+
+##### Dónde más se usa
+
+| Lugar | Cómo lo usa |
+| --- | --- |
+| **Hook `pre-commit`** (`.githooks/pre-commit`) | Si activó los hooks con `git config core.hooksPath .githooks`, Git ejecuta `ci-fast` antes de cada `git commit` y **cancela el commit** si falla. |
+| **CI en GitHub** (`.github/workflows/ci.yml`) | Los jobs `quality` y `unit` ejecutan los mismos pasos uno por uno. Además, el CI ejecuta dos cosas que `ci-fast` **no** incluye: `k8s-render --use-example` (valida los manifiestos de Kubernetes) y `secrets` (Gitleaks, busca credenciales). Por eso un `ci-fast` local en verde **no garantiza** que el CI quede en verde. |
+| **`ci-full`** | Es la versión completa, equivalente a la puerta de un pull request. Ejecuta lo mismo que `ci-fast` y añade las pruebas de integración, contrato y componente (con PostgreSQL y el emulador de Pub/Sub reales), el umbral del 80 % y los análisis de seguridad (Bandit y pip-audit). Requiere `TEST_DATABASE_URL` y `PUBSUB_EMULATOR_HOST`; vea [Comandos](#comandos). |
+
+##### Ejecutar un solo paso
+
+Útil para repetir solo lo que falló:
+
+```powershell
+uv run python scripts/task.py lock-check
+```
+
+```powershell
+uv run python scripts/task.py format-check
+```
+
+```powershell
+uv run python scripts/task.py lint
+```
+
+```powershell
+uv run python scripts/task.py typecheck
+```
+
+```powershell
+uv run python scripts/task.py test unit
+```
+
+##### Si `ci-fast` falla
+
+Busque el **último** `$ ...` antes del error: indica qué paso falló.
+
+| Si ve | Paso | Causa | Solución |
+| --- | --- | --- | --- |
+| `The lockfile at uv.lock needs to be updated` | 1 | Se cambió un `pyproject.toml` sin regenerar `uv.lock` | Quien cambió las dependencias debe ejecutar `uv lock` y versionar `uv.lock` junto con el `pyproject.toml`. Si usted no tocó dependencias, actualice su copia del repositorio. |
+| `Would reformat: <archivo>` y `N files would be reformatted` | 2 | Hay archivos sin el formato acordado | `uv run python scripts/task.py format`, que **sí** modifica los archivos. Revise los cambios y repita `ci-fast`. |
+| `<archivo>:<línea>:<col>: <CÓDIGO> <mensaje>` y `Found N errors` | 3 | Ruff encontró un problema; el código (por ejemplo `F401`, `S105`) identifica la regla | `format` corrige algunos automáticamente. Los demás se corrigen a mano en la línea indicada. |
+| `<archivo>:<línea>: error: ... [<código>]` y `Found N errors in M files` | 4 | Error de tipos | Corrija el tipo en la línea indicada. No use `# type: ignore` para silenciarlo. |
+| `FAIL: test_...` o `ERROR: test_...` y al final `FAILED (failures=N)` | 5 | Una prueba unitaria no pasa | El bloque `Traceback` encima indica el archivo y la aserción. Corrija el código, o la prueba si el cambio de comportamiento es intencional. No desactive pruebas. |
+| `uv : The term 'uv' is not recognized` | — | uv no está en el PATH | Paso 5, o use `py -3.13 -m uv run python scripts/task.py ci-fast`. |
+| `uv no está disponible; ejecute los comandos con uv run` o `No module named ruff` | — | Ejecutó `python scripts/task.py ...` sin `uv run`, con el Python global | Anteponga siempre `uv run`. |
+
+### 7. Activar Kubernetes en Docker Desktop
+
+**Para qué sirve:** crea un clúster Kubernetes de un nodo dentro de Docker Desktop, en el que se despliega todo el backend.
+
+#### 7.1 Crear el clúster
+
+La interfaz depende de la versión de Docker Desktop.
+
+**Versiones recientes** (en el menú lateral hay un ítem **Kubernetes**):
+
+1. Pulse **Kubernetes** en el menú lateral.
+2. Si aparece *Enable Kubernetes* con el botón **Create cluster**, púlselo.
+3. Elija el aprovisionador **kubeadm**.
+4. Confirme con **Create** o **Apply**.
+
+**Versiones anteriores:**
+
+1. Pulse el engranaje (**Settings**) → **Kubernetes**.
+2. Marque **Enable Kubernetes**.
+3. Si pregunta el método de aprovisionamiento, elija **kubeadm**.
+4. Pulse **Apply & restart**.
+
+**Por qué kubeadm y no kind:**
+- con kubeadm el clúster usa el mismo motor Docker del equipo, así que las imágenes que construya en el paso 10 se usan directamente;
+- con kind habría que cargar cada imagen en el clúster por separado.
+
+#### 7.2 Esperar a que quede en verde
+
+La primera vez Docker Desktop descarga las imágenes del clúster, lo que puede tardar entre **2 y 10 minutos**. Termina cuando:
+
+- el ítem Kubernetes muestra el estado **running** en verde, o
+- en la barra inferior aparece **Kubernetes running**.
+
+| Si ve | Causa | Solución |
+| --- | --- | --- |
+| *Kubernetes is starting...* durante más de 15 minutos | Descarga lenta o bloqueada | Revise la conexión. En *Troubleshoot* (ícono de bicho) → *Restart*. |
+| *Kubernetes failed to start* | Estado corrupto del clúster | *Settings → Kubernetes → Reset Kubernetes cluster*. Es seguro en este punto porque aún no hay nada desplegado. |
+
+### 8. Verificar el clúster y entender los contextos
+
+#### 8.1 ¿Qué es un "contexto"?
+
+`kubectl` es la herramienta de línea de comandos de Kubernetes y puede conocer **varios clústeres**. Cada clúster conocido es un **contexto**. Todos se guardan en el archivo `C:\Users\<usuario>\.kube\config`.
 
 ```powershell
 kubectl config get-contexts
 ```
 
-Es normal que aparezcan **varios clústeres**: `kubectl` guarda en un mismo archivo (`~/.kube/config`) todos los clústeres a los que el equipo se ha conectado, por ejemplo GKE de otros cursos o proyectos.
-
-Cómo leer la salida:
-
-| Columna o marca | Significado |
-| --- | --- |
-| `NAME` = `docker-desktop` | Clúster local creado en el paso 1. Si no aparece, Kubernetes no está activado. |
-| `NAME` = `gke_...` | Clústeres remotos de Google Cloud. Esta guía **no** los usa. |
-| `*` en `CURRENT` | Contexto **activo**: el que usa `kubectl` cuando no se indica `--context`. |
-
-Ejemplo, con el contexto activo en GKE y el clúster local ya creado:
+**Qué debe ver**, algo como:
 
 ```text
 CURRENT   NAME
           docker-desktop
 *         gke_proyecto-final-miso-416801_us-east1_cluster-proyecto-final
+          gke_devnativa24_us-central1_cluster-devnativa-24
 ```
 
-Que el contexto activo sea otro no es un problema: todos los comandos de esta guía indican `--context docker-desktop` y nunca afectan a los clústeres GKE.
+Cómo leerlo:
 
-#### 2.2 Estado del clúster local (solo lectura)
+| Elemento | Significado |
+| --- | --- |
+| `docker-desktop` | **El clúster local** creado en el paso 7. **Debe aparecer.** |
+| `gke_...` | Clústeres en Google Cloud de otros cursos o proyectos. Esta guía **no** los toca. |
+| `*` en la columna `CURRENT` | El contexto **activo**: el que usa `kubectl` cuando no se le indica uno. |
+
+Que haya varios clústeres es normal. Que el `*` esté en un `gke_...` **no es un problema**, porque todos los comandos de esta guía incluyen `--context docker-desktop`, que obliga a usar el clúster local.
+
+**Si `docker-desktop` no aparece:** Kubernetes no se activó; vuelva al paso 7.
+
+#### 8.2 Verificar el clúster local (solo lectura)
 
 ```powershell
-kubectl --context docker-desktop cluster-info
-kubectl --context docker-desktop get nodes -o wide
+kubectl --context docker-desktop get nodes
+```
+
+**Qué debe ver:**
+
+```text
+NAME             STATUS   ROLES           AGE   VERSION
+docker-desktop   Ready    control-plane   5m    v1.36.1
+```
+
+Lo importante es `STATUS = Ready`. La versión puede variar.
+
+```powershell
 kubectl --context docker-desktop get storageclass
 ```
 
-Resultado esperado:
+**Qué debe ver:** una línea `hostpath (default)`. Es el almacenamiento que usará PostgreSQL.
 
-| Verificación | Valor esperado |
-| --- | --- |
-| `cluster-info` | `Kubernetes control plane is running at https://kubernetes.docker.internal:6443` y CoreDNS en ejecución. |
-| Nodo | `docker-desktop` con `STATUS` = `Ready`. |
-| `CONTAINER-RUNTIME` | `docker://...`, es decir, comparte el motor Docker: las imágenes construidas localmente se usan sin cargarlas aparte. |
-| `storageclass` | `hostpath (default)`, que se usa para el volumen de PostgreSQL. |
-| Namespace `sportapp-local` | Aún no existe; se crea en el paso 5. |
+| Si ve | Causa | Solución |
+| --- | --- | --- |
+| `NotReady` | El clúster aún está arrancando | Espere 1 o 2 minutos y repita. |
+| `Unable to connect to the server` | Kubernetes detenido | Revise que esté en verde en Docker Desktop (paso 7.2). |
+| `context "docker-desktop" does not exist` | Kubernetes no está activado | Paso 7. |
 
-Verificado el 2026-10-07 con Docker Desktop 29.8.1 y Kubernetes v1.36.1 (kubeadm, un nodo).
+#### 8.3 ¿Cambiar el contexto activo? (opcional)
 
-#### 2.3 Contexto activo (opcional)
+- **Si trabajará sobre todo en local**, puede activar el contexto local:
 
-| Si usted... | Entonces |
-| --- | --- |
-| Trabaja principalmente en local | Puede activar el contexto local: `kubectl config use-context docker-desktop`. Así, `kubectl` sin `--context` apunta al clúster local. |
-| Alterna con GKE | Deje el contexto como está y use siempre `--context docker-desktop`. Para volver a GKE: `kubectl config use-context <nombre-gke>`. |
+  ```powershell
+  kubectl config use-context docker-desktop
+  ```
 
-Antes de cualquier comando de escritura sin `--context`, compruebe el destino con `kubectl config current-context`.
+- **Si alterna con GKE**, no cambie nada y use siempre `--context docker-desktop`.
 
-### 3. Preparar secretos locales (una sola vez)
+Para saber cuál está activo: `kubectl config current-context`.
 
-Genere contraseñas aleatorias solo para este clúster:
+### 9. Generar las contraseñas locales
+
+**Para qué sirve:** PostgreSQL local necesita una contraseña de administrador y una por dominio. Se guardan en un archivo que **no se sube a Git**.
 
 ```powershell
 uv run python scripts/task.py k8s-secrets
 ```
 
-El comando:
-- crea `deploy/k8s/overlays/local/secrets.local.env` a partir del `.example`, con 6 contraseñas aleatorias de 32 letras y números;
-- usa un generador criptográfico y no imprime los valores;
-- se niega a sobrescribir el archivo si ya existe;
-- el archivo resultante está ignorado por Git.
+**Qué debe ver:** `Creado deploy\k8s\overlays\local\secrets.local.env con 6 contraseñas locales.`
 
-Alternativa manual: copie `secrets.local.env.example` a `secrets.local.env` y reemplace cada `CAMBIAR` por una contraseña local de letras y números. Las contraseñas se insertan en URLs de conexión, por eso no admiten símbolos.
+- Las contraseñas son aleatorias y **no se muestran** en pantalla.
+- Si el archivo ya existe, el comando responde `... ya existe; no se sobrescribe.` Eso es correcto: ya hizo este paso antes.
 
-Las contraseñas se fijan en PostgreSQL la primera vez que se inicializa el volumen. Si cambia o regenera el archivo después del primer despliegue, debe recrear el volumen de PostgreSQL (paso 8); de lo contrario, los servicios no podrán autenticarse.
+Compruebe que el archivo existe:
 
-### 4. Construir las imágenes
+```powershell
+Test-Path .\deploy\k8s\overlays\local\secrets.local.env
+```
+
+**Qué debe ver:** `True`.
+
+> **Regla importante:** PostgreSQL guarda las contraseñas la **primera vez** que arranca. Si después borra o regenera este archivo, los servicios ya no podrán conectarse hasta que borre también el volumen de datos. Vea la [sección 14.4](#144-empezar-de-cero-borra-los-datos-locales).
+
+### 10. Construir las imágenes
+
+**Para qué sirve:** genera una imagen Docker por cada componente: 6 microservicios y 2 BFF.
 
 ```powershell
 uv run python scripts/task.py build all
 ```
 
-### 5. Desplegar
+- **Tiempo:** la primera vez, **5 a 15 minutos** (descarga Python base y librerías). Las siguientes veces, mucho menos.
+- **Qué debe ver:** al final de cada componente aparece `naming to docker.io/sportapp/<componente>:local`. El comando termina sin `ERROR`.
+
+Verifique las 8 imágenes:
+
+```powershell
+docker images --filter "reference=sportapp/*" --format "{{.Repository}}:{{.Tag}}  {{.Size}}"
+```
+
+**Qué debe ver** (el tamaño puede variar):
+
+```text
+sportapp/bff-web:local                 278MB
+sportapp/users-management:local        356MB
+sportapp/bff-mobile:local              273MB
+sportapp/third-party-management:local  273MB
+sportapp/events-management:local       273MB
+sportapp/training-management:local     273MB
+sportapp/complementary-services:local  273MB
+sportapp/affiliation-management:local  273MB
+```
+
+| Si ve | Causa | Solución |
+| --- | --- | --- |
+| `ERROR: failed to solve ... failed to fetch` | Sin acceso a Docker Hub o `ghcr.io` | Revise la conexión e intente de nuevo. |
+| `no space left on device` | Disco de Docker lleno | `docker system df` muestra el uso; libere espacio con `docker image prune`. |
+| Faltan imágenes en la lista | Se interrumpió el build | Construya solo la que falta: `uv run python scripts/task.py build <componente>`. |
+
+### 11. Desplegar y seguir el arranque
+
+#### 11.1 Aplicar los manifiestos
 
 ```powershell
 kubectl --context docker-desktop --namespace sportapp-local apply --kustomize deploy/k8s/overlays/local
 ```
 
-El namespace se crea con el mismo comando. Los Jobs de migración y de creación del tópico reintentan solos mientras PostgreSQL y el emulador terminan de iniciar.
+**Qué debe ver:** unas 34 líneas terminadas en `created`. Por ejemplo `namespace/sportapp-local created`, `deployment.apps/users-management created` o `job.batch/users-management-migrate-write created`.
 
-### 6. Esperar a que todo esté listo
+| Si ve | Causa | Solución |
+| --- | --- | --- |
+| `Error: ... secrets.local.env: no such file` | Falta el paso 9 | Haga el paso 9 y repita. |
+| `field is immutable` en un `job.batch/...` | Re-aplicó después de un cambio y los Jobs ya existían | Vea la [sección 14.3](#143-repetir-las-migraciones). |
+| `namespaces "sportapp-local" not found` en la primera ejecución | El namespace aún se estaba creando | Repita el mismo comando. |
+
+#### 11.2 Qué ocurre durante el arranque (orden normal)
+
+En los primeros minutos verá estados intermedios. **Es normal:**
+
+1. **`postgres-0`** descarga su imagen e inicializa las bases. Tarda entre 30 segundos y 2 minutos.
+2. **`pubsub-emulator`** descarga una imagen grande (~1,7 GB). Puede tardar **varios minutos** la primera vez.
+3. **Jobs de migración** (`*-migrate-*`): si PostgreSQL aún no está listo, sus primeros intentos terminan en `Error`. Kubernetes reintenta solo, hasta 6 veces con espera creciente, y el último intento queda en **`Completed`**.
+4. **`users-management-pubsub-setup`**: igual, reintenta hasta que el emulador responde y termina en `Completed`.
+5. **Microservicios y BFF**: arrancan en seguida, pero muestran `READY 0/1` hasta que su base de datos responde. Luego pasan a `1/1`.
+
+#### 11.3 Observar el progreso
+
+Pegue este comando y **déjelo abierto**. Se actualiza solo; para salir, pulse `Ctrl+C`:
 
 ```powershell
-kubectl --context docker-desktop --namespace sportapp-local wait --for=condition=Complete job --all --timeout=600s
-kubectl --context docker-desktop --namespace sportapp-local wait --for=condition=Available deployment --all --timeout=600s
+kubectl --context docker-desktop --namespace sportapp-local get pods --watch
+```
+
+Para una foto puntual (sin `--watch`):
+
+```powershell
 kubectl --context docker-desktop --namespace sportapp-local get pods
 ```
 
-Al terminar:
-- los pods de los Deployments deben estar `Running` y `READY 1/1`;
-- los de los Jobs deben estar `Completed`.
+#### 11.4 Esperar a que todo termine
 
-### 7. Acceder a los servicios y a su documentación
+Estos dos comandos esperan hasta 10 minutos y avisan cuando todo está listo:
 
-Los servicios no se exponen fuera del clúster. Abra un reenvío de puerto por componente, cada uno en su propia terminal:
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local wait --for=condition=Complete job --all --timeout=600s
+```
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local wait --for=condition=Available deployment --all --timeout=600s
+```
+
+**Qué debe ver:** una línea `condition met` por cada Job (9) y por cada Deployment (10).
+
+#### 11.5 Estado final esperado
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local get pods
+```
+
+Debe ver:
+
+- **11 pods `Running` con `READY 1/1`:** `postgres-0`, `pubsub-emulator-...`, `users-management-...`, `affiliation-management-...`, `complementary-services-...`, `training-management-...`, `events-management-...`, `third-party-management-...`, `bff-web-...`, `bff-mobile-...` y `users-management-outbox-publisher-...`.
+- **Pods `Completed`** de los 9 Jobs.
+- Pueden quedar además pods de Jobs en `Error`: son los intentos fallidos del principio. Mientras su Job tenga un pod `Completed`, está bien.
+
+Resumen de Jobs (todos deben decir `Complete`):
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local get jobs
+```
+
+#### 11.6 Problemas durante el arranque
+
+Para cualquier pod con problemas, estos dos comandos dan el detalle. Reemplace `<pod>` por el nombre que muestra `get pods`:
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local describe pod <pod>
+```
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local logs <pod>
+```
+
+En `describe`, lea la sección **Events** al final: ahí está la causa.
+
+| Estado del pod | Causa probable | Solución |
+| --- | --- | --- |
+| `ErrImagePull` / `ImagePullBackOff` en un componente `sportapp/...` | La imagen no existe localmente o el clúster no es kubeadm | Paso 10 (verifique las 8 imágenes). Si el clúster es **kind**, cada imagen debe cargarse en el clúster: recree el clúster con kubeadm (paso 7). |
+| `ImagePullBackOff` en `postgres` o `pubsub-emulator` | Sin acceso a internet para descargar la imagen | Revise la conexión; Kubernetes reintenta solo. |
+| `ContainerCreating` durante muchos minutos en `pubsub-emulator` | Sigue descargando ~1,7 GB | Espere. `describe pod` muestra `Pulling image` en Events. |
+| `Pending` en `postgres-0` | El volumen no se pudo crear | `kubectl --context docker-desktop get storageclass` debe mostrar `hostpath (default)`; si no, reinicie Kubernetes. |
+| `CrashLoopBackOff` en `postgres-0` con `Permission denied` en los logs | El volumen no permite escribir al usuario de PostgreSQL | Comparta el diagnóstico de la [sección 13](#13-recolectar-diagnóstico-para-pedir-ayuda): requiere ajustar el manifiesto. |
+| Job `*-migrate-*` agota los 6 intentos (`BackoffLimitExceeded`) | PostgreSQL no arrancó, o las contraseñas no coinciden con un volumen anterior | Revise `logs` del Job. Si dice `password authentication failed`, siga la [sección 14.4](#144-empezar-de-cero-borra-los-datos-locales). |
+| Microservicio `Running` pero `READY 0/1` durante mucho tiempo | Su base no responde o falta su migración | `logs` del pod muestra `database.unavailable`; revise `postgres-0` y los Jobs de ese dominio. |
+| `OOMKilled` | Falta memoria | Cierre aplicaciones o aumente la memoria (paso 4.4). |
+
+### 12. Usar los servicios: documentación y prueba de HU001
+
+Los servicios **no** quedan expuestos fuera del clúster. Para usarlos desde el navegador se abre un **reenvío de puerto** (`port-forward`).
+
+#### 12.1 Abrir el reenvío de puertos
+
+Abra una **terminal nueva** para cada comando y **déjela abierta**: el reenvío funciona solo mientras el comando esté corriendo.
+
+Terminal 1, BFF web (la API que consumirá Angular):
 
 ```powershell
 kubectl --context docker-desktop --namespace sportapp-local port-forward service/bff-web 8000:80
+```
+
+Terminal 2, servicio de usuarios (opcional, para ver su API interna):
+
+```powershell
 kubectl --context docker-desktop --namespace sportapp-local port-forward service/users-management 8001:80
 ```
 
-| Componente | Documentación | Salud |
+**Qué debe ver en cada una:** `Forwarding from 127.0.0.1:8000 -> 8000` (o `8001`). La terminal queda "ocupada": es lo esperado.
+
+| Si ve | Causa | Solución |
 | --- | --- | --- |
-| BFF web (lo consume Angular) | http://127.0.0.1:8000/docs | http://127.0.0.1:8000/health/ready |
-| users-management | http://127.0.0.1:8001/docs | http://127.0.0.1:8001/health/ready |
+| `unable to listen on port 8000: ... address already in use` | Otro programa usa el puerto | Use otro puerto local, por ejemplo `8010:80`, y abra `http://127.0.0.1:8010/docs`. |
+| `error: ... pod is not running` | El pod aún no está listo | Paso 11.5. |
 
-Para otro componente se usa el mismo patrón: `service/<componente> <puerto-local>:80`.
+#### 12.2 Abrir la documentación OpenAPI (Swagger)
 
-Smoke de salud:
+| Componente | Documentación interactiva | JSON del contrato | Salud |
+| --- | --- | --- | --- |
+| BFF web | http://127.0.0.1:8000/docs | http://127.0.0.1:8000/openapi.json | http://127.0.0.1:8000/health/ready |
+| users-management | http://127.0.0.1:8001/docs | http://127.0.0.1:8001/openapi.json | http://127.0.0.1:8001/health/ready |
+
+En `/health/ready` debe ver `{"status":"ok","checks":{...}}`.
+
+Smoke test desde otra terminal:
 
 ```powershell
 uv run python scripts/task.py smoke --base-url http://127.0.0.1:8000
 ```
 
-El registro (HU001) se puede probar desde `http://127.0.0.1:8000/docs` con *Try it out* en `POST /v1/users`:
-- `accepted_policies_version` debe ser `local-dev` (valor configurado en el overlay local);
-- `Idempotency-Key` debe ser un UUID.
+**Qué debe ver:** `OK /health/live` y `OK /health/ready`.
 
-### 8. Operación diaria
+#### 12.3 Probar el registro de usuario (HU001) desde Swagger
 
-| Acción | Comando |
-| --- | --- |
-| Ver estado | `kubectl --context docker-desktop --namespace sportapp-local get pods` |
-| Ver logs de un componente | `kubectl --context docker-desktop --namespace sportapp-local logs deployment/users-management --tail=100` |
-| Desplegar un cambio de código | `uv run python scripts/task.py build <componente>` y luego `kubectl --context docker-desktop --namespace sportapp-local rollout restart deployment/<componente>` |
-| Repetir migraciones (nueva migración) | `kubectl --context docker-desktop --namespace sportapp-local delete job --selector app.kubernetes.io/component=migration` y volver al paso 5 |
-| Detener los componentes de SportApp | `kubectl --context docker-desktop --namespace sportapp-local delete --kustomize deploy/k8s/overlays/local` |
+1. Abra http://127.0.0.1:8000/docs.
+2. Despliegue **POST /v1/users** y pulse **Try it out**.
+3. En **Idempotency-Key** pegue un UUID nuevo. Para generarlo, en PowerShell: `[guid]::NewGuid().ToString()`.
+4. En **Request body** pegue:
 
-- **Volumen de PostgreSQL:** el comando de detener conserva el volumen. Para borrar también los datos locales (acción destructiva, solo en local): `kubectl --context docker-desktop --namespace sportapp-local delete pvc --selector app.kubernetes.io/name=postgres`.
-- **Después de reiniciar el clúster o Docker Desktop:** repita los pasos 4 a 6.
-- **No use estos comandos para limpiar:** `kubectl delete namespace`, `delete --all` ni *Reset Kubernetes cluster*. Son destructivos y no forman parte de la operación diaria.
+```json
+{
+  "full_name": "Ana Pérez",
+  "email": "ana@example.com",
+  "password": "una-clave-de-prueba",
+  "actor_type": "athlete",
+  "accepted_policies_version": "local-dev"
+}
+```
 
-### Problemas frecuentes
+5. Pulse **Execute**.
 
-| Síntoma | Causa probable | Qué hacer |
+**Qué debe ver:** código **201** y un cuerpo con `user_id`, `status: "active"` y `aggregate_version: 1`.
+
+Pruebe también los demás criterios de aceptación:
+
+| Prueba | Cómo | Resultado esperado |
 | --- | --- | --- |
-| `context "docker-desktop" does not exist` | Kubernetes no está activado | Paso 1. |
-| `kubectl get pods` sin `--context` no muestra SportApp | El contexto activo es otro clúster (por ejemplo GKE) | Agregue `--context docker-desktop --namespace sportapp-local` (paso 2.3). |
-| Pod en `ErrImageNeverPull` / `ImagePullBackOff` | Imagen no construida o clúster `kind` | Paso 4; con `kind`, cargue las imágenes en el clúster. |
-| Job de migración en `Error` repetido | Contraseñas distintas entre `secrets.local.env` y el volumen ya inicializado | Borrar el PVC de PostgreSQL (paso 8) y desplegar de nuevo. |
-| Pod `Running` pero no `READY` | Su base de datos aún no responde o falta la migración | `kubectl ... logs` del pod y estado de los Jobs. |
-| Falta un archivo `secrets.local.env` al aplicar | No se hizo el paso 3 | Paso 3. |
+| Reintento idempotente (CA5) | **Execute** otra vez con la misma clave y el mismo cuerpo | **201** con el mismo `user_id` y la cabecera `idempotent-replayed: true` |
+| Correo duplicado (CA2) | Clave nueva, mismo correo (aunque cambien mayúsculas) | **409** `email_already_registered` |
+| Datos inválidos (CA3) | Clave nueva y `"password": "corta"` | **422** `validation_error`, con el campo indicado |
+| Políticas no vigentes | Clave nueva y `"accepted_policies_version": "2020-01"` | **422** `policies_version_mismatch` |
+
+> `accepted_policies_version` debe ser `local-dev`, que es el valor configurado para el entorno local. La versión real de las políticas aún no está publicada.
+
+#### 12.4 Ver que el evento se publicó (CA4)
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local logs deployment/users-management-outbox-publisher --tail=20
+```
+
+**Qué debe ver:** una línea JSON con `"message": "outbox.published"` y `"event_type": "usuario.registrado.v1"` por cada registro creado.
+
+### 13. Recolectar diagnóstico para pedir ayuda
+
+Si algo no funciona, ejecute este bloque. Guarda un archivo `diagnostico-k8s.txt` en la carpeta `backend`. **No incluye contraseñas**: solo versiones, estados y logs.
+
+Ejecute las líneas **una por una**:
+
+```powershell
+$f = ".\diagnostico-k8s.txt"
+```
+
+```powershell
+"== versiones ==" | Out-File $f -Encoding utf8; docker version --format "docker {{.Server.Version}}" | Out-File $f -Append -Encoding utf8; uv --version | Out-File $f -Append -Encoding utf8
+```
+
+```powershell
+"== contextos ==" | Out-File $f -Append -Encoding utf8; kubectl config get-contexts | Out-File $f -Append -Encoding utf8
+```
+
+```powershell
+"== nodos ==" | Out-File $f -Append -Encoding utf8; kubectl --context docker-desktop get nodes -o wide 2>&1 | Out-File $f -Append -Encoding utf8
+```
+
+```powershell
+"== imagenes ==" | Out-File $f -Append -Encoding utf8; docker images --filter "reference=sportapp/*" | Out-File $f -Append -Encoding utf8
+```
+
+```powershell
+"== recursos ==" | Out-File $f -Append -Encoding utf8; kubectl --context docker-desktop --namespace sportapp-local get pods,jobs,deployments,statefulsets,pvc -o wide 2>&1 | Out-File $f -Append -Encoding utf8
+```
+
+```powershell
+"== eventos ==" | Out-File $f -Append -Encoding utf8; kubectl --context docker-desktop --namespace sportapp-local get events --sort-by=.lastTimestamp 2>&1 | Select-Object -Last 60 | Out-File $f -Append -Encoding utf8
+```
+
+```powershell
+"== logs postgres ==" | Out-File $f -Append -Encoding utf8; kubectl --context docker-desktop --namespace sportapp-local logs statefulset/postgres --tail=60 2>&1 | Out-File $f -Append -Encoding utf8
+```
+
+```powershell
+"== logs migracion usuarios ==" | Out-File $f -Append -Encoding utf8; kubectl --context docker-desktop --namespace sportapp-local logs job/users-management-migrate-write --tail=60 2>&1 | Out-File $f -Append -Encoding utf8
+```
+
+Abra el archivo con `notepad .\diagnostico-k8s.txt` y comparta su contenido.
+
+> `diagnostico-k8s.txt` está ignorado por Git. Bórrelo cuando ya no lo necesite: `Remove-Item .\diagnostico-k8s.txt`.
+
+### 14. Detener, reiniciar y limpiar
+
+Todos los comandos actúan **solo** sobre el clúster local (`--context docker-desktop`) y el namespace de SportApp.
+
+#### 14.1 Detener SportApp (conserva los datos)
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local delete --kustomize deploy/k8s/overlays/local
+```
+
+Elimina pods, servicios y Jobs, pero **conserva** el volumen de PostgreSQL. Para volver a levantar, repita el paso 11.
+
+#### 14.2 Desplegar un cambio de código
+
+```powershell
+uv run python scripts/task.py build users-management
+```
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local rollout restart deployment/users-management
+```
+
+Reemplace `users-management` por el componente que cambió.
+
+#### 14.3 Repetir las migraciones
+
+Necesario cuando se agrega una migración nueva o un Job quedó fallido. Los Jobs no se pueden modificar, así que primero se eliminan y luego se aplica de nuevo:
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local delete job --selector app.kubernetes.io/component=migration
+```
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local apply --kustomize deploy/k8s/overlays/local
+```
+
+#### 14.4 Empezar de cero (borra los datos locales)
+
+Úselo si cambió las contraseñas del paso 9 o si la base quedó en mal estado. **Borra todos los datos de PostgreSQL local.**
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local delete --kustomize deploy/k8s/overlays/local
+```
+
+```powershell
+kubectl --context docker-desktop --namespace sportapp-local delete pvc --selector app.kubernetes.io/name=postgres
+```
+
+Luego vuelva al paso 11.1.
+
+#### 14.5 Después de reiniciar Windows o Docker Desktop
+
+1. Abra Docker Desktop y espere a que Kubernetes quede en verde.
+2. Los recursos vuelven solos. Revise con `kubectl --context docker-desktop --namespace sportapp-local get pods`.
+3. Abra de nuevo los `port-forward` (paso 12.1): no sobreviven al reinicio.
+
+#### 14.6 Comandos que NO debe usar para limpiar
+
+| Comando | Por qué no |
+| --- | --- |
+| `kubectl delete namespace ...` sin `--context` | Podría ejecutarse sobre un clúster GKE si es el contexto activo. |
+| `kubectl delete ... --all` | Borra más de lo necesario. |
+| *Reset Kubernetes cluster* en Docker Desktop | Elimina el clúster completo. Úselo solo como último recurso. |
+
+### 15. Glosario
+
+| Término | Significado |
+| --- | --- |
+| **Docker Desktop** | Aplicación que ejecuta contenedores en Windows y puede crear un clúster Kubernetes local. |
+| **WSL 2** | Subsistema de Linux de Windows, sobre el que funciona Docker Desktop. |
+| **Imagen** | Paquete inmutable con la aplicación y sus dependencias, por ejemplo `sportapp/users-management:local`. |
+| **Contenedor** | Una imagen en ejecución. |
+| **Kubernetes** | Orquestador que arranca contenedores, los reinicia si fallan y los conecta entre sí. |
+| **Clúster** | Conjunto de máquinas (aquí una sola, `docker-desktop`) administradas por Kubernetes. |
+| **Contexto** | Clúster al que apunta `kubectl`. Se elige con `--context docker-desktop`. |
+| **Namespace** | Espacio aislado dentro del clúster. SportApp usa `sportapp-local`. |
+| **Pod** | Unidad mínima de ejecución; normalmente un contenedor. |
+| **Deployment** | Mantiene corriendo un número de pods de un componente, por ejemplo `users-management`. |
+| **StatefulSet** | Como un Deployment, pero con almacenamiento estable. Se usa para `postgres`. |
+| **Job** | Tarea que se ejecuta hasta terminar, como las migraciones o la creación del tópico. |
+| **Service** | Nombre de red estable para llegar a los pods, por ejemplo `http://users-management`. |
+| **PVC / volumen** | Disco persistente; guarda los datos de PostgreSQL entre reinicios. |
+| **port-forward** | Túnel temporal desde `127.0.0.1:<puerto>` de su equipo hacia un Service del clúster. |
+| **Kustomize** | Forma de componer manifiestos: `deploy/k8s/base` más los ajustes de `deploy/k8s/overlays/local`. |
+| **uv** | Gestor de Python y dependencias del proyecto (`uv sync`, `uv run`). |
+| **Emulador de Pub/Sub** | Versión local del servicio de mensajería de Google Cloud. |
+
+### Estado de verificación de esta guía
+
+| Parte | Estado |
+| --- | --- |
+| Pasos 2 a 6, 9 y 10 | Verificados en el equipo de desarrollo el 2026-10-07. |
+| Paso 6.2 (`ci-fast`) | Ejecutado de nuevo el 2026-10-08: código de salida 0 en 37 s, 117 pruebas unitarias en 9 paquetes. |
+| Paso 7 y 8.2 | Verificados: clúster `docker-desktop` creado con kubeadm, nodo `Ready`, Kubernetes v1.36.1, storageclass `hostpath`. |
+| Manifiestos del paso 11 | Validados sin aplicarlos: 34 recursos válidos contra el esquema de Kubernetes 1.33 (kubeconform estricto). |
+| Pasos 11 a 14 en el clúster | **Pendiente de la primera ejecución.** Si un resultado difiere de lo descrito, comparta el diagnóstico de la sección 13 para corregir la guía. |
 
 ## Integración continua
 
@@ -448,15 +1054,10 @@ El registro (HU001) se puede probar desde `http://127.0.0.1:8000/docs` con *Try 
 
 Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves JSON. Ningún workflow fusiona ramas.
 
-## Documentación del repositorio
+## Documentación relacionada
 
-| Documento | Para qué |
-| --- | --- |
-| [docs/guia-entorno-local-kubernetes.md](docs/guia-entorno-local-kubernetes.md) | Paso a paso desde un equipo Windows vacío hasta el backend corriendo en el Kubernetes de Docker Desktop. Incluye qué hace `ci-fast` por dentro (sección 6.3). |
-| [docs/curso-uv.md](docs/curso-uv.md) | Curso corto de uv. Incluye cómo se declaran las dependencias en este workspace y cómo llegan las versiones a las imágenes (secciones 8.1 y 8.5). |
-| [docs/retorno-documental-backend.md](docs/retorno-documental-backend.md) | Estado del andamiaje y de HU001 para el agente de documentación: valores para `02-valores-proyecto.md`, evidencia de pruebas, trazabilidad CA → pruebas y procedimiento para enviar el código al remoto (rama, commit, PR y ruleset). |
-
-`scripts/task.py` también está documentado en la documentación central, en `integracion-continua/02-matriz-pipelines-por-repositorio.md`, subsección «Comandos del repositorio backend».
+- La arquitectura, las decisiones y los cursos de formación (uv, Terraform, GitHub Actions) están en la documentación central del proyecto (`documentacion/`), fuera de este repositorio.
+- `scripts/task.py` también está documentado en la documentación central, en `integracion-continua/02-matriz-pipelines-por-repositorio.md`, subsección «Comandos del repositorio backend».
 
 ## Pendiente de decisión (no implementado)
 

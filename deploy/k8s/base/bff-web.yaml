@@ -38,6 +38,10 @@ spec:
             - name: USERS_MANAGEMENT_BASE_URL
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
+            # Opcional: sin la clave, el BFF arranca y rechaza llamadas de otro origen.
+            - name: CORS_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: CORS_ALLOWED_ORIGINS, optional: true}
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

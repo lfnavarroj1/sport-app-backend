@@ -42,6 +42,10 @@ spec:
             - name: CORS_ALLOWED_ORIGINS
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: CORS_ALLOWED_ORIGINS, optional: true}
+            # Opcional (por defecto `strict`): `none` solo si web y BFF quedan en sitios distintos.
+            - name: REFRESH_COOKIE_SAME_SITE
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: REFRESH_COOKIE_SAME_SITE, optional: true}
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

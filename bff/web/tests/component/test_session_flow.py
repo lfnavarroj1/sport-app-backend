@@ -28,6 +28,8 @@ WRITE_HISTORY = "users_management.infrastructure.persistence_write:migrations"
 POLICIES = "2026-10"
 EMAIL = "ana.web@example.com"
 PASSWORD = "contraseña-muy-secreta"
+ORIGIN = "http://localhost:4200"
+COOKIE = "__Secure-sportapp_refresh"
 
 
 class SessionFlowTest(unittest.TestCase):
@@ -52,8 +54,16 @@ class SessionFlowTest(unittest.TestCase):
         settings = BffWebSettings(
             app_env="test",  # type: ignore[arg-type]
             users_management_base_url="http://users-management",  # type: ignore[arg-type]
+            cors_allowed_origins=(ORIGIN,),
         )
-        self.bff = self.enterContext(TestClient(create_bff(settings, users_http=users)))
+        # HTTPS y `Origin`: como el navegador, para que la cookie `Secure` viaje y pase CSRF.
+        self.bff = self.enterContext(
+            TestClient(
+                create_bff(settings, users_http=users),
+                base_url="https://bff-web",
+                headers={"Origin": ORIGIN},
+            )
+        )
         self.engine = create_engine(url, poolclass=pool.NullPool)
         self.addCleanup(self.engine.dispose)
         registered = self.bff.post(
@@ -82,25 +92,50 @@ class SessionFlowTest(unittest.TestCase):
             return connection.scalar(select(func.count()).select_from(RefreshTokenRow)) or 0
 
     def test_login_refresh_and_validation_by_another_service(self) -> None:
-        """CA1 y CA5 de punta a punta."""
+        """CA1 y CA5 de punta a punta, con el refresh token en la cookie HttpOnly."""
         response = self.login()
 
         self.assertEqual(response.status_code, 200, response.text)  # type: ignore[attr-defined]
         session = response.json()  # type: ignore[attr-defined]
+        self.assertNotIn("refresh_token", session)
         self.assertEqual(session["user"]["user_id"], self.user_id)
         self.assertEqual(session["user"]["actor_type"], "organizer")
         verified = self.verifier().verify(session["access_token"])
         self.assertEqual(verified.subject, self.user_id)
+        first_cookie = self.bff.cookies.get(COOKIE)
+        self.assertIsNotNone(first_cookie)
 
-        renewed = self.bff.post(
-            "/v1/sessions/refresh", json={"refresh_token": session["refresh_token"]}
-        )
+        renewed = self.bff.post("/v1/sessions/refresh")
 
-        self.assertEqual(renewed.status_code, 200)
+        self.assertEqual(renewed.status_code, 200, renewed.text)
         self.assertEqual(
             self.verifier().verify(renewed.json()["access_token"]).subject, self.user_id
         )
+        self.assertNotEqual(self.bff.cookies.get(COOKIE), first_cookie, "la cookie rota")
         self.assertEqual(self.refresh_tokens(), 2)
+
+    def test_reused_cookie_is_rejected_and_cleared(self) -> None:
+        """Reutilizar un refresh token ya rotado revoca la sesión y borra la cookie."""
+        self.login()
+        stolen = self.bff.cookies.get(COOKIE)
+        self.bff.post("/v1/sessions/refresh")
+        self.bff.cookies.clear()
+
+        reused = self.bff.post("/v1/sessions/refresh", headers={"Cookie": f"{COOKIE}={stolen}"})
+
+        self.assertEqual(reused.status_code, 401)
+        self.assertEqual(reused.json()["code"], "invalid_refresh_token")
+        self.assertIn("Max-Age=0", reused.headers["set-cookie"])
+
+    def test_session_requests_from_other_origins_are_rejected(self) -> None:
+        """CSRF: un sitio ajeno no puede usar la cookie del usuario."""
+        self.login()
+
+        forged = self.bff.post("/v1/sessions/refresh", headers={"Origin": "https://evil.example"})
+
+        self.assertEqual(forged.status_code, 403)
+        self.assertEqual(forged.json()["code"], "origin_not_allowed")
+        self.assertEqual(self.refresh_tokens(), 1, "no se rotó la sesión")
 
     def test_generic_rejection_and_throttling_through_the_bff(self) -> None:
         """CA2 y CA4: mismo cuerpo para correo inexistente y contraseña errada; luego 429."""

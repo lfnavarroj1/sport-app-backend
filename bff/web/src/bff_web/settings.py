@@ -1,6 +1,6 @@
 """Configuración de `bff_web`, validada al iniciar."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import AnyHttpUrl, Field, field_validator
@@ -30,7 +30,12 @@ class BffWebSettings(ServiceSettings):
     users_management_base_url: AnyHttpUrl
     upstream_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     # Orígenes del cliente web autorizados por CORS, separados por comas. Vacío: ninguno.
+    # También son los únicos `Origin` aceptados en las operaciones de sesión (CSRF).
     cors_allowed_origins: Annotated[tuple[str, ...], NoDecode] = ()
+    # `SameSite` de la cookie del refresh token. `strict` sirve cuando web y BFF comparten
+    # sitio (localhost con distinto puerto, o dominio propio común); `none` solo si están en
+    # sitios distintos, y Safari la bloquea.
+    refresh_cookie_same_site: Literal["strict", "lax", "none"] = "strict"
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

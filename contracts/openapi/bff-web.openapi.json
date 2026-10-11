@@ -62,6 +62,19 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthStatus": {
         "properties": {
           "checks": {
@@ -115,24 +128,6 @@
         "title": "LoginRequest",
         "type": "object"
       },
-      "RefreshSessionRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "refresh_token": {
-            "format": "password",
-            "maxLength": 256,
-            "minLength": 20,
-            "title": "Refresh Token",
-            "type": "string",
-            "writeOnly": true
-          }
-        },
-        "required": [
-          "refresh_token"
-        ],
-        "title": "RefreshSessionRequest",
-        "type": "object"
-      },
       "RegisterUserRequest": {
         "additionalProperties": false,
         "properties": {
@@ -180,46 +175,6 @@
           "accepted_policies_version"
         ],
         "title": "RegisterUserRequest",
-        "type": "object"
-      },
-      "SessionResponse": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          },
-          "expires_in": {
-            "description": "Segundos de vigencia del access token.",
-            "title": "Expires In",
-            "type": "integer"
-          },
-          "refresh_expires_in": {
-            "description": "Segundos de vigencia del refresh token.",
-            "title": "Refresh Expires In",
-            "type": "integer"
-          },
-          "refresh_token": {
-            "title": "Refresh Token",
-            "type": "string"
-          },
-          "token_type": {
-            "const": "Bearer",
-            "title": "Token Type",
-            "type": "string"
-          },
-          "user": {
-            "$ref": "#/components/schemas/SessionUser"
-          }
-        },
-        "required": [
-          "token_type",
-          "access_token",
-          "expires_in",
-          "refresh_token",
-          "refresh_expires_in",
-          "user"
-        ],
-        "title": "SessionResponse",
         "type": "object"
       },
       "SessionUser": {
@@ -306,12 +261,88 @@
         ],
         "title": "UserRegisteredResponse",
         "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WebSessionResponse": {
+        "description": "Sin `refresh_token`: viaja en la cookie `HttpOnly`.",
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Segundos de vigencia del access token.",
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "refresh_expires_in": {
+            "description": "Segundos de vigencia de la sesión (refresh token en la cookie).",
+            "title": "Refresh Expires In",
+            "type": "integer"
+          },
+          "token_type": {
+            "const": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/SessionUser"
+          }
+        },
+        "required": [
+          "token_type",
+          "access_token",
+          "expires_in",
+          "refresh_expires_in",
+          "user"
+        ],
+        "title": "WebSessionResponse",
+        "type": "object"
       }
     }
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -385,11 +416,19 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionResponse"
+                  "$ref": "#/components/schemas/WebSessionResponse"
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Set-Cookie": {
+                "description": "`__Secure-sportapp_refresh=<refresh token>; HttpOnly; Secure; Path=/v1/sessions; SameSite=<configurado>; Max-Age=<refresh_expires_in>`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -400,6 +439,16 @@
               }
             },
             "description": "`invalid_credentials`: credenciales incorrectas o cuenta deshabilitada (mensaje genérico)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`origin_not_allowed`: falta `Origin` o no está en la lista permitida."
           },
           "422": {
             "content": {
@@ -457,27 +506,44 @@
     },
     "/v1/sessions/refresh": {
       "post": {
+        "description": "Sin cuerpo: usa la cookie `__Secure-sportapp_refresh`, la rota y devuelve un access token nuevo. Si la sesión no es válida, borra la cookie.",
         "operationId": "refresh_v1_sessions_refresh_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RefreshSessionRequest"
-              }
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "__Secure-sportapp_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Secure-Sportapp Refresh"
             }
-          },
-          "required": true
-        },
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionResponse"
+                  "$ref": "#/components/schemas/WebSessionResponse"
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Set-Cookie": {
+                "description": "`__Secure-sportapp_refresh=<refresh token>; HttpOnly; Secure; Path=/v1/sessions; SameSite=<configurado>; Max-Age=<refresh_expires_in>`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -487,9 +553,9 @@
                 }
               }
             },
-            "description": "`invalid_refresh_token`."
+            "description": "`invalid_refresh_token`: sin cookie, o vencida, revocada o reutilizada. La respuesta borra la cookie."
           },
-          "422": {
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -497,7 +563,17 @@
                 }
               }
             },
-            "description": "`validation_error`."
+            "description": "`origin_not_allowed`: falta `Origin` o no está en la lista permitida."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           },
           "503": {
             "content": {
@@ -520,7 +596,7 @@
             "description": "`upstream_timeout`."
           }
         },
-        "summary": "Renovar la sesión (HU003)",
+        "summary": "Renovar la sesión con la cookie (HU003)",
         "tags": [
           "sessions"
         ]

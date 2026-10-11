@@ -21,11 +21,15 @@ name = "affiliation-management"
 version = "0.1.0"
 source = { editable = "services/affiliation_management" }
 dependencies = [
+    { name = "google-cloud-pubsub" },
     { name = "sportapp-platform" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "sportapp-platform", editable = "libs/sportapp_platform" }]
+requires-dist = [
+    { name = "google-cloud-pubsub", specifier = ">=2.29" },
+    { name = "sportapp-platform", editable = "libs/sportapp_platform" },
+]
 
 [[package]]
 name = "alembic"

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/afiliacion/suscripcion.activada.v1.schema.json",
+  "title": "suscripcion.activada.v1",
+  "description": "Publicado en sportapp.afiliacion.v1 con ordering_key = user_id (= aggregate_id) cuando se activa una suscripción (ADR-024; HU001 alta gratuita). No transporta nombres, precios ni la lista de capacidades: el estado vigente se consulta por el contrato de capacidades.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "suscripcion.activada.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "affiliation-management"},
+    "aggregate_type": {"const": "user_subscription"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "user_id: una sola secuencia lógica de suscripción por usuario."
+    },
+    "aggregate_version": {"type": "integer", "minimum": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "event_id de usuario.registrado.v1 que originó la activación."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscription_id",
+        "user_id",
+        "plan_code",
+        "plan_version",
+        "catalog_version",
+        "status",
+        "origin",
+        "activated_at"
+      ],
+      "properties": {
+        "subscription_id": {"type": "string", "format": "uuid"},
+        "user_id": {"type": "string", "format": "uuid"},
+        "plan_code": {"enum": ["FREE", "INTERMEDIATE", "PREMIUM"]},
+        "plan_version": {"type": "integer", "minimum": 1},
+        "catalog_version": {"type": "string", "minLength": 1, "maxLength": 40},
+        "status": {"const": "ACTIVE"},
+        "origin": {"enum": ["AUTO_REGISTRATION"]},
+        "activated_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

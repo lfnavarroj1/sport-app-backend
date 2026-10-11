@@ -61,6 +61,7 @@ def new_signing_key_pem() -> str:
 
 
 _USERS = {**_CQRS, "REGISTRATION_POLICIES_VERSION": "contract"}
+_AFFILIATION = {**_SINGLE, "AFFILIATION_EXPECTED_CATALOG_VERSION": "contract"}
 _BFF = {"USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid"}
 
 COMPONENTS = (
@@ -75,7 +76,7 @@ COMPONENTS = (
         "affiliation-management",
         "affiliation_management",
         "services/affiliation_management",
-        _SINGLE,
+        _AFFILIATION,
     ),
     Component(
         "complementary-services",

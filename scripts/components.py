@@ -2,6 +2,13 @@
 
 from dataclasses import dataclass, field
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+)
+
 CONTRACT_DATABASE_URL = "postgresql+psycopg://contract@127.0.0.1:1/contract"
 
 
@@ -27,8 +34,23 @@ _CQRS = {
     "DATABASE_READ_URL": CONTRACT_DATABASE_URL,
 }
 _SINGLE = {"DATABASE_URL": CONTRACT_DATABASE_URL}
-_USERS = {**_CQRS, "REGISTRATION_POLICIES_VERSION": "contract"}
-_BFF_WEB = {"USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid"}
+
+
+def new_signing_key_pem() -> str:
+    """Clave Ed25519 nueva en PEM (PKCS#8). Para el contrato es desechable: no cambia el OpenAPI."""
+    return (
+        Ed25519PrivateKey.generate()
+        .private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+        .decode("ascii")
+    )
+
+
+_USERS = {
+    **_CQRS,
+    "REGISTRATION_POLICIES_VERSION": "contract",
+    "JWT_PRIVATE_KEY": new_signing_key_pem(),
+}
+_BFF = {"USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid"}
 
 COMPONENTS = (
     Component("users-management", "users_management", "services/users_management", _USERS),
@@ -49,8 +71,8 @@ COMPONENTS = (
     Component(
         "third-party-management", "third_party_management", "services/third_party_management"
     ),
-    Component("bff-web", "bff_web", "bff/web", _BFF_WEB),
-    Component("bff-mobile", "bff_mobile", "bff/mobile"),
+    Component("bff-web", "bff_web", "bff/web", _BFF),
+    Component("bff-mobile", "bff_mobile", "bff/mobile", _BFF),
 )
 
 # Paquetes con pruebas propias (componentes desplegables + librería técnica).

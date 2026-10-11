@@ -10,7 +10,8 @@ Los contratos son la fuente compartida entre backend, BFF, Angular y Android. No
 ## Estado
 
 - Todos los componentes publican `/health/live` y `/health/ready`.
-- `users-management` y `bff-web`: OpenAPI `0.2.0` con `POST /v1/users` (HU001, aprobado el 2026-10-07). El resto de los componentes sigue en `0.1.0`.
+- `users-management` y `bff-web`: OpenAPI `0.3.0` con `POST /v1/users` (HU001, aprobado el 2026-10-07) y `POST /v1/sessions` y `POST /v1/sessions/refresh` (HU003, aprobado el 2026-10-10). `users-management` publica además `GET /.well-known/jwks.json`.
+- `bff-mobile`: OpenAPI `0.2.0` con las operaciones de sesión de HU003, con el mismo contrato funcional que `bff-web`. El resto de los componentes sigue en `0.1.0`.
 - Eventos aprobados: `usuario.registrado.v1` (ver `events/README.md`). Los eventos candidatos de las guías de dominio no son contratos: se agregan aquí únicamente cuando tienen aprobados la versión, el payload mínimo, el tópico, la ordering key, los reintentos y la DLQ.
 - Formato de error: implementa la propuesta `code`, `message`, `correlation_id`, `details[{field, issue}]` de los lineamientos transversales. Permanece **propuesto** hasta publicar el contrato compartido.
 

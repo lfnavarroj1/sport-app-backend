@@ -48,6 +48,10 @@ spec:
             - name: REGISTRATION_POLICIES_VERSION
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: REGISTRATION_POLICIES_VERSION}
+            # Obligatoria (HU003): sin clave de firma válida el servicio no arranca.
+            - name: JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef: {name: sportapp-users-jwt, key: JWT_PRIVATE_KEY}
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

@@ -7,7 +7,17 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String, Text, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -27,7 +37,7 @@ class UserAccountRow(WriteBase):
         CheckConstraint(
             "actor_type IN ('athlete', 'organizer', 'service_provider')", name="actor_type"
         ),
-        CheckConstraint("status IN ('active')", name="status"),
+        CheckConstraint("status IN ('active', 'disabled')", name="status"),
     )
 
     user_id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -86,3 +96,30 @@ class IdempotencyKeyRow(WriteBase):
     response: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class RefreshTokenRow(WriteBase):
+    """Refresh tokens de HU003. Solo el hash SHA-256; nunca se proyecta al modelo de lectura."""
+
+    __tablename__ = "refresh_token"
+
+    token_id: Mapped[UUID] = mapped_column(primary_key=True)
+    family_id: Mapped[UUID] = mapped_column(index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_account.user_id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replaced_by: Mapped[UUID | None]
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LoginFailureWindowRow(WriteBase):
+    """Intentos fallidos por correo + IP (HU003). La clave es un hash: sin correos en claro."""
+
+    __tablename__ = "login_failure_window"
+
+    throttle_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

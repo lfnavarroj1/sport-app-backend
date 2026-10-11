@@ -24,6 +24,7 @@ diagnostico-k8s.txt
 .env.*
 !.env.example
 deploy/k8s/overlays/local/secrets.local.env
+deploy/k8s/overlays/local/jwt-private-key.local.pem
 
 # Editores y sistema
 .idea/

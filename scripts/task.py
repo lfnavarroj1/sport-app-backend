@@ -16,7 +16,7 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from components import COMPONENTS, TEST_PACKAGES, by_name
+from components import COMPONENTS, TEST_PACKAGES, by_name, new_signing_key_pem
 
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
@@ -26,6 +26,13 @@ DOCKERFILE = ROOT / "deploy" / "docker" / "Dockerfile"
 LOCAL_OVERLAY = ROOT / "deploy" / "k8s" / "overlays" / "local"
 LOCAL_SECRETS = LOCAL_OVERLAY / "secrets.local.env"
 LOCAL_SECRETS_EXAMPLE = LOCAL_OVERLAY / "secrets.local.env.example"
+# Clave de firma de access tokens de users-management (HU003), solo para el clúster local.
+LOCAL_JWT_KEY = LOCAL_OVERLAY / "jwt-private-key.local.pem"
+LOCAL_JWT_KEY_EXAMPLE = LOCAL_OVERLAY / "jwt-private-key.local.pem.example"
+LOCAL_SECRET_FILES = (
+    (LOCAL_SECRETS, LOCAL_SECRETS_EXAMPLE),
+    (LOCAL_JWT_KEY, LOCAL_JWT_KEY_EXAMPLE),
+)
 
 TEST_DB_CONTAINER = "sportapp-test-postgres"
 TEST_DB_PORT = 55432
@@ -362,45 +369,56 @@ def db_down(_: argparse.Namespace) -> None:
 
 
 def k8s_secrets(_: argparse.Namespace) -> None:
-    """Genera `secrets.local.env` con contraseñas aleatorias solo para el clúster local.
+    """Genera los secretos del clúster local que falten: contraseñas aleatorias en
+    `secrets.local.env` y una clave Ed25519 en `jwt-private-key.local.pem`.
 
     No imprime los valores y nunca sobrescribe un archivo existente.
     """
-    if LOCAL_SECRETS.is_file():
+    created = 0
+    if not LOCAL_SECRETS.is_file():
+        alphabet = string.ascii_letters + string.digits
+        lines = []
+        for line in LOCAL_SECRETS_EXAMPLE.read_text(encoding="utf-8").splitlines():
+            if line.strip() and not line.startswith("#") and "=" in line:
+                key = line.split("=", 1)[0].strip()
+                value = "".join(random_secrets.choice(alphabet) for _ in range(32))
+                lines.append(f"{key}={value}")
+        LOCAL_SECRETS.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        print(f"Creado {LOCAL_SECRETS.relative_to(ROOT)} con {len(lines)} contraseñas locales.")
+        created += 1
+    if not LOCAL_JWT_KEY.is_file():
+        LOCAL_JWT_KEY.write_text(new_signing_key_pem(), encoding="ascii", newline="\n")
+        print(f"Creado {LOCAL_JWT_KEY.relative_to(ROOT)} (clave de firma Ed25519 local).")
+        created += 1
+    if not created:
         raise SystemExit(
-            f"{LOCAL_SECRETS.relative_to(ROOT)} ya existe; no se sobrescribe. "
-            "Bórrelo a mano solo si también recreará el volumen de PostgreSQL."
+            "Los secretos locales ya existen; no se sobrescriben. Borre "
+            f"{LOCAL_SECRETS.relative_to(ROOT)} a mano solo si también recreará el volumen "
+            f"de PostgreSQL; borrar {LOCAL_JWT_KEY.relative_to(ROOT)} invalida las sesiones."
         )
-    alphabet = string.ascii_letters + string.digits
-    lines = []
-    for line in LOCAL_SECRETS_EXAMPLE.read_text(encoding="utf-8").splitlines():
-        if line.strip() and not line.startswith("#") and "=" in line:
-            key = line.split("=", 1)[0].strip()
-            value = "".join(random_secrets.choice(alphabet) for _ in range(32))
-            lines.append(f"{key}={value}")
-    LOCAL_SECRETS.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    print(f"Creado {LOCAL_SECRETS.relative_to(ROOT)} con {len(lines)} contraseñas locales.")
 
 
 def k8s_render(arguments: argparse.Namespace) -> None:
     """Renderiza el overlay local sin aplicarlo a ningún clúster."""
-    created_from_example = False
-    if not LOCAL_SECRETS.is_file():
-        if not arguments.use_example:
-            raise SystemExit(
-                f"Falta {LOCAL_SECRETS.relative_to(ROOT)}; cópielo desde el .example "
-                "o use --use-example solo para validar el renderizado."
-            )
-        shutil.copyfile(LOCAL_SECRETS_EXAMPLE, LOCAL_SECRETS)
-        created_from_example = True
+    created_from_example: list[Path] = []
     try:
+        for secret_file, example in LOCAL_SECRET_FILES:
+            if secret_file.is_file():
+                continue
+            if not arguments.use_example:
+                raise SystemExit(
+                    f"Falta {secret_file.relative_to(ROOT)}; genérelo con `k8s-secrets` "
+                    "o use --use-example solo para validar el renderizado."
+                )
+            shutil.copyfile(example, secret_file)
+            created_from_example.append(secret_file)
         output = REPORTS / "k8s" / "local.yaml"
         output.parent.mkdir(parents=True, exist_ok=True)
         run(["kubectl", "kustomize", str(LOCAL_OVERLAY), "--output", str(output)])
         print(output)
     finally:
-        if created_from_example:
-            LOCAL_SECRETS.unlink()
+        for secret_file in created_from_example:
+            secret_file.unlink()
 
 
 # ---------------------------------------------------------------- agregados de CI
@@ -465,7 +483,9 @@ def main() -> None:
     command("db-down", db_down, "Detiene el PostgreSQL efímero de pruebas")
     command("pubsub-up", pubsub_up, "Inicia el emulador de Pub/Sub para pruebas")
     command("pubsub-down", pubsub_down, "Detiene el emulador de Pub/Sub de pruebas")
-    command("k8s-secrets", k8s_secrets, "Genera contraseñas locales para Kubernetes")
+    command(
+        "k8s-secrets", k8s_secrets, "Genera contraseñas y clave de firma locales para Kubernetes"
+    )
     command("k8s-render", k8s_render, "Renderiza el overlay Kustomize local").add_argument(
         "--use-example", action="store_true"
     )

@@ -15,6 +15,7 @@ from bff_web.main import create_app as create_bff
 from bff_web.settings import BffWebSettings
 from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.migrations import upgrade
+from sportapp_platform.testing.keys import ed25519_private_key_pem
 from sportapp_platform.testing.postgres import temporary_database
 from users_management.infrastructure.persistence_write.models import (
     OutboxEventRow,
@@ -50,6 +51,7 @@ class RegistrationFlowTest(unittest.TestCase):
                     database_write_url=url,  # type: ignore[arg-type]
                     database_read_url=url,  # type: ignore[arg-type]
                     registration_policies_version=POLICIES,
+                    jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
                 )
             ),
             base_url="http://users-management",

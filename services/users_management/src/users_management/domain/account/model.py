@@ -1,4 +1,4 @@
-"""Agregado `UserAccount` y reglas de registro (HU001)."""
+"""Agregado `UserAccount` y reglas de registro (HU001) y acceso (HU003)."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +24,8 @@ class ActorType(StrEnum):
 
 class AccountStatus(StrEnum):
     ACTIVE = "active"
+    # Deshabilitada o bloqueada: conserva sus datos, pero no puede iniciar sesión (HU003).
+    DISABLED = "disabled"
 
 
 def normalize_email(email: str) -> str:
@@ -64,6 +66,10 @@ class UserAccount:
     policies_accepted_at: datetime
     created_at: datetime
     version: int
+
+    @property
+    def can_authenticate(self) -> bool:
+        return self.status is AccountStatus.ACTIVE
 
     @classmethod
     def register(

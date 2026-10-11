@@ -1,13 +1,27 @@
 """Configuración de `users_management`, validada al iniciar."""
 
 import socket
+from datetime import timedelta
 from typing import Annotated
 
-from pydantic import Field
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from pydantic import AfterValidator, Field, SecretStr
 
 from sportapp_platform.config import DatabasePoolSettings, PostgresUrl, ServiceSettings
+from users_management.infrastructure.security.access_tokens import (
+    load_signing_key,
+    normalize_private_key_pem,
+)
 
 USERS_TOPIC = "sportapp.usuarios.v1"
+
+
+def _require_ed25519_private_key(value: SecretStr) -> SecretStr:
+    load_signing_key(value.get_secret_value())
+    return SecretStr(normalize_private_key_pem(value.get_secret_value()))
+
+
+SigningKeyPem = Annotated[SecretStr, AfterValidator(_require_ed25519_private_key)]
 
 
 class UsersManagementSettings(ServiceSettings, DatabasePoolSettings):
@@ -15,6 +29,30 @@ class UsersManagementSettings(ServiceSettings, DatabasePoolSettings):
     database_read_url: PostgresUrl
     # Versión vigente de las políticas que el usuario debe aceptar al registrarse.
     registration_policies_version: Annotated[str, Field(min_length=1, max_length=32)]
+    # HU003 (aprobado el 2026-10-10): access JWT EdDSA y refresh token rotativo.
+    jwt_private_key: SigningKeyPem
+    jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
+    jwt_audience: str = Field(default="sportapp", min_length=1, max_length=128)
+    access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    refresh_token_ttl_seconds: int = Field(default=7 * 24 * 3600, ge=3600, le=30 * 24 * 3600)
+    # Control de abuso: máximo de fallos por correo + IP dentro de la ventana.
+    login_max_failures: int = Field(default=5, ge=1, le=100)
+    login_failure_window_seconds: int = Field(default=900, ge=60, le=24 * 3600)
+
+    def signing_key(self) -> Ed25519PrivateKey:
+        return load_signing_key(self.jwt_private_key.get_secret_value())
+
+    @property
+    def access_token_ttl(self) -> timedelta:
+        return timedelta(seconds=self.access_token_ttl_seconds)
+
+    @property
+    def refresh_token_ttl(self) -> timedelta:
+        return timedelta(seconds=self.refresh_token_ttl_seconds)
+
+    @property
+    def login_failure_window(self) -> timedelta:
+        return timedelta(seconds=self.login_failure_window_seconds)
 
 
 class OutboxPublisherSettings(ServiceSettings, DatabasePoolSettings):

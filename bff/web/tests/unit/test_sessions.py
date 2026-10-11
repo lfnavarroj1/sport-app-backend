@@ -35,6 +35,7 @@ def settings(**overrides: Any) -> BffWebSettings:
     values: dict[str, Any] = {
         "app_env": "test",
         "users_management_base_url": "http://users.invalid",
+        "affiliation_management_base_url": "http://affiliation.invalid",
         "cors_allowed_origins": (ORIGIN,),
     }
     values.update(overrides)

@@ -30,7 +30,10 @@ RUN test -n "${APP_FACTORY}" \
     && groupadd --system --gid 10001 sportapp \
     && useradd --system --uid 10001 --gid sportapp --no-create-home --shell /usr/sbin/nologin sportapp
 COPY --from=builder /opt/venv /opt/venv
+# Contrato versionado de permisos por actor (ADR-025): los BFF y servicios lo leen al arrancar.
+COPY contracts/authorization /opt/sportapp/contracts/authorization
 ENV PATH=/opt/venv/bin:${PATH} \
+    ACTOR_PERMISSIONS_PATH=/opt/sportapp/contracts/authorization/actor-permissions.v1.json \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_FACTORY=${APP_FACTORY} \

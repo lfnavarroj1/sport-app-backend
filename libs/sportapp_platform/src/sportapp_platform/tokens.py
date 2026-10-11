@@ -8,7 +8,9 @@ emisor, la audiencia y la vigencia de un access token emitido por
 import base64
 import hashlib
 import json
-from collections.abc import Mapping
+import threading
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -101,3 +103,77 @@ class AccessTokenVerifier:
             token_id=str(claims["jti"]),
             expires_at=datetime.fromtimestamp(int(claims["exp"]), UTC),
         )
+
+    def knows(self, kid: str) -> bool:
+        return kid in self._keys
+
+
+class JwksUnavailable(Exception):
+    """No fue posible obtener el JWKS; no se debe confundir con un token inválido."""
+
+
+class CachedJwksVerifier:
+    """Valida con el JWKS remoto de `users_management`, guardado en memoria.
+
+    Lo recarga al vencer `ttl_seconds` y ante un `kid` desconocido (rotación de
+    clave), como máximo una vez cada `refresh_interval_seconds` para que un `kid`
+    inventado no fuerce descargas repetidas.
+    """
+
+    def __init__(
+        self,
+        fetch_jwks: Callable[[], Mapping[str, Any]],
+        *,
+        issuer: str,
+        audience: str,
+        ttl_seconds: float = 300,
+        refresh_interval_seconds: float = 30,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._fetch = fetch_jwks
+        self._issuer = issuer
+        self._audience = audience
+        self._ttl = ttl_seconds
+        self._refresh_interval = refresh_interval_seconds
+        self._clock = clock
+        self._verifier: AccessTokenVerifier | None = None
+        self._fetched_at = float("-inf")
+        self._lock = threading.Lock()
+
+    def verify(self, token: str) -> VerifiedAccessToken:
+        verifier = self._current(force=False)
+        kid = self._unverified_kid(token)
+        if kid is not None and not verifier.knows(kid):
+            verifier = self._current(force=True)
+        return verifier.verify(token)
+
+    @staticmethod
+    def _unverified_kid(token: str) -> str | None:
+        try:
+            kid = jwt.get_unverified_header(token).get("kid")
+        except jwt.PyJWTError:
+            return None
+        return kid if isinstance(kid, str) else None
+
+    def _current(self, *, force: bool) -> AccessTokenVerifier:
+        with self._lock:
+            age = self._clock() - self._fetched_at
+            stale = self._verifier is None or age >= self._ttl
+            may_refresh = force and age >= self._refresh_interval
+            if stale or may_refresh:
+                try:
+                    jwks = self._fetch()
+                    verifier = AccessTokenVerifier(
+                        jwks, issuer=self._issuer, audience=self._audience
+                    )
+                except Exception as error:
+                    if self._verifier is None:
+                        raise JwksUnavailable() from error
+                    # Se conserva el JWKS anterior y se reintenta tras el intervalo mínimo.
+                    self._fetched_at = self._clock() - self._ttl + self._refresh_interval
+                else:
+                    self._verifier = verifier
+                    self._fetched_at = self._clock()
+            if self._verifier is None:
+                raise JwksUnavailable()
+            return self._verifier

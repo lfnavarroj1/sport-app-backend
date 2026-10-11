@@ -29,6 +29,13 @@ class UsersManagementClient:
     def refresh_session(self, payload: dict[str, Any]) -> httpx.Response:
         return self._post("/v1/sessions/refresh", payload, {})
 
+    def jwks(self) -> dict[str, Any]:
+        """Claves públicas de firma; un fallo se propaga para conservar el JWKS anterior."""
+        response = self._http.get("/.well-known/jwks.json")
+        response.raise_for_status()
+        document: dict[str, Any] = response.json()
+        return document
+
     def _post(self, path: str, payload: dict[str, Any], headers: dict[str, str]) -> httpx.Response:
         correlation_id = current_correlation_id()
         if correlation_id:

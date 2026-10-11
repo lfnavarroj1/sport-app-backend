@@ -87,6 +87,7 @@ class RegistrationFreePlanFlowTest(unittest.TestCase):
                     BffWebSettings(
                         app_env="test",  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
+                        affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
                     ),
                     users_http=users,
                 )

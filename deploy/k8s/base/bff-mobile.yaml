@@ -38,6 +38,9 @@ spec:
             - name: USERS_MANAGEMENT_BASE_URL
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
+            # HU003 (ADR-024): Service interno del clúster. En Cloud Run la plataforma lo sustituye.
+            - name: AFFILIATION_MANAGEMENT_BASE_URL
+              value: http://affiliation-management
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

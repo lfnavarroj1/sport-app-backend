@@ -1,0 +1,30 @@
+{
+  "version": "actor-permissions.v1",
+  "description": "Permisos estables por tipo de actor y canal (ADR-025; arquitectura/navegacion/README.md). Código revisado: un cambio exige una versión nueva, pruebas en BFF y servicios afectados y revisión de arquitectura. Las capacidades del deportista no están aquí: provienen de su suscripción (ADR-024).",
+  "actors": {
+    "athlete": [],
+    "organizer": [
+      {"permission": "events.create", "hu": "HU021", "channels": ["web"]},
+      {"permission": "events.attendees.view", "hu": "HU022", "channels": ["web"]},
+      {"permission": "events.calendar.view", "hu": "HU023", "channels": ["web"]},
+      {"permission": "events.publish", "hu": "HU024", "channels": ["web"]},
+      {"permission": "events.pricing.manage", "hu": "HU025", "channels": ["web"]},
+      {"permission": "training.routes.recommend", "hu": "HU026", "channels": ["mobile"]},
+      {"permission": "calendar.integrated.view", "hu": "HU018", "channels": ["web"]}
+    ],
+    "service_provider": [
+      {"permission": "services.create", "hu": "HU015", "channels": ["web"]},
+      {"permission": "services.publish", "hu": "HU019", "channels": ["web"]},
+      {"permission": "training.plan.author", "hu": "HU010", "channels": ["web"]},
+      {"permission": "training.history.view_assigned", "hu": "HU011", "channels": ["web"]},
+      {"permission": "health.history.view_assigned", "hu": "HU012", "channels": ["web"]},
+      {"permission": "nutrition.history.view_assigned", "hu": "HU013", "channels": ["web"]},
+      {"permission": "nutrition.plan.author", "hu": "HU014", "channels": ["web"]},
+      {"permission": "calendar.integrated.view", "hu": "HU018", "channels": ["web"]},
+      {"permission": "events.recommend", "hu": "HU027", "channels": ["mobile"]},
+      {"permission": "training.plan.recommend", "hu": "HU028", "channels": ["mobile"]},
+      {"permission": "services.support.recommend", "hu": "HU029", "channels": ["mobile"]},
+      {"permission": "nutrition.routine.recommend", "hu": "HU030", "channels": ["mobile"]}
+    ]
+  }
+}

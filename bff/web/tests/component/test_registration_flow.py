@@ -60,6 +60,7 @@ class RegistrationFlowTest(unittest.TestCase):
         settings = BffWebSettings(
             app_env="test",  # type: ignore[arg-type]
             users_management_base_url="http://users-management",  # type: ignore[arg-type]
+            affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
         )
         self.bff = self.enterContext(TestClient(create_bff(settings, users_http=users)))
         self.engine = create_engine(url, poolclass=pool.NullPool)

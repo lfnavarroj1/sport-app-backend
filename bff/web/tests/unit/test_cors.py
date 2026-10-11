@@ -34,7 +34,11 @@ BODY = {
 
 
 def settings(origins: str | None) -> BffWebSettings:
-    environment = {"APP_ENV": "test", "USERS_MANAGEMENT_BASE_URL": "http://users.invalid"}
+    environment = {
+        "APP_ENV": "test",
+        "USERS_MANAGEMENT_BASE_URL": "http://users.invalid",
+        "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation.invalid",
+    }
     if origins is not None:
         environment["CORS_ALLOWED_ORIGINS"] = origins
     with mock.patch.dict(os.environ, environment, clear=True):
@@ -120,7 +124,7 @@ class CorsMiddlewareTest(unittest.TestCase):
             headers={
                 "Origin": WEB_CONTAINER,
                 "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "authorization",
+                "Access-Control-Request-Headers": "x-api-key",
             },
         )
 

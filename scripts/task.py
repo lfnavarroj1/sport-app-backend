@@ -147,7 +147,7 @@ def coverage_report(_: argparse.Namespace) -> None:
 def openapi_export(_: argparse.Namespace) -> None:
     """Regenera `contracts/openapi/*.openapi.json` desde el código."""
     for component in COMPONENTS:
-        environment = {**os.environ, "APP_ENV": "test", **component.contract_environment}
+        environment = {**os.environ, "APP_ENV": "test", **component.openapi_environment()}
         script = (
             "from pathlib import Path\n"
             f"from {component.package}.main import create_app\n"

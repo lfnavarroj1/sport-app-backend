@@ -2,6 +2,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
+from sportapp_platform.testing.keys import ed25519_private_key_pem
 from users_management.main import API_VERSION, create_app
 from users_management.settings import UsersManagementSettings
 
@@ -10,6 +11,7 @@ SETTINGS = UsersManagementSettings(
     database_write_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
     database_read_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
     registration_policies_version="2026-10",
+    jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
     db_connect_timeout_seconds=1,
 )
 

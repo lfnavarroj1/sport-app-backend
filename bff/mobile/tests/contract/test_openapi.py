@@ -19,7 +19,12 @@ from sportapp_platform.testing.contracts import (
 class OpenApiContractTest(unittest.TestCase):
     def test_generated_openapi_matches_versioned_contract(self) -> None:
         contract = openapi_contract_path(repository_root(Path(__file__).resolve()), "bff-mobile")
-        app = create_app(BffMobileSettings(app_env="test"))
+        app = create_app(
+            BffMobileSettings(
+                app_env="test",  # type: ignore[arg-type]
+                users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
+            )
+        )
 
         self.assertTrue(contract.is_file(), f"Falta el contrato {contract}")
         self.assertEqual(render_openapi(app), contract.read_text(encoding="utf-8"))

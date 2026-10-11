@@ -1,4 +1,8 @@
-"""Inventario de componentes desplegables del repositorio backend."""
+"""Inventario de componentes desplegables del repositorio backend.
+
+Solo usa la biblioteca estándar al importarse: la CI ejecuta `task.py` con
+`uv run --no-project` (jobs `secrets` e `image`), sin las dependencias del proyecto.
+"""
 
 from dataclasses import dataclass, field
 
@@ -12,6 +16,14 @@ class Component:
     directory: str
     # Variables mínimas para construir la app al exportar su OpenAPI (sin conectarse).
     contract_environment: dict[str, str] = field(default_factory=dict)
+    # Necesita `JWT_PRIVATE_KEY` para construirse; se genera una desechable al exportar.
+    needs_signing_key: bool = False
+
+    def openapi_environment(self) -> dict[str, str]:
+        environment = dict(self.contract_environment)
+        if self.needs_signing_key:
+            environment["JWT_PRIVATE_KEY"] = new_signing_key_pem()
+        return environment
 
     @property
     def factory(self) -> str:
@@ -27,11 +39,38 @@ _CQRS = {
     "DATABASE_READ_URL": CONTRACT_DATABASE_URL,
 }
 _SINGLE = {"DATABASE_URL": CONTRACT_DATABASE_URL}
+
+
+def new_signing_key_pem() -> str:
+    """Clave Ed25519 nueva en PEM (PKCS#8). Para el contrato es desechable: no cambia el OpenAPI.
+
+    `cryptography` se importa aquí y no al inicio del módulo (ver docstring del módulo).
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+    from cryptography.hazmat.primitives.serialization import (  # noqa: PLC0415
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+    )
+
+    return (
+        Ed25519PrivateKey.generate()
+        .private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+        .decode("ascii")
+    )
+
+
 _USERS = {**_CQRS, "REGISTRATION_POLICIES_VERSION": "contract"}
-_BFF_WEB = {"USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid"}
+_BFF = {"USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid"}
 
 COMPONENTS = (
-    Component("users-management", "users_management", "services/users_management", _USERS),
+    Component(
+        "users-management",
+        "users_management",
+        "services/users_management",
+        _USERS,
+        needs_signing_key=True,
+    ),
     Component(
         "affiliation-management",
         "affiliation_management",
@@ -49,8 +88,8 @@ COMPONENTS = (
     Component(
         "third-party-management", "third_party_management", "services/third_party_management"
     ),
-    Component("bff-web", "bff_web", "bff/web", _BFF_WEB),
-    Component("bff-mobile", "bff_mobile", "bff/mobile"),
+    Component("bff-web", "bff_web", "bff/web", _BFF),
+    Component("bff-mobile", "bff_mobile", "bff/mobile", _BFF),
 )
 
 # Paquetes con pruebas propias (componentes desplegables + librería técnica).

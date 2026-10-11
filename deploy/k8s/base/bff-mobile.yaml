@@ -35,6 +35,9 @@ spec:
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            - name: USERS_MANAGEMENT_BASE_URL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

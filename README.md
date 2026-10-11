@@ -42,7 +42,8 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 
 | HU | Operación | Componentes | Contrato |
 | --- | --- | --- | --- |
-| HU001 Registrar usuario | `POST /v1/users` (público, `Idempotency-Key` obligatorio) | `bff_web` → `users_management` → `user_account` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` | OpenAPI 0.2.0 de `users-management` y `bff-web`; evento `usuario.registrado.v1` |
+| HU001 Registrar usuario | `POST /v1/users` (público, `Idempotency-Key` obligatorio) | `bff_web` → `users_management` → `user_account` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` | OpenAPI de `users-management` y `bff-web`; evento `usuario.registrado.v1` |
+| HU003 Iniciar sesión | `POST /v1/sessions` y `POST /v1/sessions/refresh` (públicos); `GET /.well-known/jwks.json` solo en el servicio | `bff_web` y `bff_mobile` → `users_management` → `refresh_token` + `login_failure_window` | OpenAPI 0.3.0 de `users-management` y `bff-web`, 0.2.0 de `bff-mobile`; sin eventos |
 
 Detalles de HU001:
 
@@ -140,7 +141,7 @@ Todos se ejecutan desde la raíz del repositorio. CI invoca exactamente estos mi
 | Construir imagen | `uv run python scripts/task.py build <componente\|all>` |
 | Ejecutar en el host con recarga | `uv run python scripts/task.py run <componente>` (lee `.env`) |
 | Smoke de salud | `uv run python scripts/task.py smoke --base-url http://127.0.0.1:8000` |
-| Generar contraseñas locales de Kubernetes | `uv run python scripts/task.py k8s-secrets` |
+| Generar contraseñas y clave de firma locales de Kubernetes | `uv run python scripts/task.py k8s-secrets` |
 | Renderizar Kubernetes local | `uv run python scripts/task.py k8s-render` |
 
 En PowerShell, `TEST_DATABASE_URL` se define con `$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres@127.0.0.1:55432/postgres"`.
@@ -162,15 +163,25 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `DATABASE_WRITE_URL`, `DATABASE_READ_URL` | users, training, events | `postgresql+psycopg://…` (obligatorias). |
 | `DATABASE_URL` | affiliation, complementary services | `postgresql+psycopg://…` (obligatoria). |
 | `REGISTRATION_POLICIES_VERSION` | users | Versión vigente de las políticas que se aceptan al registrarse (obligatoria). |
+| `JWT_PRIVATE_KEY` | users | Clave privada Ed25519 en PEM que firma los access tokens (obligatoria; un valor inválido detiene el arranque). En `.env` va en una sola línea con `\n` literales. En Kubernetes se lee del Secret `sportapp-users-jwt`. |
+| `JWT_ISSUER`, `JWT_AUDIENCE` | users | `iss` y `aud` de los access tokens (por defecto `sportapp-users-management` y `sportapp`). |
+| `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS` | users | Vigencia del access token (900) y del refresh token (604800). |
+| `LOGIN_MAX_FAILURES`, `LOGIN_FAILURE_WINDOW_SECONDS` | users | Control de abuso por correo + IP: fallos permitidos (5) y ventana (900 s). |
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC` | publicador de usuarios | Proyecto y tópico (por defecto `sportapp.usuarios.v1`). |
 | `PUBSUB_EMULATOR_HOST` | publicador de usuarios | Solo local/CI: dirige el cliente al emulador. |
 | `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de usuarios | Lote (100), arrendamiento (30 s) e identidad de la réplica (valores iniciales de CMP-001). |
-| `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | bff-web | URL del servicio de usuarios (obligatoria) y timeout (5 s). |
+| `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | bff-web, bff-mobile | URL del servicio de usuarios (obligatoria) y timeout (5 s). |
 | `CORS_ALLOWED_ORIGINS` | bff-web | Orígenes del cliente web autorizados por CORS, separados por comas, con la forma `http(s)://host[:puerto]` y sin `/` final (por ejemplo `http://localhost:18082,http://localhost:4200`). Vacía o ausente: se rechaza toda llamada de otro origen. No admite comodines; un valor inválido detiene el arranque. |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_CONNECT_TIMEOUT_SECONDS` | servicios con base | Límites del pool (5, 5 y 5 por defecto). |
 | `APP_FACTORY` | imagen | Fábrica `modulo:funcion`; la fija el Dockerfile. |
 
-CORS en `bff-web` (la web corre en otro origen, en local y en Cloud Run): permite `GET` y `POST`, acepta las cabeceras `Content-Type`, `Idempotency-Key` y `X-Correlation-ID`, expone al navegador `Location`, `Idempotent-Replayed` y `X-Correlation-ID`, y no admite credenciales. En Kubernetes la variable se lee de la clave opcional `CORS_ALLOWED_ORIGINS` del ConfigMap `sportapp-runtime`.
+Para ejecutar `users-management` en el host (`task.py run`), genere una clave local en una sola línea y péguela como valor de `JWT_PRIVATE_KEY` en `.env` (no la comparta ni la reutilice en otro ambiente):
+
+```powershell
+uv run python -c "import sys; sys.path.insert(0, 'scripts'); from components import new_signing_key_pem; print(new_signing_key_pem().strip().replace(chr(10), chr(92) + 'n'))"
+```
+
+CORS en `bff-web` (la web corre en otro origen, en local y en Cloud Run): permite `GET` y `POST`, acepta las cabeceras `Content-Type`, `Idempotency-Key` y `X-Correlation-ID`, expone al navegador `Location`, `Idempotent-Replayed`, `Retry-After` y `X-Correlation-ID`, y no admite credenciales. En Kubernetes la variable se lee de la clave opcional `CORS_ALLOWED_ORIGINS` del ConfigMap `sportapp-runtime`.
 
 Observabilidad incluida:
 - Logs JSON con `service`, `environment`, `version` y `correlation_id`.
@@ -663,16 +674,18 @@ Para saber cuál está activo: `kubectl config current-context`.
 
 ### 9. Generar las contraseñas locales
 
-**Para qué sirve:** PostgreSQL local necesita una contraseña de administrador y una por dominio. Se guardan en un archivo que **no se sube a Git**.
+**Para qué sirve:** PostgreSQL local necesita una contraseña de administrador y una por dominio, y `users-management` necesita una clave Ed25519 para firmar los access tokens (HU003). Se guardan en archivos que **no se suben a Git**.
 
 ```powershell
 uv run python scripts/task.py k8s-secrets
 ```
 
-**Qué debe ver:** `Creado deploy\k8s\overlays\local\secrets.local.env con 6 contraseñas locales.`
+**Qué debe ver:** `Creado deploy\k8s\overlays\local\secrets.local.env con 6 contraseñas locales.` y `Creado deploy\k8s\overlays\local\jwt-private-key.local.pem (clave de firma Ed25519 local).`
 
-- Las contraseñas son aleatorias y **no se muestran** en pantalla.
-- Si el archivo ya existe, el comando responde `... ya existe; no se sobrescribe.` Eso es correcto: ya hizo este paso antes.
+- Las contraseñas y la clave son aleatorias y **no se muestran** en pantalla.
+- El comando crea solo los archivos que faltan. Si ya hizo este paso antes de HU003, verá únicamente la línea de la clave.
+- Si ambos archivos existen, responde `Los secretos locales ya existen; no se sobrescriben.` Eso es correcto.
+- Borrar o regenerar la clave invalida las sesiones abiertas, pero no afecta los datos.
 
 Compruebe que el archivo existe:
 
@@ -1071,7 +1084,13 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
 - Proyector de lectura de usuarios (`usuario_read`, suscripción `proyector-usuarios-v1`, DLQ) y los workers CQRS de entrenamientos y eventos (CMP-002).
 - HU001:
   - prueba de carga HA003 en un ambiente representativo (escenario listo en `load/locust/registration.py`);
-  - protección contra abuso y enumeración (límite de solicitudes);
+  - protección contra abuso y enumeración en el registro (el `409 email_already_registered` revela qué correos existen);
   - versión real de las políticas;
   - purga de claves de idempotencia vencidas.
+- HU003:
+  - procedimiento de rotación de la clave de firma (el JWKS ya admite varias claves; falta publicar la anterior durante la transición);
+  - purga de refresh tokens vencidos y de ventanas de intentos antiguas;
+  - IP real del usuario detrás del balanceador: Uvicorn solo confía en `X-Forwarded-For` de las IP en `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`), que debe fijar la plataforma;
+  - revocación por incidente y cierre de sesión (HU004), MFA y recuperación de cuenta;
+  - clientes web y móvil (almacenamiento seguro y E2E).
 - Ubicación ratificada de Playwright para API/E2E. Las pruebas de componente BFF → servicio ya existen para HU001 (`bff/web/tests/component`).

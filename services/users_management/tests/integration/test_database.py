@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, pool
 
 from sportapp_platform.migrations import current_revision, downgrade, upgrade
+from sportapp_platform.testing.keys import ed25519_private_key_pem
 from sportapp_platform.testing.postgres import temporary_database
 from users_management.infrastructure.persistence_read.models import ReadBase
 from users_management.infrastructure.persistence_write.models import WriteBase
@@ -18,7 +19,7 @@ READ_HISTORY = "users_management.infrastructure.persistence_read:migrations"
 
 class DatabaseIntegrationTest(unittest.TestCase):
     def test_each_history_migrates_from_empty_database_to_head(self) -> None:
-        expected = {WRITE_HISTORY: "0002_register_user", READ_HISTORY: "0001_baseline"}
+        expected = {WRITE_HISTORY: "0003_authenticate_user", READ_HISTORY: "0001_baseline"}
         for script_location, revision in expected.items():
             with (
                 self.subTest(history=script_location),
@@ -65,6 +66,7 @@ class DatabaseIntegrationTest(unittest.TestCase):
                 database_write_url=url,
                 database_read_url=url,
                 registration_policies_version="2026-10",
+                jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
             )
             with TestClient(create_app(settings)) as client:
                 response = client.get("/health/ready")

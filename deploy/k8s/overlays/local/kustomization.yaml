@@ -30,6 +30,10 @@ secretGenerator:
   - name: sportapp-database
     envs:
       - secrets.local.env
+  # Clave de firma de access tokens (HU003); generarla con `scripts/task.py k8s-secrets`.
+  - name: sportapp-users-jwt
+    files:
+      - JWT_PRIVATE_KEY=jwt-private-key.local.pem
 images:
   - {name: sportapp/users-management, newTag: local}
   - {name: sportapp/affiliation-management, newTag: local}

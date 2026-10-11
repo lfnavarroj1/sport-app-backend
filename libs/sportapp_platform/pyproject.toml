@@ -12,6 +12,7 @@ dependencies = [
     "alembic>=1.16",
     "uvicorn>=0.35",
     "httpx>=0.28",
+    "pyjwt[crypto]>=2.10",
 ]
 
 [build-system]

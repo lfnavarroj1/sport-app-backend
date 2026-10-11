@@ -43,7 +43,7 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 | HU | Operación | Componentes | Contrato |
 | --- | --- | --- | --- |
 | HU001 Registrar usuario | `POST /v1/users` (público, `Idempotency-Key` obligatorio) | `bff_web` → `users_management` → `user_account` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` | OpenAPI de `users-management` y `bff-web`; evento `usuario.registrado.v1` |
-| HU003 Iniciar sesión | `POST /v1/sessions` y `POST /v1/sessions/refresh` (públicos); `GET /.well-known/jwks.json` solo en el servicio | `bff_web` y `bff_mobile` → `users_management` → `refresh_token` + `login_failure_window` | OpenAPI 0.3.0 de `users-management` y `bff-web`, 0.2.0 de `bff-mobile`; sin eventos |
+| HU003 Iniciar sesión | `POST /v1/sessions` y `POST /v1/sessions/refresh` (públicos); `GET /.well-known/jwks.json` solo en el servicio | `bff_web` y `bff_mobile` → `users_management` → `refresh_token` + `login_failure_window` | OpenAPI 0.3.0 de `users-management`, 0.4.0 de `bff-web` (refresh en cookie `HttpOnly`) y 0.2.0 de `bff-mobile`; sin eventos |
 
 Detalles de HU001:
 
@@ -62,6 +62,30 @@ Detalles de HU001:
 | `policies_version_mismatch` | 422 | servicio |
 | `upstream_unavailable` | 503 | BFF |
 | `upstream_timeout` | 504 | BFF |
+
+Detalles de HU003 (decisiones aprobadas el 2026-10-10; cookie del canal web aprobada el 2026-10-11):
+
+- **Servicio y `bff_mobile`:** `200` con `token_type` (`Bearer`), `access_token`, `expires_in`, `refresh_token`, `refresh_expires_in` y `user` (`user_id`, `full_name`, `email`, `actor_type`), con `Cache-Control: no-store`. `/refresh` recibe `{"refresh_token": "..."}`.
+- **`bff_web` (contrato 0.4.0):** el refresh token **no** viaja en el cuerpo. Se entrega en la cookie `__Secure-sportapp_refresh` (`HttpOnly; Secure; Path=/v1/sessions; SameSite=<REFRESH_COOKIE_SAME_SITE>; Max-Age=<refresh_expires_in>`). `POST /v1/sessions/refresh` va sin cuerpo: lee la cookie, la rota y devuelve un access token nuevo; con `401 invalid_refresh_token` borra la cookie. Un fallo temporal del servicio (`503`/`504`) no la borra.
+- **CSRF en `bff_web`:** iniciar y renovar sesión exigen un `Origin` de `CORS_ALLOWED_ORIGINS`; si falta o no está, `403 origin_not_allowed` sin llamar al servicio.
+- **Access token:** JWT EdDSA (Ed25519) de 15 min con `iss`, `aud`, `sub`, `iat`, `nbf`, `exp`, `jti` y `actor_type`; el encabezado lleva `kid` (huella RFC 7638). Otro servicio lo valida con `sportapp_platform.tokens.AccessTokenVerifier` y el JWKS de `users-management` (`GET /.well-known/jwks.json`).
+- **Refresh token:** opaco, 7 días, guardado solo como hash SHA-256. Rota en cada uso; reutilizar uno ya rotado revoca toda la familia (la sesión).
+- **Sin enumeración:** correo inexistente, contraseña incorrecta y cuenta `disabled` reciben el mismo `401 invalid_credentials`; un correo inexistente también se verifica contra un hash Argon2id ficticio.
+- **Control de abuso:** más de 5 fallos en 15 min para el mismo correo + IP → `429 too_many_attempts` con `Retry-After` hasta que vence la ventana. No bloquea la cuenta. El BFF envía la IP del usuario en `X-Client-IP`.
+- **Auditoría:** `audit.user_login` y `audit.session_refresh` con resultado e identificadores, nunca correo, contraseña ni tokens.
+- **Errores:**
+
+| Código | Estado | Origen |
+| --- | --- | --- |
+| `invalid_credentials` | 401 | servicio |
+| `invalid_refresh_token` | 401 | servicio / BFF web (sin cookie o cookie inválida) |
+| `origin_not_allowed` | 403 | BFF web |
+| `too_many_attempts` | 429 | servicio |
+| `validation_error` | 422 | servicio / BFF |
+| `upstream_unavailable` | 503 | BFF |
+| `upstream_timeout` | 504 | BFF |
+
+> `SameSite`: con `strict` (por defecto) la cookie solo viaja si la web y el BFF comparten sitio. En local se cumple (`localhost` con distinto puerto). En producción, `web` y `bff-web` en `*.run.app` son sitios distintos: hace falta un dominio propio común o un proxy por ruta (decisión de la plataforma, pendiente). `none` funciona entre sitios distintos en Chrome y Firefox, pero Safari bloquea la cookie.
 
 ## Stack fijado
 
@@ -171,7 +195,8 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `PUBSUB_EMULATOR_HOST` | publicador de usuarios | Solo local/CI: dirige el cliente al emulador. |
 | `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de usuarios | Lote (100), arrendamiento (30 s) e identidad de la réplica (valores iniciales de CMP-001). |
 | `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | bff-web, bff-mobile | URL del servicio de usuarios (obligatoria) y timeout (5 s). |
-| `CORS_ALLOWED_ORIGINS` | bff-web | Orígenes del cliente web autorizados por CORS, separados por comas, con la forma `http(s)://host[:puerto]` y sin `/` final (por ejemplo `http://localhost:18082,http://localhost:4200`). Vacía o ausente: se rechaza toda llamada de otro origen. No admite comodines; un valor inválido detiene el arranque. |
+| `CORS_ALLOWED_ORIGINS` | bff-web | Orígenes del cliente web autorizados por CORS, separados por comas, con la forma `http(s)://host[:puerto]` y sin `/` final (por ejemplo `http://localhost:18082,http://localhost:4200`). Vacía o ausente: se rechaza toda llamada de otro origen. No admite comodines; un valor inválido detiene el arranque. Son también los únicos `Origin` aceptados para iniciar y renovar sesión (CSRF). |
+| `REFRESH_COOKIE_SAME_SITE` | bff-web | `SameSite` de la cookie del refresh token: `strict` (por defecto), `lax` o `none`. Ver la nota de HU003 en [Estado](#estado). |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_CONNECT_TIMEOUT_SECONDS` | servicios con base | Límites del pool (5, 5 y 5 por defecto). |
 | `APP_FACTORY` | imagen | Fábrica `modulo:funcion`; la fija el Dockerfile. |
 
@@ -181,7 +206,7 @@ Para ejecutar `users-management` en el host (`task.py run`), genere una clave lo
 uv run python -c "import sys; sys.path.insert(0, 'scripts'); from components import new_signing_key_pem; print(new_signing_key_pem().strip().replace(chr(10), chr(92) + 'n'))"
 ```
 
-CORS en `bff-web` (la web corre en otro origen, en local y en Cloud Run): permite `GET` y `POST`, acepta las cabeceras `Content-Type`, `Idempotency-Key` y `X-Correlation-ID`, expone al navegador `Location`, `Idempotent-Replayed`, `Retry-After` y `X-Correlation-ID`, y no admite credenciales. En Kubernetes la variable se lee de la clave opcional `CORS_ALLOWED_ORIGINS` del ConfigMap `sportapp-runtime`.
+CORS en `bff-web` (la web corre en otro origen, en local y en Cloud Run): permite `GET` y `POST`, acepta las cabeceras `Content-Type`, `Idempotency-Key` y `X-Correlation-ID`, expone al navegador `Location`, `Idempotent-Replayed`, `Retry-After` y `X-Correlation-ID`, y admite credenciales (`Access-Control-Allow-Credentials: true`) para que el navegador envíe la cookie del refresh token; por eso solo acepta orígenes explícitos. En Kubernetes las variables se leen de las claves opcionales `CORS_ALLOWED_ORIGINS` y `REFRESH_COOKIE_SAME_SITE` del ConfigMap `sportapp-runtime`.
 
 Observabilidad incluida:
 - Logs JSON con `service`, `environment`, `version` y `correlation_id`.

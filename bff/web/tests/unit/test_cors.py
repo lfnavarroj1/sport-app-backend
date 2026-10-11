@@ -105,7 +105,8 @@ class CorsMiddlewareTest(unittest.TestCase):
                 allowed = response.headers["access-control-allow-headers"].lower()
                 for header in ("content-type", "idempotency-key", "x-correlation-id"):
                     self.assertIn(header, allowed)
-                self.assertNotIn("access-control-allow-credentials", response.headers)
+                # HU003 0.4.0: el navegador envía la cookie del refresh token.
+                self.assertEqual(response.headers["access-control-allow-credentials"], "true")
 
     def test_preflight_from_unknown_origin_is_rejected(self) -> None:
         response = preflight(self.client, OTHER_ORIGIN)

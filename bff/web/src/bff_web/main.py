@@ -9,7 +9,7 @@ from bff_web.api.registration import (
     REPLAYED_HEADER,
     build_registration_router,
 )
-from bff_web.api.sessions import RETRY_AFTER_HEADER, build_sessions_router
+from bff_web.api.sessions import RETRY_AFTER_HEADER, RefreshCookie, build_sessions_router
 from bff_web.clients.users_management import UsersManagementClient
 from bff_web.settings import BffWebSettings
 from sportapp_platform.app import create_service_app
@@ -17,7 +17,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.correlation import CORRELATION_HEADER
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.3.0"
+API_VERSION = "0.4.0"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
 CORS_ALLOWED_METHODS = ("GET", "POST")
@@ -40,17 +40,25 @@ def create_app(
         title="SportApp - BFF web",
         api_version=API_VERSION,
         settings=settings,
-        routers=[build_registration_router(users), build_sessions_router(users)],
+        routers=[
+            build_registration_router(users),
+            build_sessions_router(
+                users,
+                allowed_origins=settings.cors_allowed_origins,
+                cookie=RefreshCookie(same_site=settings.refresh_cookie_same_site),
+            ),
+        ],
         shutdown_hooks=[users_http.close],
     )
     # Se agrega al final para que sea la capa externa y responda la preflight.
-    # Sin credenciales: la identidad no viaja en cookies.
+    # Con credenciales (HU003 0.4.0): el navegador envía la cookie del refresh token, por
+    # eso solo se admiten orígenes explícitos, nunca `*`.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allowed_origins),
         allow_methods=list(CORS_ALLOWED_METHODS),
         allow_headers=list(CORS_ALLOWED_HEADERS),
         expose_headers=list(CORS_EXPOSED_HEADERS),
-        allow_credentials=False,
+        allow_credentials=True,
     )
     return app

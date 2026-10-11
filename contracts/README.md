@@ -12,8 +12,9 @@ Los contratos son la fuente compartida entre backend, BFF, Angular y Android. No
 - Todos los componentes publican `/health/live` y `/health/ready`.
 - `users-management`: OpenAPI `0.3.0` con `POST /v1/users` (HU001, aprobado el 2026-10-07), `POST /v1/sessions` y `POST /v1/sessions/refresh` (HU003, aprobado el 2026-10-10) y `GET /.well-known/jwks.json`.
 - `bff-web`: OpenAPI `0.4.0` (2026-10-11). **Cambio incompatible pre-1.0**, aprobado sin versión coexistente porque ningún cliente publicado usaba la 0.3.0: el refresh token pasa del cuerpo a la cookie `HttpOnly` `__Secure-sportapp_refresh`, `POST /v1/sessions/refresh` va sin cuerpo y ambas operaciones exigen un `Origin` permitido (`403 origin_not_allowed`).
-- `bff-mobile`: OpenAPI `0.2.0` con las operaciones de sesión de HU003 y los tokens en el cuerpo. El resto de los componentes sigue en `0.1.0`.
-- Eventos aprobados: `usuario.registrado.v1` (ver `events/README.md`). Los eventos candidatos de las guías de dominio no son contratos: se agregan aquí únicamente cuando tienen aprobados la versión, el payload mínimo, el tópico, la ordering key, los reintentos y la DLQ.
+- `bff-mobile`: OpenAPI `0.2.0` con las operaciones de sesión de HU003 y los tokens en el cuerpo.
+- `affiliation-management`: OpenAPI `0.2.0` con el contrato **interno** `GET /v1/subscriptions/by-user/{user_id}/capabilities` (HU001, ADR-024); solo lo consumen los BFF. El resto de los componentes sigue en `0.1.0`.
+- Eventos aprobados: `usuario.registrado.v1` y `suscripcion.activada.v1` (ver `events/README.md`). Los eventos candidatos de las guías de dominio no son contratos: se agregan aquí únicamente cuando tienen aprobados la versión, el payload mínimo, el tópico, la ordering key, los reintentos y la DLQ.
 - Formato de error: implementa la propuesta `code`, `message`, `correlation_id`, `details[{field, issue}]` de los lineamientos transversales. Permanece **propuesto** hasta publicar el contrato compartido.
 
 ## Cambiar un contrato

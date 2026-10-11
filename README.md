@@ -42,7 +42,7 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 
 | HU | Operación | Componentes | Contrato |
 | --- | --- | --- | --- |
-| HU001 Registrar usuario | `POST /v1/users` (público, `Idempotency-Key` obligatorio) | `bff_web` → `users_management` → `user_account` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` | OpenAPI de `users-management` y `bff-web`; evento `usuario.registrado.v1` |
+| HU001 Registrar usuario | `POST /v1/users` (público, `Idempotency-Key` obligatorio); interno: `GET /v1/subscriptions/by-user/{user_id}/capabilities` en Afiliación | `bff_web` → `users_management` → `user_account` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` → consumidor del alta gratuita de `affiliation_management` → `subscription` `FREE` + `outbox_event` → `afiliacion-outbox-publisher` → `sportapp.afiliacion.v1` | OpenAPI de `users-management`, `bff-web` y `affiliation-management` (0.2.0); eventos `usuario.registrado.v1` y `suscripcion.activada.v1` |
 | HU003 Iniciar sesión | `POST /v1/sessions` y `POST /v1/sessions/refresh` (públicos); `GET /.well-known/jwks.json` solo en el servicio | `bff_web` y `bff_mobile` → `users_management` → `refresh_token` + `login_failure_window` | OpenAPI 0.3.0 de `users-management`, 0.4.0 de `bff-web` (refresh en cookie `HttpOnly`) y 0.2.0 de `bff-mobile`; sin eventos |
 
 Detalles de HU001:
@@ -52,6 +52,9 @@ Detalles de HU001:
 - **`actor_type`:** `athlete`, `organizer` o `service_provider`.
 - **Políticas:** `accepted_policies_version` debe coincidir con `REGISTRATION_POLICIES_VERSION`.
 - **Idempotencia:** un reintento con la misma clave y el mismo cuerpo, durante 24 h, devuelve el mismo `201` con `Idempotent-Replayed: true`.
+- **Alta gratuita (ADR-024, criterios 6-9):** Afiliación consume `usuario.registrado.v1` (suscripción `sportapp.afiliacion.alta-gratuita.v1`) y, solo para `athlete`, crea una suscripción `FREE` activa con origen `AUTO_REGISTRATION`. `organizer` y `service_provider` no reciben suscripción. Cada evento queda en `inbox_event`; una entrega repetida no crea otra suscripción y un índice único parcial impide dos suscripciones activas por usuario. Inbox, suscripción y outbox se confirman juntos y el mensaje se confirma (ACK) después del COMMIT; un mensaje inválido no se confirma y, tras 10 intentos, va a la DLQ `sportapp.afiliacion.alta-gratuita.dlq`. La activación publica `suscripcion.activada.v1` en `sportapp.afiliacion.v1` con `user_id` como clave de orden.
+- **Catálogo:** la migración `0002_free_plan_catalog` precarga `plans-2026-10-11.v1`: `FREE` (11 capacidades), `INTERMEDIATE` (14) y `PREMIUM` (16). Los planes pagos quedan definidos pero no seleccionables, sin precio hasta que se aprueben los datos comerciales. Afiliación no queda lista (`/health/ready` 503) si falta esa versión, un plan o una capacidad.
+- **Capacidades (interno):** `GET /v1/subscriptions/by-user/{user_id}/capabilities` devuelve `ACTIVE` con plan, versión, catálogo y capacidades, o `NONE` sin capacidades: nunca concede `FREE` por suposición. Lo consumen los BFF para `GET /v1/me/capabilities` (`T-HU003-BE`, pendiente).
 - **Errores:**
 
 | Código | Estado | Origen |
@@ -193,7 +196,10 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `LOGIN_MAX_FAILURES`, `LOGIN_FAILURE_WINDOW_SECONDS` | users | Control de abuso por correo + IP: fallos permitidos (5) y ventana (900 s). |
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC` | publicador de usuarios | Proyecto y tópico (por defecto `sportapp.usuarios.v1`). |
 | `PUBSUB_EMULATOR_HOST` | publicador de usuarios | Solo local/CI: dirige el cliente al emulador. |
-| `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de usuarios | Lote (100), arrendamiento (30 s) e identidad de la réplica (valores iniciales de CMP-001). |
+| `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicadores de usuarios y afiliación | Lote (100), arrendamiento (30 s) e identidad de la réplica (valores iniciales de CMP-001). |
+| `AFFILIATION_EXPECTED_CATALOG_VERSION` | affiliation | Versión de catálogo que debe estar instalada para quedar listo (obligatoria; hoy `plans-2026-10-11.v1`). Cambia en el mismo release que una migración de catálogo nueva. |
+| `PUBSUB_PROJECT_ID`, `FREE_PLAN_SUBSCRIPTION`, `CONSUMER_MAX_MESSAGES` | consumidor del alta gratuita | Proyecto, suscripción (por defecto `sportapp.afiliacion.alta-gratuita.v1`) y mensajes simultáneos por réplica (10). |
+| `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC` | publicador de afiliación | Proyecto y tópico (por defecto `sportapp.afiliacion.v1`). |
 | `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | bff-web, bff-mobile | URL del servicio de usuarios (obligatoria) y timeout (5 s). |
 | `CORS_ALLOWED_ORIGINS` | bff-web | Orígenes del cliente web autorizados por CORS, separados por comas, con la forma `http(s)://host[:puerto]` y sin `/` final (por ejemplo `http://localhost:18082,http://localhost:4200`). Vacía o ausente: se rechaza toda llamada de otro origen. No admite comodines; un valor inválido detiene el arranque. Son también los únicos `Origin` aceptados para iniciar y renovar sesión (CSRF). |
 | `REFRESH_COOKIE_SAME_SITE` | bff-web | `SameSite` de la cookie del refresh token: `strict` (por defecto), `lax` o `none`. Ver la nota de HU003 en [Estado](#estado). |
@@ -1111,7 +1117,10 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - prueba de carga HA003 en un ambiente representativo (escenario listo en `load/locust/registration.py`);
   - protección contra abuso y enumeración en el registro (el `409 email_already_registered` revela qué correos existen);
   - versión real de las políticas;
-  - purga de claves de idempotencia vencidas.
+  - purga de claves de idempotencia vencidas;
+  - `T-HU001-PLAT`: tópico `sportapp.afiliacion.v1`, suscripción del alta gratuita con orden, DLQ, política de reintentos, IAM, métricas y alerta en la composición local y en GCP (en este repositorio solo existe la creación en el emulador);
+  - medir HA002 en el recorrido registro → suscripción `FREE` observable (presupuesto de 3 s bajo la carga acordada);
+  - `PROVISIONING` y la evidencia del resultado `FREE` en el cliente web, que dependen de `GET /v1/me/capabilities` (`T-HU003-BE`).
 - HU003:
   - procedimiento de rotación de la clave de firma (el JWKS ya admite varias claves; falta publicar la anterior durante la transición);
   - purga de refresh tokens vencidos y de ventanas de intentos antiguas;

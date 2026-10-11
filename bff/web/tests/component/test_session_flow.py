@@ -54,6 +54,7 @@ class SessionFlowTest(unittest.TestCase):
         settings = BffWebSettings(
             app_env="test",  # type: ignore[arg-type]
             users_management_base_url="http://users-management",  # type: ignore[arg-type]
+            affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
             cors_allowed_origins=(ORIGIN,),
         )
         # HTTPS y `Origin`: como el navegador, para que la cookie `Secure` viaje y pase CSRF.

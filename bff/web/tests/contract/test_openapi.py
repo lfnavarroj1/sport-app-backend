@@ -20,7 +20,11 @@ class OpenApiContractTest(unittest.TestCase):
     def test_generated_openapi_matches_versioned_contract(self) -> None:
         contract = openapi_contract_path(repository_root(Path(__file__).resolve()), "bff-web")
         app = create_app(
-            BffWebSettings(app_env="test", users_management_base_url="http://users.invalid")
+            BffWebSettings(
+                app_env="test",
+                users_management_base_url="http://users.invalid",
+                affiliation_management_base_url="http://affiliation.invalid",
+            )
         )
 
         self.assertTrue(contract.is_file(), f"Falta el contrato {contract}")

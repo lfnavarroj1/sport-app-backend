@@ -5,7 +5,11 @@ from fastapi.testclient import TestClient
 from bff_web.main import API_VERSION, create_app
 from bff_web.settings import BffWebSettings
 
-SETTINGS = BffWebSettings(app_env="test", users_management_base_url="http://users.invalid")
+SETTINGS = BffWebSettings(
+    app_env="test",
+    users_management_base_url="http://users.invalid",
+    affiliation_management_base_url="http://affiliation.invalid",
+)
 
 
 class BffWebAppTest(unittest.TestCase):

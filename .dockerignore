@@ -4,6 +4,7 @@
 !libs/**
 !services/**
 !bff/**
+!contracts/authorization/**
 **/tests/**
 **/__pycache__/**
 **/*.pyc

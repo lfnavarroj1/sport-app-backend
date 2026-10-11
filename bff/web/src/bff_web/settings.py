@@ -1,5 +1,6 @@
 """Configuración de `bff_web`, validada al iniciar."""
 
+from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -36,6 +37,14 @@ class BffWebSettings(ServiceSettings):
     # sitio (localhost con distinto puerto, o dominio propio común); `none` solo si están en
     # sitios distintos, y Safari la bloquea.
     refresh_cookie_same_site: Literal["strict", "lax", "none"] = "strict"
+    # HU003 CA7-CA10 (ADR-024/025): composición de `GET /v1/me/capabilities`.
+    affiliation_management_base_url: AnyHttpUrl
+    # `iss` y `aud` que emite users-management (mismos valores por defecto).
+    jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
+    jwt_audience: str = Field(default="sportapp", min_length=1, max_length=128)
+    # Ruta del contrato `actor-permissions.v1`; sin valor se usa `ACTOR_PERMISSIONS_PATH`
+    # (imagen) o `contracts/authorization/` del repositorio.
+    actor_permissions_path: Path | None = None
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

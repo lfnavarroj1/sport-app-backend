@@ -4,37 +4,60 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from bff_web.api.capabilities import build_capabilities_router
 from bff_web.api.registration import (
     IDEMPOTENCY_HEADER,
     REPLAYED_HEADER,
     build_registration_router,
 )
 from bff_web.api.sessions import RETRY_AFTER_HEADER, RefreshCookie, build_sessions_router
+from bff_web.clients.affiliation_management import AffiliationManagementClient
 from bff_web.clients.users_management import UsersManagementClient
 from bff_web.settings import BffWebSettings
 from sportapp_platform.app import create_service_app
+from sportapp_platform.authorization import load_actor_permissions, resolve_actor_permissions_path
 from sportapp_platform.config import load_settings
 from sportapp_platform.correlation import CORRELATION_HEADER
+from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.4.0"
+API_VERSION = "0.5.0"
+CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
 CORS_ALLOWED_METHODS = ("GET", "POST")
-CORS_ALLOWED_HEADERS = ("Content-Type", IDEMPOTENCY_HEADER, CORRELATION_HEADER)
+CORS_ALLOWED_HEADERS = (
+    "Authorization",
+    "Content-Type",
+    IDEMPOTENCY_HEADER,
+    CORRELATION_HEADER,
+)
 CORS_EXPOSED_HEADERS = ("Location", REPLAYED_HEADER, RETRY_AFTER_HEADER, CORRELATION_HEADER)
 
 
 def create_app(
-    settings: BffWebSettings | None = None, users_http: httpx.Client | None = None
+    settings: BffWebSettings | None = None,
+    users_http: httpx.Client | None = None,
+    affiliation_http: httpx.Client | None = None,
 ) -> FastAPI:
-    """`users_http` permite inyectar el transporte en pruebas de componente."""
+    """`users_http` y `affiliation_http` permiten inyectar transportes en pruebas de componente."""
     settings = settings or load_settings(BffWebSettings)
+    permissions = load_actor_permissions(
+        settings.actor_permissions_path or resolve_actor_permissions_path()
+    )
     users_http = users_http or httpx.Client(
         base_url=str(settings.users_management_base_url),
         timeout=settings.upstream_timeout_seconds,
     )
+    affiliation_http = affiliation_http or httpx.Client(
+        base_url=str(settings.affiliation_management_base_url),
+        timeout=settings.upstream_timeout_seconds,
+    )
     users = UsersManagementClient(users_http)
+    affiliation = AffiliationManagementClient(affiliation_http)
+    verifier = CachedJwksVerifier(
+        users.jwks, issuer=settings.jwt_issuer, audience=settings.jwt_audience
+    )
     app = create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - BFF web",
@@ -47,8 +70,14 @@ def create_app(
                 allowed_origins=settings.cors_allowed_origins,
                 cookie=RefreshCookie(same_site=settings.refresh_cookie_same_site),
             ),
+            build_capabilities_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                athlete_snapshot=affiliation.user_capabilities,
+                channel=CHANNEL,
+            ),
         ],
-        shutdown_hooks=[users_http.close],
+        shutdown_hooks=[users_http.close, affiliation_http.close],
     )
     # Se agrega al final para que sea la capa externa y responda la preflight.
     # Con credenciales (HU003 0.4.0): el navegador envía la cookie del refresh token, por

@@ -18,6 +18,8 @@ configMapGenerator:
       # Valor solo local: la versión real de las políticas aún no está publicada.
       - REGISTRATION_POLICIES_VERSION=local-dev
       - USERS_MANAGEMENT_BASE_URL=http://users-management
+      # Web en contenedor (18082) y `ng serve` (4200).
+      - CORS_ALLOWED_ORIGINS=http://localhost:18082,http://localhost:4200
       - PUBSUB_PROJECT_ID=sportapp-local
       - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
   - name: postgres-init

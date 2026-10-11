@@ -166,8 +166,11 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `PUBSUB_EMULATOR_HOST` | publicador de usuarios | Solo local/CI: dirige el cliente al emulador. |
 | `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de usuarios | Lote (100), arrendamiento (30 s) e identidad de la réplica (valores iniciales de CMP-001). |
 | `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | bff-web | URL del servicio de usuarios (obligatoria) y timeout (5 s). |
+| `CORS_ALLOWED_ORIGINS` | bff-web | Orígenes del cliente web autorizados por CORS, separados por comas, con la forma `http(s)://host[:puerto]` y sin `/` final (por ejemplo `http://localhost:18082,http://localhost:4200`). Vacía o ausente: se rechaza toda llamada de otro origen. No admite comodines; un valor inválido detiene el arranque. |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_CONNECT_TIMEOUT_SECONDS` | servicios con base | Límites del pool (5, 5 y 5 por defecto). |
 | `APP_FACTORY` | imagen | Fábrica `modulo:funcion`; la fija el Dockerfile. |
+
+CORS en `bff-web` (la web corre en otro origen, en local y en Cloud Run): permite `GET` y `POST`, acepta las cabeceras `Content-Type`, `Idempotency-Key` y `X-Correlation-ID`, expone al navegador `Location`, `Idempotent-Replayed` y `X-Correlation-ID`, y no admite credenciales. En Kubernetes la variable se lee de la clave opcional `CORS_ALLOWED_ORIGINS` del ConfigMap `sportapp-runtime`.
 
 Observabilidad incluida:
 - Logs JSON con `service`, `environment`, `version` y `correlation_id`.

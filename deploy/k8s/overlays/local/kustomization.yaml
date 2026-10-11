@@ -1,0 +1,39 @@
+# Overlay local (ADR-018): Docker Desktop Kubernetes, contexto `docker-desktop`,
+# namespace `sportapp-local`. Aplicar siempre con contexto y namespace explícitos:
+#   kubectl --context docker-desktop --namespace sportapp-local apply --kustomize deploy/k8s/overlays/local
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sportapp-local
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - pubsub-emulator.yaml
+  - ../../base
+configMapGenerator:
+  - name: sportapp-runtime
+    literals:
+      - APP_ENV=local
+      - LOG_LEVEL=INFO
+      - DATABASE_HOST=postgres
+      # Valor solo local: la versión real de las políticas aún no está publicada.
+      - REGISTRATION_POLICIES_VERSION=local-dev
+      - USERS_MANAGEMENT_BASE_URL=http://users-management
+      - PUBSUB_PROJECT_ID=sportapp-local
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+  - name: postgres-init
+    files:
+      - postgres-init/01-create-domain-databases.sh
+secretGenerator:
+  # Archivo ignorado por Git; copiar desde secrets.local.env.example.
+  - name: sportapp-database
+    envs:
+      - secrets.local.env
+images:
+  - {name: sportapp/users-management, newTag: local}
+  - {name: sportapp/affiliation-management, newTag: local}
+  - {name: sportapp/complementary-services, newTag: local}
+  - {name: sportapp/training-management, newTag: local}
+  - {name: sportapp/events-management, newTag: local}
+  - {name: sportapp/third-party-management, newTag: local}
+  - {name: sportapp/bff-web, newTag: local}
+  - {name: sportapp/bff-mobile, newTag: local}

@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: sportapp
+resources:
+  - users-management.yaml
+  - affiliation-management.yaml
+  - complementary-services.yaml
+  - training-management.yaml
+  - events-management.yaml
+  - third-party-management.yaml
+  - bff-web.yaml
+  - bff-mobile.yaml

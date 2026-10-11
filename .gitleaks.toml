@@ -1,0 +1,14 @@
+title = "SportApp backend"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Directorios generados o de terceros; no contienen código del repositorio"
+paths = [
+    '''(^|/)\.venv/''',
+    '''(^|/)reports/''',
+    '''(^|/)\.(mypy|ruff)_cache/''',
+    '''(^|/)\.git/''',
+    '''uv\.lock$''',
+]

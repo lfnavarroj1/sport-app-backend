@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: third-party-management
+  labels:
+    app.kubernetes.io/name: third-party-management
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: third-party-management
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: third-party-management
+        app.kubernetes.io/component: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: sportapp/third-party-management
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8000}
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          # Valores locales iniciales; la capacidad de GKE se fija con experimentos (ADR-011).
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: third-party-management
+  labels:
+    app.kubernetes.io/name: third-party-management
+spec:
+  selector:
+    app.kubernetes.io/name: third-party-management
+  ports:
+    - {name: http, port: 80, targetPort: http}

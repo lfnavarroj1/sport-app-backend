@@ -23,15 +23,15 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.database import create_database_engine
 from sportapp_platform.logging import configure_logging
 from training_management.application.messages import (
+    AuthorizationChangedEvent,
     InvalidEvent,
     PlanCreatedEvent,
+    TrainingEvent,
     UnsupportedEvent,
     parse_training_event,
 )
-from training_management.application.projections.plan_projection import (
-    ProjectionOutcome,
-    ProjectPlanCreated,
-)
+from training_management.application.projections.plan_projection import ProjectionOutcome
+from training_management.application.projections.snapshot_projection import TrainingProjector
 from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.persistence_read.plans import (
     SqlAlchemyProjectionUnitOfWork,
@@ -56,8 +56,16 @@ class InboundMessage(Protocol):
     def nack(self) -> None: ...
 
 
+def _aggregate_id(event: TrainingEvent) -> object:
+    if isinstance(event, PlanCreatedEvent):
+        return event.plan.plan_id
+    if isinstance(event, AuthorizationChangedEvent):
+        return event.aggregate_id
+    return event.session.session_id
+
+
 class ProjectionMessageHandler:
-    def __init__(self, project: Callable[[PlanCreatedEvent], ProjectionOutcome]) -> None:
+    def __init__(self, project: Callable[[TrainingEvent], ProjectionOutcome]) -> None:
         self._project = project
 
     def __call__(self, message: InboundMessage) -> None:
@@ -82,7 +90,7 @@ class ProjectionMessageHandler:
             return
         fields |= {
             "event_id": str(event.event_id),
-            "plan_id": str(event.plan.plan_id),
+            "aggregate_id": str(_aggregate_id(event)),
             "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         }
         try:
@@ -113,7 +121,7 @@ def main() -> None:
         level=settings.log_level,
     )
     engine = create_database_engine(settings.database_read_url, settings)
-    project = ProjectPlanCreated(
+    project = TrainingProjector(
         unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(sessionmaker(engine)),
         clock=SystemClock(),
     )

@@ -127,6 +127,7 @@ class TrainingMessagingTest(unittest.TestCase):
         )
         athlete, professional = athlete_and_professional()
         self.db.grant()(athlete, professional.user_id)
+        self.db.discard_pending_outbox()  # evento de autorización (HU011), ajeno a esta prueba
         result = self.db.create_plan()(professional, plan_command(athlete.user_id))
 
         self.assertEqual(self.publish_outbox(), 1)

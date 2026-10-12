@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from support import athlete_and_professional, plan_command, training_databases
 
 from training_management.application.errors import AthleteAuthorizationRequired
@@ -59,7 +59,9 @@ class PlanPersistenceTest(unittest.TestCase):
 
         with self.db.writes() as session:
             plan = session.get(TrainingPlanRow, result.plan.plan_id)
-            outbox = session.scalars(select(OutboxEventRow)).one()
+            outbox = session.scalars(
+                select(OutboxEventRow).where(OutboxEventRow.aggregate_type == "training_plan")
+            ).one()
             key = session.get(IdempotencyKeyRow, command.idempotency_key)
         assert plan is not None
         assert key is not None
@@ -93,7 +95,11 @@ class PlanPersistenceTest(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual({result.plan.plan_id for result in results}, {results[0].plan.plan_id})
         self.assertEqual(self.db.count(TrainingPlanRow), 1)
-        self.assertEqual(self.db.count(OutboxEventRow), 1)
+        with self.db.writes() as session:
+            plan_events = session.scalar(
+                select(func.count()).where(OutboxEventRow.aggregate_type == "training_plan")
+            )
+        self.assertEqual(plan_events, 1)
 
     def test_concurrent_first_grants_create_one_authorization(self) -> None:
         grant = self.db.grant()
@@ -149,6 +155,7 @@ class OutboxAndProjectionTest(unittest.TestCase):
         self.db = self.enterContext(training_databases("hu010_cqrs"))
         athlete, professional = athlete_and_professional()
         self.db.grant()(athlete, professional.user_id)
+        self.db.discard_pending_outbox()  # evento de autorización (HU011), ajeno a estas pruebas
         self.created = self.db.create_plan()(professional, plan_command(athlete.user_id))
 
     def relay(self, publisher: Any) -> int:
@@ -196,7 +203,9 @@ class OutboxAndProjectionTest(unittest.TestCase):
             self.assertEqual(self.relay(Failing()), 1)
 
         with self.db.writes() as session:
-            row = session.scalars(select(OutboxEventRow)).one()
+            row = session.scalars(
+                select(OutboxEventRow).where(OutboxEventRow.aggregate_type == "training_plan")
+            ).one()
         self.assertIsNone(row.published_at)
         self.assertEqual((row.attempts, row.last_error), (1, "RuntimeError"))
 

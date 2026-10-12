@@ -11,7 +11,7 @@ su worker, porque su transporte ya se prueba en la integración de cada servicio
 
 import unittest
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -35,7 +35,7 @@ from sportapp_platform.migrations import upgrade
 from sportapp_platform.testing.keys import ed25519_private_key_pem
 from sportapp_platform.testing.postgres import temporary_database
 from training_management.application.messages import parse_training_event
-from training_management.application.projections.plan_projection import ProjectPlanCreated
+from training_management.application.projections.snapshot_projection import TrainingProjector
 from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.persistence_read.plans import (
     SqlAlchemyProjectionUnitOfWork,
@@ -228,7 +228,8 @@ class TrainingPlanFlowTest(unittest.TestCase):
         )
 
     def project_outbox(self) -> int:
-        """`entrenamientos-outbox-publisher` + `entrenamientos-read-projector` sin Pub/Sub."""
+        """`entrenamientos-outbox-publisher` + `entrenamientos-read-projector` sin Pub/Sub;
+        devuelve cuántos eventos de plan se publicaron."""
         envelopes: list[dict[str, Any]] = []
 
         class Capture:
@@ -245,7 +246,7 @@ class TrainingPlanFlowTest(unittest.TestCase):
                 worker_id="w-test",
             ),
         ).run_once()
-        project = ProjectPlanCreated(
+        project = TrainingProjector(
             unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(
                 sessionmaker(self.engines["training_r"])
             ),
@@ -253,7 +254,8 @@ class TrainingPlanFlowTest(unittest.TestCase):
         )
         for envelope in envelopes:
             project(parse_training_event(envelope))
-        return len(envelopes)
+        # Solo cuentan los eventos de plan; las autorizaciones también se publican (HU011).
+        return sum(e["event_type"] == "plan.entrenamiento_creado.v1" for e in envelopes)
 
     def test_hu010_vertical_backend_flow(self) -> None:
         """CA1-CA5 por el canal web de punta a punta en el backend."""
@@ -317,6 +319,107 @@ class TrainingPlanFlowTest(unittest.TestCase):
         )
         after = self.create_plan(professional, body, str(uuid.uuid4()))
         self.assertEqual(revoked.status_code, 204)
+        self.assertEqual(after.json()["code"], "athlete_authorization_required")
+
+    def project_finished_sessions(self, athlete_id: str, *specs: tuple[str, datetime]) -> None:
+        """Publica en la lectura `entrenamiento.finalizado.v1` sintéticos, como hará HU032."""
+        project = TrainingProjector(
+            unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(
+                sessionmaker(self.engines["training_r"])
+            ),
+            clock=SystemClock(),
+        )
+        for sport, ended_at in specs:
+            session_id = str(uuid.uuid4())
+            project(
+                parse_training_event(
+                    {
+                        "event_id": str(uuid.uuid4()),
+                        "event_type": "entrenamiento.finalizado.v1",
+                        "occurred_at": ended_at.isoformat(),
+                        "producer": "training-management",
+                        "aggregate_type": "training_session",
+                        "aggregate_id": session_id,
+                        "aggregate_version": 2,
+                        "correlation_id": None,
+                        "causation_id": None,
+                        "schema_version": 1,
+                        "payload": {
+                            "session_id": session_id,
+                            "athlete_id": athlete_id,
+                            "plan_id": None,
+                            "sport": sport,
+                            "started_at": (ended_at - timedelta(minutes=40)).isoformat(),
+                            "ended_at": ended_at.isoformat(),
+                            "duration_seconds": 2400,
+                            "status": "FINISHED",
+                        },
+                    }
+                )
+            )
+
+    def test_hu011_history_backend_flow(self) -> None:
+        """HU011 CA1-CA4 por el canal web: autorización proyectada, filtros, cursor y revocación."""
+        athlete, professional = self.athlete, self.professional
+        history_url = f"/v1/athletes/{athlete['user_id']}/training-history"
+
+        before = self.bff.get(history_url, headers=self.auth(professional))
+        self.assertEqual(
+            (before.status_code, before.json()["code"]), (403, "athlete_authorization_required")
+        )
+
+        granted = self.bff.post(
+            "/v1/me/training-authorizations",
+            json={"professional_email": professional["email"]},
+            headers=self.auth(athlete),
+        )
+        self.assertEqual(granted.status_code, 201, granted.text)
+        self.project_outbox()  # la autorización llega a la lectura por la outbox y el proyector
+
+        empty = self.bff.get(history_url, headers=self.auth(professional))
+        self.assertEqual(empty.status_code, 200, empty.text)
+        self.assertEqual((empty.json()["items"], empty.json()["next_cursor"]), ([], None))
+        self.assertIn("running", empty.json()["filters"]["sports"])  # CA2
+
+        day = datetime(2026, 10, 5, 7, 0, tzinfo=UTC)
+        self.project_finished_sessions(
+            athlete["user_id"],
+            ("running", day),
+            ("cycling", day + timedelta(days=1)),
+            ("running", day + timedelta(days=2)),
+        )
+        self.project_finished_sessions(str(uuid.uuid4()), ("running", day))  # otro deportista
+
+        first = self.bff.get(
+            "/v1/training-history", params={"limit": 2}, headers=self.auth(athlete)
+        )
+        second = self.bff.get(
+            "/v1/training-history",
+            params={"limit": 2, "cursor": first.json()["next_cursor"]},
+            headers=self.auth(athlete),
+        )
+        cycling = self.bff.get(
+            history_url, params={"sport": "cycling"}, headers=self.auth(professional)
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        ids = [i["session_id"] for i in first.json()["items"] + second.json()["items"]]
+        self.assertEqual(len(ids), 3)  # CA4: sin pérdidas ni repeticiones
+        self.assertEqual(len(set(ids)), 3)
+        self.assertIsNone(second.json()["next_cursor"])
+        ended = [i["ended_at"] for i in first.json()["items"] + second.json()["items"]]
+        self.assertEqual(ended, sorted(ended, reverse=True))  # CA1: por fecha
+        self.assertEqual([i["sport"] for i in cycling.json()["items"]], ["cycling"])
+
+        stranger = self.register("service_provider")
+        self.assertEqual(
+            self.bff.get(history_url, headers=self.auth(stranger)).json()["code"],
+            "athlete_authorization_required",
+        )  # CA3
+        self.bff.delete(
+            f"/v1/me/training-authorizations/{professional['user_id']}", headers=self.auth(athlete)
+        )
+        self.project_outbox()
+        after = self.bff.get(history_url, headers=self.auth(professional))
         self.assertEqual(after.json()["code"], "athlete_authorization_required")
 
     def test_roles_without_permission_are_rejected(self) -> None:

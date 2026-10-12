@@ -46,6 +46,7 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 | HU003 Iniciar sesión | `POST /v1/sessions` y `POST /v1/sessions/refresh` (públicos); `GET /v1/me/capabilities` (con access token) en ambos BFF; `GET /.well-known/jwks.json` solo en el servicio | `bff_web` y `bff_mobile` → `users_management` → `refresh_token` + `login_failure_window`; para capacidades, BFF → JWKS de Usuarios + `actor-permissions.v1` + Afiliación (solo `athlete`) | OpenAPI 0.3.0 de `users-management`, 0.5.0 de `bff-web` (refresh en cookie `HttpOnly`) y 0.3.0 de `bff-mobile`; contrato `contracts/authorization/actor-permissions.v1.json`; sin eventos |
 | HU004 Cerrar sesión | `POST /v1/sessions/revoke` en el servicio y en ambos BFF (web: sin cuerpo, con la cookie y `Origin` permitido; móvil: `{refresh_token}`) | `bff_web` y `bff_mobile` → `users_management` → revoca la familia en `refresh_token` | OpenAPI 0.5.0 de `users-management`, 0.7.0 de `bff-web` y 0.4.0 de `bff-mobile`; sin eventos |
 | HU010 Crear plan de entrenamiento | `POST /v1/me/training-authorizations` y `DELETE /v1/me/training-authorizations/{professional_id}` (deportista); `POST /v1/training-plans` (`Idempotency-Key` obligatorio) y `GET /v1/training-plans/{plan_id}`, todos con access token; internos: `POST /v1/users/lookup` en Usuarios y las mismas rutas por identificador en Entrenamientos | `bff_web` → `users_management` (lookup en la base de lectura) → `training_management` → `training_authorization` / `training_plan` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `training_plan_view` | OpenAPI 0.4.0 de `users-management`, 0.2.0 de `training-management` y 0.6.0 de `bff-web`; evento `plan.entrenamiento_creado.v1` |
+| HU011 Ver historial de entrenamiento | `GET /v1/training-history` (deportista, su historial) y `GET /v1/athletes/{athlete_id}/training-history` (profesional autorizado), con `from`, `to`, `sport`, `limit` y `cursor` | `bff_web` → `training_management` → `training_session_history` y `training_authorization_view` (base de lectura) ← `entrenamientos-read-projector` ← `entrenamiento.finalizado.v1` (lo publicará HU032) y `autorizacion_entrenamiento.*.v1` (outbox de la autorización) | OpenAPI 0.3.0 de `training-management` y 0.8.0 de `bff-web`; eventos `autorizacion_entrenamiento.otorgada.v1`, `autorizacion_entrenamiento.revocada.v1` y `entrenamiento.finalizado.v1` |
 
 Detalles de HU001:
 
@@ -194,6 +195,14 @@ Detalles de HU004 (decisiones y contrato aprobados el 2026-10-12):
 - **Móvil:** `POST /v1/sessions/revoke` con `{"refresh_token": "..."}` y `Idempotency-Key` (UUID) **opcional**; `204`, `422 validation_error`, `503 upstream_unavailable` o `504 upstream_timeout`. Con `503`/`504` la aplicación guarda la credencial en su cola cifrada de revocación y reintenta (ADR-026, CA6-CA7) repitiendo la misma clave. La clave no se persiste (el token ya hace idempotente la revocación); se registra en la auditoría para correlacionar reintentos. Acepta cualquier refresh token válido: revocar nunca amplía acceso; el rechazo de actores no deportistas al iniciar sesión sigue pendiente en HU003.
 - **Auditoría (CA4):** `audit.session_revoke` con `result` (`revoked`, `already_revoked` o `unknown`), `user_id`, `family_id`, `idempotency_key` si llegó, y la fecha del registro; nunca el token ni su hash.
 - **Sin evento:** `credencial.revocada.v1` sigue siendo un candidato sin consumidores.
+
+Detalles de HU011 (decisiones y contratos aprobados el 2026-10-12):
+
+- **Quién consulta:** el deportista, su propio historial (sin capacidad de plan: ADR-024 no define una para HU011); el `service_provider` con `training.history.view_assigned`, el de un deportista con autorización vigente (la de HU010). Otro actor o la ruta equivocada → `403 permission_required`; sin autorización vigente → `403 athlete_authorization_required`. El acceso del profesional se audita (`audit.training_history_access`).
+- **Autorización proyectada:** cada cambio real de la autorización (otorgar, revocar, reactivar) deja en la outbox, en la misma transacción, `autorizacion_entrenamiento.otorgada.v1` o `.revocada.v1` con el estado completo; `aggregate_id` es un UUIDv5 determinista de la pareja y la versión es la de la autorización. El proyector aplica un evento solo si su versión es mayor que la proyectada. Una revocación surte efecto en la consulta cuando el proyector la aplica. La migración de escritura `0003_authorization_backfill` publica un evento por cada autorización creada antes de HU011.
+- **Datos:** `entrenamiento.finalizado.v1` (`session_id`, `athlete_id`, `plan_id` opcional, `sport`, `started_at`, `ended_at`, `duration_seconds`, `status`), sin métricas de salud ni ubicación. **Todavía no tiene productor:** lo publicará HU032; hasta entonces el historial real está vacío.
+- **Filtros y orden (CA1, CA2):** `from` y `to` son fechas de fin inclusivas en UTC (`to` ≥ `from`); `sport` del catálogo de HU010. Orden `ended_at` descendente y, en empate, `session_id` descendente. Sin historial: `items: []` y `filters.sports` con los deportes disponibles.
+- **Paginación (CA4):** `limit` de 1 a 100 (20 por defecto) y `next_cursor` opaco; el cursor marca la última sesión entregada (keyset), así que las páginas no pierden ni repiten registros aunque lleguen sesiones nuevas. Cursor, rango o límite inválidos → `422 validation_error` con el parámetro en `details`.
 
 Detalles de HU010 (decisiones y contrato aprobados el 2026-10-12):
 
@@ -1180,6 +1189,10 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - IP real del usuario detrás del balanceador: Uvicorn solo confía en `X-Forwarded-For` de las IP en `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`), que debe fijar la plataforma;
   - revocación por incidente, MFA y recuperación de cuenta (el cierre de sesión ya existe: HU004);
   - clientes web y móvil (almacenamiento seguro y E2E).
+- HU011:
+  - HU032 debe publicar `entrenamiento.finalizado.v1` con el contrato aprobado; sin productor, el historial real está vacío;
+  - `T-HU011-WEB` (línea de tiempo con filtros y paginación) y la opción del historial en el menú del deportista, que la navegación vigente solo asigna al profesional;
+  - ratificar el SLA de frescura de la proyección (una revocación se aplica con el retraso del proyector).
 - HU010:
   - `usuarios-read-projector` (refactor de HU001): sin él, `POST /v1/users/lookup` no resuelve a nadie fuera de las pruebas y el flujo web no puede autorizar ni asignar;
   - `T-HU010-WEB`: pantallas de autorización (deportista) y de creación/asignación (profesional) contra `bff-web` 0.6.0, y E2E vertical;

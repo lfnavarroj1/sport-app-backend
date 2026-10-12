@@ -12,6 +12,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.database import DatabaseReadinessCheck, create_database_engine
 from sportapp_platform.tokens import CachedJwksVerifier
 from training_management.api.authorizations import build_authorizations_router
+from training_management.api.history import build_history_router
 from training_management.api.plans import build_plans_router
 from training_management.application.commands.authorizations import (
     GrantAuthorization,
@@ -19,10 +20,15 @@ from training_management.application.commands.authorizations import (
 )
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
 from training_management.application.queries.get_training_plan import GetTrainingPlan
+from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.infrastructure.authorization import ContractPermissionPolicy
 from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
+)
+from training_management.infrastructure.persistence_read.history import (
+    SqlAlchemyAuthorizationReader,
+    SqlAlchemyHistoryReader,
 )
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
 from training_management.infrastructure.persistence_write.unit_of_work import (
@@ -32,7 +38,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.2.0"
+API_VERSION = "0.3.0"
 
 
 def create_app(
@@ -48,6 +54,7 @@ def create_app(
     engine = create_database_engine(settings.database_write_url, settings)
     read_engine = create_database_engine(settings.database_read_url, settings)
     writes = sessionmaker(engine, expire_on_commit=False)
+    reads = sessionmaker(read_engine, expire_on_commit=False)
     users_http = users_http or httpx.Client(
         base_url=str(settings.users_management_base_url),
         timeout=settings.upstream_timeout_seconds,
@@ -96,9 +103,17 @@ def create_app(
                     clock=clock,
                 ),
                 get_plan=GetTrainingPlan(
-                    reader=SqlAlchemyPlanReader(sessionmaker(read_engine)),
+                    reader=SqlAlchemyPlanReader(reads),
                     permissions=permissions,
                     capabilities=capabilities,
+                ),
+            ),
+            build_history_router(
+                verify_token=verifier.verify,
+                get_history=GetTrainingHistory(
+                    reader=SqlAlchemyHistoryReader(reads),
+                    authorizations=SqlAlchemyAuthorizationReader(reads),
+                    permissions=permissions,
                 ),
             ),
         ],

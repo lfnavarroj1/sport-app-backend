@@ -171,6 +171,23 @@ class _Session:
         self.actor_type = identity.actor_type
 
 
+def authenticate_session(
+    verify_token: Callable[[str], VerifiedAccessToken], authorization: str | None
+) -> "_Session | Response":
+    """Token verificado del usuario, o la respuesta de error del BFF."""
+    token = _bearer_token(authorization)
+    if token is None:
+        return _unauthenticated()
+    try:
+        identity = verify_token(token)
+    except InvalidAccessToken:
+        return _unauthenticated()
+    except JwksUnavailable:
+        _logger.warning("bff.jwks_unavailable")
+        return _upstream_failure(UpstreamUnavailable())
+    return _Session(token, identity)
+
+
 def build_training_router(
     *,
     verify_token: Callable[[str], VerifiedAccessToken],
@@ -182,17 +199,7 @@ def build_training_router(
     router = APIRouter(tags=["training"])
 
     def authenticate(authorization: str | None) -> _Session | Response:
-        token = _bearer_token(authorization)
-        if token is None:
-            return _unauthenticated()
-        try:
-            identity = verify_token(token)
-        except InvalidAccessToken:
-            return _unauthenticated()
-        except JwksUnavailable:
-            _logger.warning("bff.jwks_unavailable")
-            return _upstream_failure(UpstreamUnavailable())
-        return _Session(token, identity)
+        return authenticate_session(verify_token, authorization)
 
     @router.post(
         "/v1/me/training-authorizations",

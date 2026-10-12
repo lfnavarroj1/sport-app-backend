@@ -57,6 +57,24 @@ class _SessionUnitOfWork:
         self.session.close()
         self._session = None
 
+    def add_outbox(self, message: OutboxMessage) -> None:
+        self.session.add(
+            OutboxEventRow(
+                event_id=message.event_id,
+                aggregate_type=message.aggregate_type,
+                aggregate_id=message.aggregate_id,
+                aggregate_version=message.aggregate_version,
+                event_type=message.event_type,
+                schema_version=message.schema_version,
+                occurred_at=message.occurred_at,
+                correlation_id=message.correlation_id,
+                causation_id=message.causation_id,
+                payload=message.payload,
+                attempts=0,
+                next_attempt_at=message.occurred_at,
+            )
+        )
+
 
 class SqlAlchemyPlanningUnitOfWork(_SessionUnitOfWork):
     def find_idempotency(self, key: UUID) -> IdempotencyRecord | None:
@@ -115,24 +133,6 @@ class SqlAlchemyPlanningUnitOfWork(_SessionUnitOfWork):
                 intensity_rpe=session.intensity_rpe,
             )
             for position, session in enumerate(plan.sessions)
-        )
-
-    def add_outbox(self, message: OutboxMessage) -> None:
-        self.session.add(
-            OutboxEventRow(
-                event_id=message.event_id,
-                aggregate_type=message.aggregate_type,
-                aggregate_id=message.aggregate_id,
-                aggregate_version=message.aggregate_version,
-                event_type=message.event_type,
-                schema_version=message.schema_version,
-                occurred_at=message.occurred_at,
-                correlation_id=message.correlation_id,
-                causation_id=message.causation_id,
-                payload=message.payload,
-                attempts=0,
-                next_attempt_at=message.occurred_at,
-            )
         )
 
     def add_idempotency(self, record: IdempotencyRecord) -> None:

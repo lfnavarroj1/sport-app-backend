@@ -12,6 +12,7 @@ from bff_web.api.registration import (
 )
 from bff_web.api.sessions import RETRY_AFTER_HEADER, RefreshCookie, build_sessions_router
 from bff_web.api.training import build_training_router
+from bff_web.api.training_history import build_training_history_router
 from bff_web.clients.affiliation_management import AffiliationManagementClient
 from bff_web.clients.training_management import TrainingManagementClient
 from bff_web.clients.users_management import UsersManagementClient
@@ -23,7 +24,7 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.7.0"
+API_VERSION = "0.8.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
@@ -61,6 +62,7 @@ def create_app(
         timeout=settings.upstream_timeout_seconds,
     )
     users = UsersManagementClient(users_http)
+    training = TrainingManagementClient(training_http)
     affiliation = AffiliationManagementClient(affiliation_http)
     verifier = CachedJwksVerifier(
         users.jwks, issuer=settings.jwt_issuer, audience=settings.jwt_audience
@@ -87,7 +89,13 @@ def create_app(
                 verify_token=verifier.verify,
                 permissions=permissions,
                 users=users,
-                training=TrainingManagementClient(training_http),
+                training=training,
+                channel=CHANNEL,
+            ),
+            build_training_history_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                training=training,
                 channel=CHANNEL,
             ),
         ],

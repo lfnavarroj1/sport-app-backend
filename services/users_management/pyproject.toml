@@ -1,0 +1,19 @@
+[project]
+name = "users-management"
+version = "0.1.0"
+description = "SportApp - Usuarios."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "argon2-cffi>=23.1",
+    "email-validator>=2.2",
+    "google-cloud-pubsub>=2.29",
+    "pyjwt[crypto]>=2.10",
+    "sportapp-platform",
+]
+
+[tool.uv.sources]
+sportapp-platform = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

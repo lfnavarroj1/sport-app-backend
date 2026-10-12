@@ -1,0 +1,49 @@
+import unittest
+from unittest import mock
+
+from argon2 import PasswordHasher
+
+from users_management.infrastructure.security.password_hashing import Argon2idPasswordHasher
+
+PASSWORD = "contraseña-muy-secreta"
+
+
+class Argon2idPasswordHasherTest(unittest.TestCase):
+    def test_hash_uses_argon2id_with_versioned_parameters(self) -> None:
+        password_hash = Argon2idPasswordHasher().hash(PASSWORD)
+
+        self.assertTrue(password_hash.startswith("$argon2id$v=19$m=19456,t=2,p=1$"))
+        self.assertNotIn(PASSWORD, password_hash)
+        self.assertTrue(PasswordHasher().verify(password_hash, PASSWORD))
+
+    def test_same_password_produces_different_salted_hashes(self) -> None:
+        hasher = Argon2idPasswordHasher()
+
+        self.assertNotEqual(hasher.hash(PASSWORD), hasher.hash(PASSWORD))
+
+    def test_verify_accepts_only_the_right_password(self) -> None:
+        """HU003 CA1/CA2."""
+        hasher = Argon2idPasswordHasher()
+        password_hash = hasher.hash(PASSWORD)
+
+        self.assertTrue(hasher.verify(password_hash, PASSWORD))
+        self.assertFalse(hasher.verify(password_hash, "otra-contraseña-larga"))
+        self.assertFalse(hasher.verify("no-es-un-hash", PASSWORD))
+
+    def test_missing_hash_is_verified_against_a_dummy_and_always_fails(self) -> None:
+        """HU003 CA2: un correo inexistente cuesta lo mismo que uno registrado."""
+        hasher = Argon2idPasswordHasher()
+
+        original = PasswordHasher.verify
+        with mock.patch.object(
+            PasswordHasher, "verify", autospec=True, side_effect=original
+        ) as verify:
+            self.assertFalse(hasher.verify(None, PASSWORD))
+
+        verify.assert_called_once()
+        _, dummy_hash, _ = verify.call_args.args
+        self.assertTrue(dummy_hash.startswith("$argon2id$v=19$m=19456,t=2,p=1$"))
+
+
+if __name__ == "__main__":
+    unittest.main()

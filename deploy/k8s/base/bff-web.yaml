@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bff-web
+  labels:
+    app.kubernetes.io/name: bff-web
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bff-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bff-web
+        app.kubernetes.io/component: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: sportapp/bff-web
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8000}
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            - name: USERS_MANAGEMENT_BASE_URL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
+            # HU003 (ADR-024): Service interno del clúster. En Cloud Run la plataforma lo sustituye.
+            - name: AFFILIATION_MANAGEMENT_BASE_URL
+              value: http://affiliation-management
+            # HU010: Service interno del clúster. En Cloud Run la plataforma lo sustituye.
+            - name: TRAINING_MANAGEMENT_BASE_URL
+              value: http://training-management
+            # Opcional: sin la clave, el BFF arranca y rechaza llamadas de otro origen.
+            - name: CORS_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: CORS_ALLOWED_ORIGINS, optional: true}
+            # Opcional (por defecto `strict`): `none` solo si web y BFF quedan en sitios distintos.
+            - name: REFRESH_COOKIE_SAME_SITE
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: REFRESH_COOKIE_SAME_SITE, optional: true}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          # Valores locales iniciales; la capacidad de GKE se fija con experimentos (ADR-011).
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bff-web
+  labels:
+    app.kubernetes.io/name: bff-web
+spec:
+  selector:
+    app.kubernetes.io/name: bff-web
+  ports:
+    - {name: http, port: 80, targetPort: http}

@@ -1,0 +1,12 @@
+**
+!pyproject.toml
+!uv.lock
+!libs/**
+!services/**
+!bff/**
+!contracts/authorization/**
+**/tests/**
+**/__pycache__/**
+**/*.pyc
+**/.mypy_cache/**
+**/.ruff_cache/**

@@ -1,0 +1,178 @@
+"""Modelos SQLAlchemy de la base única de Afiliación (ADR-024).
+
+Nunca se exponen como respuestas públicas.
+"""
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from sportapp_platform.database import new_metadata
+
+INBOX_PRIMARY_KEY = "pk_inbox_event"
+ACTIVE_SUBSCRIPTION_INDEX = "uq_subscription_active_user"
+
+
+class Base(DeclarativeBase):
+    metadata = new_metadata()
+
+
+class PlanRow(Base):
+    """Plan del catálogo. Lo precarga la migración; no existen comandos para editarlo."""
+
+    __tablename__ = "plan"
+    __table_args__ = (CheckConstraint("status IN ('ACTIVE', 'DEFINED')", name="status"),)
+
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(Text)
+    level: Mapped[int] = mapped_column(SmallInteger)
+    display_order: Mapped[int] = mapped_column(SmallInteger)
+    status: Mapped[str] = mapped_column(String(16))
+    is_default_for_athlete: Mapped[bool] = mapped_column(Boolean)
+    is_selectable: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PlanVersionRow(Base):
+    """Versión de un plan. Precio, moneda y periodicidad nulos = pendientes de aprobación."""
+
+    __tablename__ = "plan_version"
+
+    plan_code: Mapped[str] = mapped_column(ForeignKey("plan.code"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    catalog_version: Mapped[str] = mapped_column(String(40))
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str | None] = mapped_column(String(3))
+    periodicity: Mapped[str | None] = mapped_column(String(16))
+    terms: Mapped[str | None] = mapped_column(Text)
+
+
+class CapabilityRow(Base):
+    __tablename__ = "capability"
+    __table_args__ = (CheckConstraint("status IN ('ACTIVE')", name="status"),)
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    owner_domain: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16))
+
+
+class PlanVersionCapabilityRow(Base):
+    """Capacidades materializadas por versión: la herencia no se calcula en ejecución."""
+
+    __tablename__ = "plan_version_capability"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_code", "plan_version"], ["plan_version.plan_code", "plan_version.version"]
+        ),
+    )
+
+    plan_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    plan_version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    capability_code: Mapped[str] = mapped_column(ForeignKey("capability.code"), primary_key=True)
+    limits: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+
+class SubscriptionRow(Base):
+    __tablename__ = "subscription"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_code", "plan_version"], ["plan_version.plan_code", "plan_version.version"]
+        ),
+        CheckConstraint("status IN ('ACTIVE')", name="status"),
+        CheckConstraint("origin IN ('AUTO_REGISTRATION')", name="origin"),
+        # Nunca dos suscripciones activas para el mismo usuario (ADR-024).
+        Index(
+            ACTIVE_SUBSCRIPTION_INDEX,
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    subscription_id: Mapped[UUID] = mapped_column(primary_key=True)
+    # Referencia externa a Usuarios: nunca una clave foránea entre bases.
+    user_id: Mapped[UUID] = mapped_column(index=True)
+    plan_code: Mapped[str] = mapped_column(String(32))
+    plan_version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16))
+    origin: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class InboxEventRow(Base):
+    """Deduplicación por `event_id` de los eventos consumidos y su resultado."""
+
+    __tablename__ = "inbox_event"
+
+    event_id: Mapped[UUID] = mapped_column(primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(128))
+    user_id: Mapped[UUID]
+    result: Mapped[str] = mapped_column(String(32))
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class OutboxEventRow(Base):
+    """Outbox transaccional de `afiliacion-outbox-publisher` (CMP-002)."""
+
+    __tablename__ = "outbox_event"
+    __table_args__ = (
+        Index(
+            "idx_outbox_pending",
+            "next_attempt_at",
+            "occurred_at",
+            postgresql_where=text("published_at IS NULL"),
+        ),
+    )
+
+    event_id: Mapped[UUID] = mapped_column(primary_key=True)
+    aggregate_type: Mapped[str] = mapped_column(String(64))
+    aggregate_id: Mapped[UUID]
+    aggregate_version: Mapped[int] = mapped_column(BigInteger)
+    event_type: Mapped[str] = mapped_column(String(128))
+    schema_version: Mapped[int] = mapped_column(Integer)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    correlation_id: Mapped[UUID | None]
+    causation_id: Mapped[str | None] = mapped_column(String(128))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(256))
+
+
+class CatalogMetadataRow(Base):
+    """Versión de catálogo instalada; la sonda de disponibilidad la compara con la esperada."""
+
+    __tablename__ = "catalog_metadata"
+
+    catalog_version: Mapped[str] = mapped_column(String(40), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

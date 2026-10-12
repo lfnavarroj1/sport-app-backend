@@ -1,0 +1,34 @@
+# Instrucciones locales de agentes (no se versionan)
+CLAUDE.md
+.claude/settings.local.json
+
+# Documentación local de trabajo (no se versiona)
+docs/
+
+# Python y herramientas
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Reportes generados por los comandos de scripts/task.py y diagnósticos locales
+reports/
+diagnostico-k8s.txt
+
+# Configuración y secretos locales: solo se versionan los *.example
+.env
+.env.*
+!.env.example
+deploy/k8s/overlays/local/secrets.local.env
+deploy/k8s/overlays/local/jwt-private-key.local.pem
+
+# Editores y sistema
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store

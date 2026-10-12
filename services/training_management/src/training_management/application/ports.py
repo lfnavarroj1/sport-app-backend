@@ -206,6 +206,8 @@ class AuthorizationUnitOfWork(Transaction, Protocol):
 
     def update(self, authorization: TrainingAuthorization) -> None: ...
 
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
     def commit(self) -> None:
         """Traduce una inserción concurrente de la misma pareja a `AuthorizationConflict`."""
         ...
@@ -215,6 +217,65 @@ class PlanReader(Protocol):
     """Vista de lectura de planes (base de lectura, CQRS)."""
 
     def get(self, plan_id: UUID) -> PlanView | None: ...
+
+
+@dataclass(frozen=True)
+class AuthorizationView:
+    """Estado proyectado de la autorización deportista → profesional (HU011)."""
+
+    athlete_id: UUID
+    professional_id: UUID
+    status: str
+    version: int
+    granted_at: datetime
+    revoked_at: datetime | None
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == "ACTIVE"
+
+
+@dataclass(frozen=True)
+class SessionHistoryEntry:
+    """Sesión terminada en el historial de lectura (HU011); sin datos de salud."""
+
+    session_id: UUID
+    athlete_id: UUID
+    plan_id: UUID | None
+    sport: str
+    started_at: datetime
+    ended_at: datetime
+    duration_seconds: int
+    version: int
+
+
+@dataclass(frozen=True)
+class HistoryPosition:
+    """Posición del cursor: última sesión entregada en el orden `ended_at`, `session_id`."""
+
+    ended_at: datetime
+    session_id: UUID
+
+
+@dataclass(frozen=True)
+class HistoryQuery:
+    athlete_id: UUID
+    ended_from: datetime | None
+    ended_before: datetime | None
+    sport: str | None
+    after: HistoryPosition | None
+    limit: int
+
+
+class HistoryReader(Protocol):
+    def list(self, query: HistoryQuery) -> list[SessionHistoryEntry]:
+        """Hasta `limit` sesiones, de la más reciente a la más antigua, estrictamente después
+        de `after` en el orden (`ended_at` desc, `session_id` desc)."""
+        ...
+
+
+class AuthorizationReader(Protocol):
+    def get(self, athlete_id: UUID, professional_id: UUID) -> AuthorizationView | None: ...
 
 
 class DuplicateDelivery(Exception):
@@ -229,6 +290,20 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     def projected_version(self, plan_id: UUID) -> int | None: ...
 
     def add_plan_view(self, view: PlanView, projected_at: datetime) -> None: ...
+
+    def authorization_version(self, athlete_id: UUID, professional_id: UUID) -> int | None:
+        """Versión proyectada; bloquea la fila para aplicar las versiones en serie."""
+        ...
+
+    def save_authorization_view(self, view: AuthorizationView, projected_at: datetime) -> None:
+        """Inserta o reemplaza el estado proyectado de la pareja."""
+        ...
+
+    def session_version(self, session_id: UUID) -> int | None: ...
+
+    def save_session_entry(self, entry: SessionHistoryEntry, projected_at: datetime) -> None:
+        """Inserta o reemplaza la sesión terminada en el historial."""
+        ...
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

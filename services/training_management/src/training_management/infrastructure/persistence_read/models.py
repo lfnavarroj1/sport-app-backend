@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Date, DateTime, String
+from sqlalchemy import BigInteger, Date, DateTime, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -15,6 +15,8 @@ from sportapp_platform.database import new_metadata
 
 PROCESSED_EVENT_PRIMARY_KEY = "pk_processed_event"
 PLAN_VIEW_PRIMARY_KEY = "pk_training_plan_view"
+AUTHORIZATION_VIEW_PRIMARY_KEY = "pk_training_authorization_view"
+SESSION_HISTORY_PRIMARY_KEY = "pk_training_session_history"
 
 
 class ReadBase(DeclarativeBase):
@@ -37,6 +39,40 @@ class TrainingPlanViewRow(ReadBase):
     version: Mapped[int] = mapped_column(BigInteger)
     sessions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingAuthorizationViewRow(ReadBase):
+    """Autorización deportista → profesional proyectada (HU011, CA3)."""
+
+    __tablename__ = "training_authorization_view"
+
+    athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
+    professional_id: Mapped[UUID] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingSessionHistoryRow(ReadBase):
+    """Sesión terminada (HU011) a partir de `entrenamiento.finalizado.v1`; sin datos de salud."""
+
+    __tablename__ = "training_session_history"
+    __table_args__ = (
+        # Orden estable del historial y del cursor: `ended_at` desc, `session_id` desc.
+        Index("ix_training_session_history_athlete_order", "athlete_id", "ended_at", "session_id"),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID]
+    plan_id: Mapped[UUID | None]
+    sport: Mapped[str] = mapped_column(String(16))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(BigInteger)
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

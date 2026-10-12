@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/autorizacion_entrenamiento.otorgada.v1.schema.json",
+  "title": "autorizacion_entrenamiento.otorgada.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 (ordering_key = aggregate_id) cuando un deportista autoriza o reactiva la autorización de un profesional (HU010; evento aprobado el 2026-10-12 para HU011). Lleva el estado completo: la proyección aplica el evento solo si su versión es mayor que la proyectada.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "autorizacion_entrenamiento.otorgada.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "training-management"
+    },
+    "aggregate_type": {
+      "const": "training_authorization"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUIDv5 determinista de `athlete_id:professional_id` (espacio 7a1d6a52-3c0e-4f43-9a7e-2b9d6c1f0e11)."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "`null`, o `migration:0003_authorization_backfill` en los eventos del backfill."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "athlete_id",
+        "professional_id",
+        "status",
+        "granted_at",
+        "revoked_at"
+      ],
+      "properties": {
+        "athlete_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "professional_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "const": "ACTIVE"
+        },
+        "granted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "revoked_at": {
+          "type": "null"
+        }
+      }
+    }
+  }
+}

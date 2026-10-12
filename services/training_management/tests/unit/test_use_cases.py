@@ -92,6 +92,9 @@ class PlanningTestCase(unittest.TestCase):
     def authorize(self) -> None:
         self.grant(self.athlete, self.professional.user_id)
 
+    def plan_events(self) -> list[Any]:
+        return [m for m in self.store.outbox if m.event_type == "plan.entrenamiento_creado.v1"]
+
 
 class CreateTrainingPlanTest(PlanningTestCase):
     def test_authorized_professional_creates_plan_and_event(self) -> None:
@@ -106,7 +109,7 @@ class CreateTrainingPlanTest(PlanningTestCase):
         self.assertEqual(plan.professional_id, self.professional.user_id)
         self.assertEqual((plan.start_date, plan.end_date), (cmd.start_date, cmd.end_date))
         self.assertFalse(result.replayed)
-        [event] = self.store.outbox
+        [event] = self.plan_events()
         self.assertEqual(event.event_type, "plan.entrenamiento_creado.v1")
         self.assertEqual((event.aggregate_id, event.aggregate_version), (plan.plan_id, 1))
         self.assertEqual(event.causation_id, str(cmd.idempotency_key))
@@ -117,7 +120,7 @@ class CreateTrainingPlanTest(PlanningTestCase):
         with self.assertRaises(AthleteAuthorizationRequired):
             self.create(self.professional, command(self.athlete.user_id))
 
-        self.assertEqual((self.store.plans, self.store.outbox), ({}, []))
+        self.assertEqual((self.store.plans, self.plan_events()), ({}, []))
 
     def test_revoked_authorization_is_rejected(self) -> None:
         """CA2: relación revocada."""
@@ -155,7 +158,7 @@ class CreateTrainingPlanTest(PlanningTestCase):
             )
 
         self.assertTrue(raised.exception.violations)
-        self.assertEqual((self.store.plans, self.store.outbox), ({}, []))
+        self.assertEqual((self.store.plans, self.plan_events()), ({}, []))
 
     def test_idempotent_retry_returns_same_plan(self) -> None:
         """CA5: el reintento no duplica el plan."""
@@ -167,7 +170,7 @@ class CreateTrainingPlanTest(PlanningTestCase):
 
         self.assertTrue(second.replayed)
         self.assertEqual(second.plan, first.plan)
-        self.assertEqual((len(self.store.plans), len(self.store.outbox)), (1, 1))
+        self.assertEqual((len(self.store.plans), len(self.plan_events())), (1, 1))
 
     def test_same_key_with_other_payload_is_rejected(self) -> None:
         self.authorize()

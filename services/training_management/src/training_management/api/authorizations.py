@@ -19,6 +19,7 @@ from training_management.api.identity import (
     AUTH_RESPONSES,
     TokenVerifier,
     authenticate,
+    correlation_uuid,
     forbidden,
     unavailable,
 )
@@ -90,7 +91,7 @@ def build_authorizations_router(
         if isinstance(caller, Response):
             return caller
         try:
-            result = grant(caller, professional_id)
+            result = grant(caller, professional_id, correlation_uuid())
         except (PermissionRequired, CapabilityRequired) as error:
             return forbidden(error)
         except CapabilitiesUnavailable:
@@ -125,7 +126,7 @@ def build_authorizations_router(
         if isinstance(caller, Response):
             return caller
         try:
-            revoke(caller, professional_id)
+            revoke(caller, professional_id, correlation_uuid())
         except PermissionRequired as error:
             return forbidden(error)
         return Response(status_code=HTTPStatus.NO_CONTENT)

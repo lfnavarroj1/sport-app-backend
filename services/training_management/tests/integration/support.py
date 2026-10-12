@@ -7,7 +7,7 @@ from datetime import date
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, create_engine, func, select
+from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportapp_platform.migrations import upgrade
@@ -22,9 +22,14 @@ from training_management.application.commands.create_training_plan import (
     SessionInput,
 )
 from training_management.application.ports import Caller
-from training_management.application.projections.plan_projection import ProjectPlanCreated
+from training_management.application.projections.snapshot_projection import TrainingProjector
+from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.domain.plans.model import Sport
 from training_management.infrastructure.clock import SystemClock
+from training_management.infrastructure.persistence_read.history import (
+    SqlAlchemyAuthorizationReader,
+    SqlAlchemyHistoryReader,
+)
 from training_management.infrastructure.persistence_read.plans import (
     SqlAlchemyPlanReader,
     SqlAlchemyProjectionUnitOfWork,
@@ -43,6 +48,11 @@ class AlwaysCapable:
 
     def has_capability(self, user_id: UUID, capability: str) -> bool:
         return True
+
+
+class HistoryViewer:
+    def allows(self, actor_type: str, permission: str) -> bool:
+        return actor_type == "service_provider" and permission == "training.history.view_assigned"
 
 
 class AuthorOnly:
@@ -85,13 +95,26 @@ class TrainingDatabases:
             clock=SystemClock(),
         )
 
-    def project(self) -> ProjectPlanCreated:
-        return ProjectPlanCreated(
+    def project(self) -> TrainingProjector:
+        return TrainingProjector(
             unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.reads), clock=SystemClock()
+        )
+
+    def history(self) -> GetTrainingHistory:
+        return GetTrainingHistory(
+            reader=SqlAlchemyHistoryReader(self.reads),
+            authorizations=SqlAlchemyAuthorizationReader(self.reads),
+            permissions=HistoryViewer(),
         )
 
     def reader(self) -> SqlAlchemyPlanReader:
         return SqlAlchemyPlanReader(self.reads)
+
+    def discard_pending_outbox(self) -> None:
+        """Marca como publicados los eventos pendientes (p. ej., los de autorizaciones de HU011)
+        cuando la prueba se centra en los eventos posteriores."""
+        with self.writes() as session, session.begin():
+            session.execute(text("UPDATE outbox_event SET published_at = now()"))
 
     def count(self, model: Any, *, read: bool = False) -> int:
         with (self.reads if read else self.writes)() as session:

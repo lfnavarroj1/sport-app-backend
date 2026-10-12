@@ -1,4 +1,5 @@
-"""Base de lectura de planes: consulta (CA4) y transacción del proyector (CMP-003)."""
+"""Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
+proyector (CMP-003) para planes, autorizaciones e historial de sesiones (HU011)."""
 
 from datetime import date, datetime
 from types import TracebackType
@@ -6,15 +7,24 @@ from typing import Any, Self
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from training_management.application.ports import DuplicateDelivery, PlanView, SessionView
+from training_management.application.ports import (
+    AuthorizationView,
+    DuplicateDelivery,
+    PlanView,
+    SessionHistoryEntry,
+    SessionView,
+)
 from training_management.infrastructure.persistence_read.models import (
     PLAN_VIEW_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     ProcessedEventRow,
+    TrainingAuthorizationViewRow,
     TrainingPlanViewRow,
+    TrainingSessionHistoryRow,
 )
 
 
@@ -121,6 +131,67 @@ class SqlAlchemyProjectionUnitOfWork:
                 sessions=_sessions_document(view),
                 created_at=view.created_at,
                 projected_at=projected_at,
+            )
+        )
+
+    def authorization_version(self, athlete_id: UUID, professional_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(TrainingAuthorizationViewRow.version)
+            .where(
+                TrainingAuthorizationViewRow.athlete_id == athlete_id,
+                TrainingAuthorizationViewRow.professional_id == professional_id,
+            )
+            .with_for_update()
+        )
+        return version
+
+    def save_authorization_view(self, view: AuthorizationView, projected_at: datetime) -> None:
+        values = {
+            "athlete_id": view.athlete_id,
+            "professional_id": view.professional_id,
+            "status": view.status,
+            "version": view.version,
+            "granted_at": view.granted_at,
+            "revoked_at": view.revoked_at,
+            "projected_at": projected_at,
+        }
+        statement = insert(TrainingAuthorizationViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["athlete_id", "professional_id"],
+                set_={
+                    key: statement.excluded[key]
+                    for key in values
+                    if key not in ("athlete_id", "professional_id")
+                },
+            )
+        )
+
+    def session_version(self, session_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(TrainingSessionHistoryRow.version)
+            .where(TrainingSessionHistoryRow.session_id == session_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_session_entry(self, entry: SessionHistoryEntry, projected_at: datetime) -> None:
+        values = {
+            "session_id": entry.session_id,
+            "athlete_id": entry.athlete_id,
+            "plan_id": entry.plan_id,
+            "sport": entry.sport,
+            "started_at": entry.started_at,
+            "ended_at": entry.ended_at,
+            "duration_seconds": entry.duration_seconds,
+            "version": entry.version,
+            "projected_at": projected_at,
+        }
+        statement = insert(TrainingSessionHistoryRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["session_id"],
+                set_={key: statement.excluded[key] for key in values if key != "session_id"},
             )
         )
 

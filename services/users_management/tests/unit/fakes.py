@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from users_management.application.commands.login import Login
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
+from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.errors import IdempotencyKeyConflict
 from users_management.application.ports import (
     IdempotencyRecord,
@@ -134,6 +135,7 @@ class InMemoryAuthUnitOfWork:
         self.store = store
         self.throttle = throttle
         self._pending: list[Callable[[], None]] = []
+        self.locked_families: list[UUID] = []
 
     def __enter__(self) -> Self:
         return self
@@ -175,6 +177,9 @@ class InMemoryAuthUnitOfWork:
             self.store.refresh_tokens[token_id] = replace(token, used_at=used_at)
 
         self._pending.append(apply)
+
+    def lock_refresh_family(self, family_id: UUID) -> None:
+        self.locked_families.append(family_id)
 
     def revoke_refresh_family(self, family_id: UUID, revoked_at: datetime) -> None:
         def apply() -> None:
@@ -261,6 +266,12 @@ def refresh_with(
         token_issuer=issuer or FakeTokenIssuer(),
         clock=clock or FixedClock(),
         refresh_token_ttl=REFRESH_TTL,
+    )
+
+
+def revoke_with(store: InMemoryAuthStore, clock: FixedClock | None = None) -> RevokeSession:
+    return RevokeSession(
+        unit_of_work=lambda: InMemoryAuthUnitOfWork(store, THROTTLE), clock=clock or FixedClock()
     )
 
 

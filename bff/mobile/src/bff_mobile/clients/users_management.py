@@ -1,6 +1,7 @@
 """Cliente HTTP de `users_management` según su OpenAPI 0.3.0 (operaciones del canal móvil)."""
 
 from typing import Any
+from uuid import UUID
 
 import httpx
 
@@ -28,6 +29,13 @@ class UsersManagementClient:
 
     def refresh_session(self, payload: dict[str, Any]) -> httpx.Response:
         return self._post("/v1/sessions/refresh", payload, {})
+
+    def revoke_session(
+        self, payload: dict[str, Any], idempotency_key: UUID | None = None
+    ) -> httpx.Response:
+        """HU004: revoca la sesión del refresh token; el servicio responde `204` siempre."""
+        headers = {"Idempotency-Key": str(idempotency_key)} if idempotency_key else {}
+        return self._post("/v1/sessions/revoke", payload, headers)
 
     def jwks(self) -> dict[str, Any]:
         """Claves públicas de firma; un fallo se propaga para conservar el JWKS anterior."""

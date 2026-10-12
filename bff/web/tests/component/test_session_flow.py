@@ -129,6 +129,29 @@ class SessionFlowTest(unittest.TestCase):
         self.assertEqual(reused.json()["code"], "invalid_refresh_token")
         self.assertIn("Max-Age=0", reused.headers["set-cookie"])
 
+    def test_logout_revokes_the_session_and_clears_the_cookie(self) -> None:
+        """HU004 CA1-CA3 en web: la cookie anterior ya no renueva y repetir el cierre es seguro."""
+        self.login()
+        previous = self.bff.cookies.get(COOKIE)
+
+        closed = self.bff.post("/v1/sessions/revoke")
+        again = self.bff.post("/v1/sessions/revoke", headers={"Cookie": f"{COOKIE}={previous}"})
+        reused = self.bff.post("/v1/sessions/refresh", headers={"Cookie": f"{COOKIE}={previous}"})
+
+        self.assertEqual(closed.status_code, 204, closed.text)
+        self.assertIn("Max-Age=0", closed.headers["set-cookie"])
+        self.assertIsNone(self.bff.cookies.get(COOKIE))
+        self.assertEqual(again.status_code, 204)
+        self.assertEqual(reused.status_code, 401)
+        self.assertEqual(reused.json()["code"], "invalid_refresh_token")
+        with self.engine.connect() as connection:
+            live = connection.scalar(
+                select(func.count())
+                .select_from(RefreshTokenRow)
+                .where(RefreshTokenRow.revoked_at.is_(None))
+            )
+        self.assertEqual(live, 0)
+
     def test_session_requests_from_other_origins_are_rejected(self) -> None:
         """CSRF: un sitio ajeno no puede usar la cookie del usuario."""
         self.login()

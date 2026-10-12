@@ -267,4 +267,62 @@ def build_sessions_router(
         # 401 o 422 del servicio: la cookie no sirve y el usuario no puede corregirla.
         return invalid_refresh()
 
+    @router.post(
+        "/revoke",
+        status_code=HTTPStatus.NO_CONTENT,
+        summary="Cerrar sesión con la cookie (HU004)",
+        description=f"Sin cuerpo: revoca la sesión de la cookie `{REFRESH_COOKIE}` y la borra. "
+        "Siempre `204` si el servicio confirma, también sin cookie o con una sesión ya cerrada. "
+        "Si el servicio no responde (`503`/`504`) la cookie también se borra: el cierre local "
+        "queda garantizado, pero la revocación remota no se confirmó.",
+        responses={
+            HTTPStatus.NO_CONTENT.value: {
+                "description": "Sesión cerrada; la respuesta borra la cookie.",
+            },
+            **_UPSTREAM_ERRORS,
+        },
+    )
+    def revoke(
+        request: Request,
+        refresh_token: Annotated[str | None, Cookie(alias=REFRESH_COOKIE)] = None,
+    ) -> Response:
+        # Un origen ajeno no puede cerrar la sesión del usuario (CSRF): no se toca la cookie.
+        if (rejected := rejected_origin(request)) is not None:
+            return rejected
+        closed = Response(status_code=HTTPStatus.NO_CONTENT, headers={"Cache-Control": "no-store"})
+        if (
+            refresh_token is None
+            or not REFRESH_TOKEN_MIN_LENGTH <= len(refresh_token) <= REFRESH_TOKEN_MAX_LENGTH
+        ):
+            cookie.clear(closed)
+            return closed
+        token = refresh_token
+        try:
+            upstream = users.revoke_session({"refresh_token": token})
+        except (UpstreamTimeout, UpstreamUnavailable) as error:
+            failed = error_response(
+                HTTPStatus.GATEWAY_TIMEOUT
+                if isinstance(error, UpstreamTimeout)
+                else HTTPStatus.SERVICE_UNAVAILABLE,
+                error.code,
+                "Se cerró la sesión en este navegador, pero no se confirmó en el servidor.",
+            )
+            cookie.clear(failed)
+            return failed
+        if upstream.status_code not in (HTTPStatus.NO_CONTENT, HTTPStatus.UNPROCESSABLE_ENTITY):
+            _logger.warning(
+                "bff.upstream_unexpected_status",
+                extra={"fields": {"upstream": "users-management", "status": upstream.status_code}},
+            )
+            failed = error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                UpstreamUnavailable.code,
+                "Se cerró la sesión en este navegador, pero no se confirmó en el servidor.",
+            )
+            cookie.clear(failed)
+            return failed
+        # `422`: la cookie no tiene la forma de un refresh token; no hay sesión que revocar.
+        cookie.clear(closed)
+        return closed
+
     return router

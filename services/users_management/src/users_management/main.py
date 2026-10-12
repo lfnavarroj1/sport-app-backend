@@ -12,6 +12,7 @@ from users_management.api.sessions import build_jwks_router, build_sessions_rout
 from users_management.application.commands.login import Login
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
+from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.queries.lookup_user import LookupUserByEmail
 from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
@@ -27,7 +28,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.4.0"
+API_VERSION = "0.5.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -77,7 +78,13 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
         readiness_checks=[DatabaseReadinessCheck("database_write", engine)],
         routers=[
             build_registration_router(register_user),
-            build_sessions_router(login, refresh_session),
+            build_sessions_router(
+                login,
+                refresh_session,
+                RevokeSession(
+                    unit_of_work=lambda: SqlAlchemyAuthenticationUnitOfWork(sessions), clock=clock
+                ),
+            ),
             build_jwks_router(token_issuer.jwks()),
             build_lookup_router(lookup_user),
         ],

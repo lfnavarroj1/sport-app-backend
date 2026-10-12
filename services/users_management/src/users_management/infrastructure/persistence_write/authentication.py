@@ -141,6 +141,13 @@ class SqlAlchemyAuthenticationUnitOfWork:
             .values(used_at=used_at, replaced_by=replaced_by)
         )
 
+    def lock_refresh_family(self, family_id: UUID) -> None:
+        self.session.execute(
+            select(RefreshTokenRow.token_id)
+            .where(RefreshTokenRow.family_id == family_id)
+            .with_for_update()
+        )
+
     def revoke_refresh_family(self, family_id: UUID, revoked_at: datetime) -> None:
         self.session.execute(
             update(RefreshTokenRow)

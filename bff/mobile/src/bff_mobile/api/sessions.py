@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 
@@ -25,6 +25,7 @@ from bff_mobile.clients.users_management import (
 from sportapp_platform.errors import ErrorResponse, error_response
 
 RETRY_AFTER_HEADER = "Retry-After"
+IDEMPOTENCY_HEADER = "Idempotency-Key"
 _PASSTHROUGH_STATUSES = {
     HTTPStatus.OK,
     HTTPStatus.UNAUTHORIZED,
@@ -151,5 +152,49 @@ def build_sessions_router(users: UsersManagementClient) -> APIRouter:
     def refresh(body: RefreshSessionRequest) -> Response:
         payload = {"refresh_token": body.refresh_token.get_secret_value()}
         return _relay(lambda: users.refresh_session(payload))
+
+    @router.post(
+        "/revoke",
+        status_code=HTTPStatus.NO_CONTENT,
+        summary="Cerrar sesión (HU004)",
+        description="Revoca la sesión del refresh token. Siempre `204` si el servicio confirma, "
+        "también con una sesión ya cerrada o desconocida (idempotente). Con `503`/`504` la "
+        "revocación remota no se confirmó: la aplicación conserva la credencial en su cola "
+        "cifrada y reintenta (ADR-026, CA6-CA7). `Idempotency-Key` (UUID) es opcional y la cola "
+        "la repite en cada reintento.",
+        responses={HTTPStatus.UNPROCESSABLE_ENTITY.value: _VALIDATION, **_UPSTREAM_ERRORS},
+    )
+    def revoke(
+        body: RefreshSessionRequest,
+        idempotency_key: Annotated[UUID | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
+    ) -> Response:
+        payload = {"refresh_token": body.refresh_token.get_secret_value()}
+        try:
+            upstream = users.revoke_session(payload, idempotency_key)
+        except UpstreamTimeout as error:
+            return error_response(
+                HTTPStatus.GATEWAY_TIMEOUT, error.code, "El servicio de usuarios no respondió."
+            )
+        except UpstreamUnavailable as error:
+            return error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error.code,
+                "El servicio de usuarios no está disponible.",
+            )
+        if upstream.status_code == HTTPStatus.NO_CONTENT:
+            return Response(
+                status_code=HTTPStatus.NO_CONTENT, headers={"Cache-Control": "no-store"}
+            )
+        if upstream.status_code == HTTPStatus.UNPROCESSABLE_ENTITY:
+            return JSONResponse(status_code=upstream.status_code, content=upstream.json())
+        _logger.warning(
+            "bff.upstream_unexpected_status",
+            extra={"fields": {"upstream": "users-management", "status": upstream.status_code}},
+        )
+        return error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            UpstreamUnavailable.code,
+            "El servicio de usuarios no está disponible.",
+        )
 
     return router

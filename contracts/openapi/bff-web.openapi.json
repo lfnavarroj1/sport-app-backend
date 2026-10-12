@@ -656,7 +656,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.6.0"
+    "version": "0.7.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1201,6 +1201,79 @@
           }
         },
         "summary": "Renovar la sesión con la cookie (HU003)",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/v1/sessions/revoke": {
+      "post": {
+        "description": "Sin cuerpo: revoca la sesión de la cookie `__Secure-sportapp_refresh` y la borra. Siempre `204` si el servicio confirma, también sin cookie o con una sesión ya cerrada. Si el servicio no responde (`503`/`504`) la cookie también se borra: el cierre local queda garantizado, pero la revocación remota no se confirmó.",
+        "operationId": "revoke_v1_sessions_revoke_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "__Secure-sportapp_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Secure-Sportapp Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Sesión cerrada; la respuesta borra la cookie."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`origin_not_allowed`: falta `Origin` o no está en la lista permitida."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Cerrar sesión con la cookie (HU004)",
         "tags": [
           "sessions"
         ]

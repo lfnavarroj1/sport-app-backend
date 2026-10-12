@@ -44,6 +44,7 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 | --- | --- | --- | --- |
 | HU001 Registrar usuario | `POST /v1/users` (público, `Idempotency-Key` obligatorio); interno: `GET /v1/subscriptions/by-user/{user_id}/capabilities` en Afiliación | `bff_web` → `users_management` → `user_account` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` → consumidor del alta gratuita de `affiliation_management` → `subscription` `FREE` + `outbox_event` → `afiliacion-outbox-publisher` → `sportapp.afiliacion.v1` | OpenAPI de `users-management`, `bff-web` y `affiliation-management` (0.2.0); eventos `usuario.registrado.v1` y `suscripcion.activada.v1` |
 | HU003 Iniciar sesión | `POST /v1/sessions` y `POST /v1/sessions/refresh` (públicos); `GET /v1/me/capabilities` (con access token) en ambos BFF; `GET /.well-known/jwks.json` solo en el servicio | `bff_web` y `bff_mobile` → `users_management` → `refresh_token` + `login_failure_window`; para capacidades, BFF → JWKS de Usuarios + `actor-permissions.v1` + Afiliación (solo `athlete`) | OpenAPI 0.3.0 de `users-management`, 0.5.0 de `bff-web` (refresh en cookie `HttpOnly`) y 0.3.0 de `bff-mobile`; contrato `contracts/authorization/actor-permissions.v1.json`; sin eventos |
+| HU004 Cerrar sesión | `POST /v1/sessions/revoke` en el servicio y en ambos BFF (web: sin cuerpo, con la cookie y `Origin` permitido; móvil: `{refresh_token}`) | `bff_web` y `bff_mobile` → `users_management` → revoca la familia en `refresh_token` | OpenAPI 0.5.0 de `users-management`, 0.7.0 de `bff-web` y 0.4.0 de `bff-mobile`; sin eventos |
 | HU010 Crear plan de entrenamiento | `POST /v1/me/training-authorizations` y `DELETE /v1/me/training-authorizations/{professional_id}` (deportista); `POST /v1/training-plans` (`Idempotency-Key` obligatorio) y `GET /v1/training-plans/{plan_id}`, todos con access token; internos: `POST /v1/users/lookup` en Usuarios y las mismas rutas por identificador en Entrenamientos | `bff_web` → `users_management` (lookup en la base de lectura) → `training_management` → `training_authorization` / `training_plan` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `training_plan_view` | OpenAPI 0.4.0 de `users-management`, 0.2.0 de `training-management` y 0.6.0 de `bff-web`; evento `plan.entrenamiento_creado.v1` |
 
 Detalles de HU001:
@@ -183,6 +184,16 @@ En PowerShell, `TEST_DATABASE_URL` se define con `$env:TEST_DATABASE_URL = "post
 Hook local, una sola vez por clon: `git config core.hooksPath .githooks`.
 
 Componentes: `users-management`, `affiliation-management`, `complementary-services`, `training-management`, `events-management`, `third-party-management`, `bff-web`, `bff-mobile`.
+
+Detalles de HU004 (decisiones y contrato aprobados el 2026-10-12):
+
+- **Qué revoca:** toda la sesión (familia) del refresh token presentado, incluidos los tokens ya rotados y el sucesor de una renovación en curso: la revocación bloquea la familia antes de actualizarla. Otras sesiones del mismo usuario siguen activas. Sin migración: usa `refresh_token.revoked_at` de HU003.
+- **Idempotente y sin revelar nada:** siempre `204`, también con un token desconocido, vencido o ya revocado; repetir el cierre no cambia la fecha de revocación ni reactiva la sesión. Después, `POST /v1/sessions/refresh` responde `401 invalid_refresh_token`.
+- **Access token:** no se invalida; expira por su vigencia corta (≤ 15 min, HU003). No se agregó ningún claim ni consulta de revocación.
+- **Web:** `POST /v1/sessions/revoke` sin cuerpo lee la cookie `__Secure-sportapp_refresh` (su `Path=/v1/sessions` ya la envía) y exige un `Origin` permitido (`403 origin_not_allowed`, sin tocar la cookie). Responde `204` y borra la cookie, también sin cookie. Si Usuarios no responde (`503`/`504`) **también borra la cookie**: el cierre local queda garantizado, aunque la revocación remota no se confirmó.
+- **Móvil:** `POST /v1/sessions/revoke` con `{"refresh_token": "..."}` y `Idempotency-Key` (UUID) **opcional**; `204`, `422 validation_error`, `503 upstream_unavailable` o `504 upstream_timeout`. Con `503`/`504` la aplicación guarda la credencial en su cola cifrada de revocación y reintenta (ADR-026, CA6-CA7) repitiendo la misma clave. La clave no se persiste (el token ya hace idempotente la revocación); se registra en la auditoría para correlacionar reintentos. Acepta cualquier refresh token válido: revocar nunca amplía acceso; el rechazo de actores no deportistas al iniciar sesión sigue pendiente en HU003.
+- **Auditoría (CA4):** `audit.session_revoke` con `result` (`revoked`, `already_revoked` o `unknown`), `user_id`, `family_id`, `idempotency_key` si llegó, y la fecha del registro; nunca el token ni su hash.
+- **Sin evento:** `credencial.revocada.v1` sigue siendo un candidato sin consumidores.
 
 Detalles de HU010 (decisiones y contrato aprobados el 2026-10-12):
 
@@ -1167,7 +1178,7 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - procedimiento de rotación de la clave de firma (el JWKS ya admite varias claves; falta publicar la anterior durante la transición);
   - purga de refresh tokens vencidos y de ventanas de intentos antiguas;
   - IP real del usuario detrás del balanceador: Uvicorn solo confía en `X-Forwarded-For` de las IP en `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`), que debe fijar la plataforma;
-  - revocación por incidente y cierre de sesión (HU004), MFA y recuperación de cuenta;
+  - revocación por incidente, MFA y recuperación de cuenta (el cierre de sesión ya existe: HU004);
   - clientes web y móvil (almacenamiento seguro y E2E).
 - HU010:
   - `usuarios-read-projector` (refactor de HU001): sin él, `POST /v1/users/lookup` no resuelve a nadie fuera de las pruebas y el flujo web no puede autorizar ni asignar;
@@ -1177,4 +1188,8 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - `POST /v1/me/training-authorizations` responde `404 professional_not_found`, lo que permite a un deportista saber si un correo es de un profesional (riesgo aceptado o mitigación pendiente);
   - listados (planes de un deportista, autorizaciones vigentes) y edición/versionado de planes quedan fuera de HU010;
   - purga de claves de idempotencia vencidas, igual que en HU001.
+- HU004:
+  - `T-HU004-WEB` y `T-HU004-MOB` (contratos `bff-web` 0.7.0 y `bff-mobile` 0.4.0 disponibles) y los E2E de ambos canales;
+  - revocación inmediata de access tokens: descartada por ahora (vigencia corta de 15 min); revisar si cambia la política de seguridad;
+  - purga de refresh tokens revocados o vencidos (pendiente compartido con HU003).
 - Ubicación ratificada de Playwright para API/E2E. Las pruebas de componente BFF → servicio ya existen para HU001 (`bff/web/tests/component`).

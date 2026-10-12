@@ -26,6 +26,8 @@ class OpenApiContractTest(unittest.TestCase):
                 app_env="test",
                 database_write_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
                 database_read_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
+                users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
+                affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
             )
         )
 

@@ -9,6 +9,7 @@ SETTINGS = BffWebSettings(
     app_env="test",
     users_management_base_url="http://users.invalid",
     affiliation_management_base_url="http://affiliation.invalid",
+    training_management_base_url="http://training.invalid",
 )
 
 

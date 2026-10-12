@@ -6,7 +6,7 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
-from users_management.domain.account.model import UserAccount
+from users_management.domain.account.model import ActorType, UserAccount
 from users_management.domain.authentication.model import FailureWindow, RefreshToken
 
 
@@ -136,3 +136,17 @@ class AuthenticationUnitOfWork(Protocol):
     def revoke_refresh_family(self, family_id: UUID, revoked_at: datetime) -> None: ...
 
     def commit(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class UserReference:
+    """Identidad mínima resuelta por correo (HU010); sin nombre, correo ni credenciales."""
+
+    user_id: UUID
+    actor_type: ActorType
+
+
+class UserDirectory(Protocol):
+    """Directorio de identidad en la base de lectura."""
+
+    def find_active_by_email(self, email: str) -> UserReference | None: ...

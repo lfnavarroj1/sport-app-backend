@@ -39,6 +39,8 @@ class BffWebSettings(ServiceSettings):
     refresh_cookie_same_site: Literal["strict", "lax", "none"] = "strict"
     # HU003 CA7-CA10 (ADR-024/025): composición de `GET /v1/me/capabilities`.
     affiliation_management_base_url: AnyHttpUrl
+    # HU010: autorización del deportista y planes de entrenamiento.
+    training_management_base_url: AnyHttpUrl
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
     jwt_audience: str = Field(default="sportapp", min_length=1, max_length=128)

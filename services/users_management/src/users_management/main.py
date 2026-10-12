@@ -6,13 +6,16 @@ from sqlalchemy.orm import sessionmaker
 from sportapp_platform.app import create_service_app
 from sportapp_platform.config import load_settings
 from sportapp_platform.database import DatabaseReadinessCheck, create_database_engine
+from users_management.api.lookup import build_lookup_router
 from users_management.api.registration import build_registration_router
 from users_management.api.sessions import build_jwks_router, build_sessions_router
 from users_management.application.commands.login import Login
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
+from users_management.application.queries.lookup_user import LookupUserByEmail
 from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
+from users_management.infrastructure.persistence_read.directory import SqlAlchemyUserDirectory
 from users_management.infrastructure.persistence_write.authentication import (
     SqlAlchemyAuthenticationUnitOfWork,
 )
@@ -24,13 +27,16 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.3.0"
+API_VERSION = "0.4.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
     settings = settings or load_settings(UsersManagementSettings)
     engine = create_database_engine(settings.database_write_url, settings)
     sessions = sessionmaker(engine, expire_on_commit=False)
+    # Consultas (HU010) desde la base de lectura; el motor es perezoso y no afecta readiness.
+    read_engine = create_database_engine(settings.database_read_url, settings)
+    lookup_user = LookupUserByEmail(SqlAlchemyUserDirectory(sessionmaker(read_engine)))
     clock = SystemClock()
     passwords = Argon2idPasswordHasher()
     register_user = RegisterUser(
@@ -73,6 +79,7 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
             build_registration_router(register_user),
             build_sessions_router(login, refresh_session),
             build_jwks_router(token_issuer.jwks()),
+            build_lookup_router(lookup_user),
         ],
-        shutdown_hooks=[engine.dispose],
+        shutdown_hooks=[engine.dispose, read_engine.dispose],
     )

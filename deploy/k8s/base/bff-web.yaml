@@ -41,6 +41,9 @@ spec:
             # HU003 (ADR-024): Service interno del clúster. En Cloud Run la plataforma lo sustituye.
             - name: AFFILIATION_MANAGEMENT_BASE_URL
               value: http://affiliation-management
+            # HU010: Service interno del clúster. En Cloud Run la plataforma lo sustituye.
+            - name: TRAINING_MANAGEMENT_BASE_URL
+              value: http://training-management
             # Opcional: sin la clave, el BFF arranca y rechaza llamadas de otro origen.
             - name: CORS_ALLOWED_ORIGINS
               valueFrom:

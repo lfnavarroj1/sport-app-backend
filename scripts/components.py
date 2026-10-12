@@ -65,6 +65,12 @@ _AFFILIATION = {**_SINGLE, "AFFILIATION_EXPECTED_CATALOG_VERSION": "contract"}
 _BFF = {
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
     "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
+    "TRAINING_MANAGEMENT_BASE_URL": "http://training-management.invalid",
+}
+_TRAINING = {
+    **_CQRS,
+    "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
+    "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
 }
 
 COMPONENTS = (
@@ -87,7 +93,9 @@ COMPONENTS = (
         "services/complementary_services",
         _SINGLE,
     ),
-    Component("training-management", "training_management", "services/training_management", _CQRS),
+    Component(
+        "training-management", "training_management", "services/training_management", _TRAINING
+    ),
     Component("events-management", "events_management", "services/events_management", _CQRS),
     Component(
         "third-party-management", "third_party_management", "services/third_party_management"

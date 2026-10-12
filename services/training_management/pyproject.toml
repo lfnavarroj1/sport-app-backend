@@ -3,7 +3,10 @@ name = "training-management"
 version = "0.1.0"
 description = "SportApp - Entrenamientos."
 requires-python = ">=3.13,<3.14"
-dependencies = ["sportapp-platform"]
+dependencies = [
+    "google-cloud-pubsub>=2.29",
+    "sportapp-platform",
+]
 
 [tool.uv.sources]
 sportapp-platform = { workspace = true }

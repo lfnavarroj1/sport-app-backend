@@ -1,4 +1,4 @@
-"""Cliente HTTP de `users_management` según su OpenAPI 0.3.0."""
+"""Cliente HTTP de `users_management` según su OpenAPI 0.4.0."""
 
 from typing import Any
 from uuid import UUID
@@ -33,6 +33,19 @@ class UsersManagementClient:
 
     def refresh_session(self, payload: dict[str, Any]) -> httpx.Response:
         return self._post("/v1/sessions/refresh", payload, {})
+
+    def lookup_user(self, email: str) -> dict[str, Any] | None:
+        """HU010: `user_id` y `actor_type` de una cuenta activa con ese correo exacto.
+
+        `None` si no existe; cualquier otra respuesta inesperada es indisponibilidad.
+        """
+        response = self._post("/v1/users/lookup", {"email": email}, {})
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return None
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        document: dict[str, Any] = response.json()
+        return document
 
     def jwks(self) -> dict[str, Any]:
         """Claves públicas de firma; un fallo se propaga para conservar el JWKS anterior."""

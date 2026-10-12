@@ -19,7 +19,7 @@ READ_HISTORY = "users_management.infrastructure.persistence_read:migrations"
 
 class DatabaseIntegrationTest(unittest.TestCase):
     def test_each_history_migrates_from_empty_database_to_head(self) -> None:
-        expected = {WRITE_HISTORY: "0003_authenticate_user", READ_HISTORY: "0001_baseline"}
+        expected = {WRITE_HISTORY: "0003_authenticate_user", READ_HISTORY: "0002_user_directory"}
         for script_location, revision in expected.items():
             with (
                 self.subTest(history=script_location),
@@ -51,13 +51,17 @@ class DatabaseIntegrationTest(unittest.TestCase):
 
                 self.assertEqual(differences, [])
 
-    def test_write_history_downgrades_to_baseline(self) -> None:
-        with temporary_database("users_management_downgrade") as url:
-            upgrade(WRITE_HISTORY, url)
+    def test_each_history_downgrades_to_baseline(self) -> None:
+        for history in (WRITE_HISTORY, READ_HISTORY):
+            with (
+                self.subTest(history=history),
+                temporary_database("users_management_downgrade") as url,
+            ):
+                upgrade(history, url)
 
-            downgrade(WRITE_HISTORY, url, "0001_baseline")
+                downgrade(history, url, "0001_baseline")
 
-            self.assertEqual(current_revision(url), "0001_baseline")
+                self.assertEqual(current_revision(url), "0001_baseline")
 
     def test_ready_against_real_postgres(self) -> None:
         with temporary_database("users_management_app") as url:

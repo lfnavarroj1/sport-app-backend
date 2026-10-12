@@ -45,6 +45,12 @@ spec:
               value: "postgresql+psycopg://entrenamientos:$(DB_PASSWORD)@$(DATABASE_HOST):5432/entrenamientos_write"
             - name: DATABASE_READ_URL
               value: "postgresql+psycopg://entrenamientos:$(DB_PASSWORD)@$(DATABASE_HOST):5432/entrenamientos_read"
+            # HU010: JWKS de Usuarios (identidad) y capacidades del deportista en Afiliación.
+            - name: USERS_MANAGEMENT_BASE_URL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
+            - name: AFFILIATION_MANAGEMENT_BASE_URL
+              value: http://affiliation-management
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10
@@ -166,6 +172,132 @@ spec:
             - --url-env
             - DATABASE_READ_URL
           env:
+            - name: DATABASE_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: DATABASE_HOST}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: sportapp-database, key: ENTRENAMIENTOS_DB_PASSWORD}
+            - name: DATABASE_READ_URL
+              value: "postgresql+psycopg://entrenamientos:$(DB_PASSWORD)@$(DATABASE_HOST):5432/entrenamientos_read"
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+# entrenamientos-outbox-publisher (CMP-003, HU010): publica outbox_event en
+# sportapp.entrenamientos.v1 con plan_id como clave de orden. Sin endpoint HTTP.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training-management-outbox-publisher
+  labels:
+    app.kubernetes.io/name: training-management-outbox-publisher
+    app.kubernetes.io/component: outbox-publisher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: training-management-outbox-publisher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: training-management-outbox-publisher
+        app.kubernetes.io/component: outbox-publisher
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: publisher
+          image: sportapp/training-management
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, training_management.workers.outbox_publisher]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+            - name: PUBSUB_PROJECT_ID
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_PROJECT_ID}
+            - name: PUBSUB_EMULATOR_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_EMULATOR_HOST, optional: true}
+            - name: DATABASE_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: DATABASE_HOST}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: sportapp-database, key: ENTRENAMIENTOS_DB_PASSWORD}
+            - name: DATABASE_WRITE_URL
+              value: "postgresql+psycopg://entrenamientos:$(DB_PASSWORD)@$(DATABASE_HOST):5432/entrenamientos_write"
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+# entrenamientos-read-projector (CMP-003, HU010): consume proyector-entrenamientos-v1 y
+# construye la base de lectura. El tópico, la suscripción y la DLQ los crea la
+# plataforma (en local, el Job `training-management-pubsub-setup` del overlay).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training-management-read-projector
+  labels:
+    app.kubernetes.io/name: training-management-read-projector
+    app.kubernetes.io/component: read-projector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: training-management-read-projector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: training-management-read-projector
+        app.kubernetes.io/component: read-projector
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: projector
+          image: sportapp/training-management
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, training_management.workers.read_projector]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            - name: PUBSUB_PROJECT_ID
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_PROJECT_ID}
+            - name: PUBSUB_EMULATOR_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_EMULATOR_HOST, optional: true}
             - name: DATABASE_HOST
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: DATABASE_HOST}

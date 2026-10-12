@@ -1,0 +1,137 @@
+"""Bases de escritura y lectura de Entrenamientos migradas, y casos de uso reales."""
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import Engine, create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from sportapp_platform.migrations import upgrade
+from sportapp_platform.testing.postgres import temporary_database
+from training_management.application.commands.authorizations import (
+    GrantAuthorization,
+    RevokeAuthorization,
+)
+from training_management.application.commands.create_training_plan import (
+    CreateTrainingPlan,
+    CreateTrainingPlanCommand,
+    SessionInput,
+)
+from training_management.application.ports import Caller
+from training_management.application.projections.plan_projection import ProjectPlanCreated
+from training_management.domain.plans.model import Sport
+from training_management.infrastructure.clock import SystemClock
+from training_management.infrastructure.persistence_read.plans import (
+    SqlAlchemyPlanReader,
+    SqlAlchemyProjectionUnitOfWork,
+)
+from training_management.infrastructure.persistence_write.unit_of_work import (
+    SqlAlchemyAuthorizationUnitOfWork,
+    SqlAlchemyPlanningUnitOfWork,
+)
+
+WRITE_HISTORY = "training_management.infrastructure.persistence_write:migrations"
+READ_HISTORY = "training_management.infrastructure.persistence_read:migrations"
+
+
+class AlwaysCapable:
+    """El deportista tiene `training.plan.manage` (Afiliación se prueba en su servicio)."""
+
+    def has_capability(self, user_id: UUID, capability: str) -> bool:
+        return True
+
+
+class AuthorOnly:
+    def allows(self, actor_type: str, permission: str) -> bool:
+        return actor_type == "service_provider" and permission == "training.plan.author"
+
+
+@dataclass
+class TrainingDatabases:
+    write_url: str
+    read_url: str
+    write_engine: Engine
+    read_engine: Engine
+
+    @property
+    def writes(self) -> sessionmaker[Session]:
+        return sessionmaker(self.write_engine, expire_on_commit=False)
+
+    @property
+    def reads(self) -> sessionmaker[Session]:
+        return sessionmaker(self.read_engine, expire_on_commit=False)
+
+    def create_plan(self) -> CreateTrainingPlan:
+        return CreateTrainingPlan(
+            unit_of_work=lambda: SqlAlchemyPlanningUnitOfWork(self.writes),
+            permissions=AuthorOnly(),
+            clock=SystemClock(),
+        )
+
+    def grant(self) -> GrantAuthorization:
+        return GrantAuthorization(
+            unit_of_work=lambda: SqlAlchemyAuthorizationUnitOfWork(self.writes),
+            capabilities=AlwaysCapable(),
+            clock=SystemClock(),
+        )
+
+    def revoke(self) -> RevokeAuthorization:
+        return RevokeAuthorization(
+            unit_of_work=lambda: SqlAlchemyAuthorizationUnitOfWork(self.writes),
+            clock=SystemClock(),
+        )
+
+    def project(self) -> ProjectPlanCreated:
+        return ProjectPlanCreated(
+            unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.reads), clock=SystemClock()
+        )
+
+    def reader(self) -> SqlAlchemyPlanReader:
+        return SqlAlchemyPlanReader(self.reads)
+
+    def count(self, model: Any, *, read: bool = False) -> int:
+        with (self.reads if read else self.writes)() as session:
+            return session.scalar(select(func.count()).select_from(model)) or 0
+
+
+@contextmanager
+def training_databases(prefix: str) -> Iterator[TrainingDatabases]:
+    with (
+        temporary_database(f"{prefix}_write") as write_url,
+        temporary_database(f"{prefix}_read") as read_url,
+    ):
+        upgrade(WRITE_HISTORY, write_url)
+        upgrade(READ_HISTORY, read_url)
+        write_engine = create_engine(write_url, pool_size=10, max_overflow=10)
+        read_engine = create_engine(read_url, pool_size=10, max_overflow=10)
+        try:
+            yield TrainingDatabases(write_url, read_url, write_engine, read_engine)
+        finally:
+            write_engine.dispose()
+            read_engine.dispose()
+
+
+def athlete_and_professional() -> tuple[Caller, Caller]:
+    return Caller(uuid4(), "athlete"), Caller(uuid4(), "service_provider")
+
+
+def plan_command(athlete_id: UUID, **overrides: Any) -> CreateTrainingPlanCommand:
+    values: dict[str, Any] = {
+        "athlete_id": athlete_id,
+        "title": "Base aeróbica",
+        "objectives": ("Correr 10 km",),
+        "start_date": date(2026, 11, 2),
+        "end_date": date(2026, 11, 29),
+        "sessions": (
+            SessionInput(date(2026, 11, 2), Sport.RUNNING, 40, 5),
+            SessionInput(date(2026, 11, 4), Sport.STRENGTH, 30, 6),
+        ),
+        "idempotency_key": uuid4(),
+        "correlation_id": uuid4(),
+    }
+    values.update(overrides)
+    return CreateTrainingPlanCommand(**values)

@@ -1,4 +1,5 @@
 """HU003: `POST /v1/sessions`, `POST /v1/sessions/refresh` y `GET /.well-known/jwks.json`.
+HU004: `POST /v1/sessions/revoke` (contrato aprobado el 2026-10-12).
 
 Contrato aprobado el 2026-10-10: tokens en el cuerpo JSON, access JWT EdDSA de
 corta vida y refresh token opaco rotativo. Los errores de credenciales son
@@ -20,6 +21,10 @@ from users_management.application.commands.refresh_session import (
     RefreshSession,
     RefreshSessionCommand,
 )
+from users_management.application.commands.revoke_session import (
+    RevokeSession,
+    RevokeSessionCommand,
+)
 from users_management.application.commands.sessions import SessionResult
 from users_management.domain.account.model import EMAIL_MAX_LENGTH, PASSWORD_MAX_LENGTH, ActorType
 from users_management.domain.authentication.errors import (
@@ -29,6 +34,7 @@ from users_management.domain.authentication.errors import (
 )
 
 CLIENT_IP_HEADER = "X-Client-IP"
+IDEMPOTENCY_HEADER = "Idempotency-Key"
 RETRY_AFTER_HEADER = "Retry-After"
 # Los tokens son credenciales: ninguna caché intermedia debe guardarlos.
 NO_STORE = {"Cache-Control": "no-store"}
@@ -118,7 +124,9 @@ _INVALID_CREDENTIALS = {
 _VALIDATION = {"model": ErrorResponse, "description": "`validation_error`."}
 
 
-def build_sessions_router(login: Login, refresh_session: RefreshSession) -> APIRouter:
+def build_sessions_router(
+    login: Login, refresh_session: RefreshSession, revoke_session: RevokeSession
+) -> APIRouter:
     router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 
     @router.post(
@@ -197,6 +205,29 @@ def build_sessions_router(login: Login, refresh_session: RefreshSession) -> APIR
             )
         response.headers.update(NO_STORE)
         return SessionResponse.from_result(result)
+
+    @router.post(
+        "/revoke",
+        status_code=HTTPStatus.NO_CONTENT,
+        summary="Cerrar sesión: revocar la credencial renovable (HU004)",
+        description="Revoca toda la sesión (familia) del refresh token. Siempre `204`, también "
+        "si el token es desconocido, vencido o ya revocado: es idempotente y no revela nada. "
+        "El access token vigente expira por su vigencia corta. `Idempotency-Key` (UUID) es "
+        "opcional: la cola offline móvil la repite en cada reintento (ADR-026).",
+        responses={HTTPStatus.UNPROCESSABLE_ENTITY.value: _VALIDATION},
+    )
+    def revoke(
+        body: RefreshSessionRequest,
+        idempotency_key: Annotated[UUID | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
+    ) -> Response:
+        revoke_session(
+            RevokeSessionCommand(
+                refresh_token=body.refresh_token.get_secret_value(),
+                correlation_id=_correlation_uuid(),
+                idempotency_key=idempotency_key,
+            )
+        )
+        return Response(status_code=HTTPStatus.NO_CONTENT, headers=NO_STORE)
 
     return router
 

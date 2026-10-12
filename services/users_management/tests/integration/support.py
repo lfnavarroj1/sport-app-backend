@@ -18,6 +18,7 @@ from users_management.application.commands.register_user import (
     RegisterUser,
     RegisterUserCommand,
 )
+from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.ports import RegistrationUnitOfWork
 from users_management.domain.account.model import AccountStatus, ActorType
 from users_management.domain.authentication.model import LoginThrottlePolicy
@@ -83,6 +84,9 @@ class WriteDatabase:
             clock=SystemClock(),
             refresh_token_ttl=timedelta(days=7),
         )
+
+    def revoke_session(self) -> RevokeSession:
+        return RevokeSession(unit_of_work=self.authentication, clock=SystemClock())
 
     def authentication(self) -> SqlAlchemyAuthenticationUnitOfWork:
         return SqlAlchemyAuthenticationUnitOfWork(self.sessions)

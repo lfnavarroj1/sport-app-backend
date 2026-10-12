@@ -82,6 +82,23 @@ class MobileSessionFlowTest(unittest.TestCase):
         self.assertEqual(renewed.status_code, 200)
         self.assertEqual(verifier.verify(renewed.json()["access_token"]).subject, self.user_id)
 
+    def test_mobile_logout_revokes_and_blocks_renewal(self) -> None:
+        """HU004 CA5 y CA7 por `bff-mobile`: el cierre es idempotente y no permite renovar."""
+        session = self.bff.post("/v1/sessions", json={"email": EMAIL, "password": PASSWORD}).json()
+        token = {"refresh_token": session["refresh_token"]}
+
+        # La cola offline (ADR-026) repite la misma clave de idempotencia en cada reintento.
+        retry_header = {"Idempotency-Key": str(uuid.uuid4())}
+        first = self.bff.post("/v1/sessions/revoke", json=token, headers=retry_header)
+        repeated = self.bff.post("/v1/sessions/revoke", json=token, headers=retry_header)
+        renewed = self.bff.post("/v1/sessions/refresh", json=token)
+
+        self.assertEqual((first.status_code, repeated.status_code), (204, 204))
+        self.assertEqual(first.content, b"")
+        self.assertEqual(renewed.status_code, 401)
+        self.assertEqual(renewed.json()["code"], "invalid_refresh_token")
+        self.assertNotIn("access_token", renewed.text)
+
     def test_same_generic_error_as_the_web_channel(self) -> None:
         response = self.bff.post("/v1/sessions", json={"email": EMAIL, "password": "incorrecta"})
 

@@ -13,6 +13,7 @@ from fakes import (
     account,
     login_with,
     refresh_with,
+    revoke_with,
 )
 from fastapi.testclient import TestClient
 
@@ -54,6 +55,7 @@ class SessionsApiTest(unittest.TestCase):
                 build_sessions_router(
                     login_with(self.store, FakeVerifier(), self.issuer, self.clock),
                     refresh_with(self.store, self.issuer, self.clock),
+                    revoke_with(self.store, self.clock),
                 ),
                 build_jwks_router(jwks_issuer.jwks()),
             ],

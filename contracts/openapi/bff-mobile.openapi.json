@@ -355,7 +355,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -644,6 +644,80 @@
           }
         },
         "summary": "Renovar la sesión (HU003)",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/v1/sessions/revoke": {
+      "post": {
+        "description": "Revoca la sesión del refresh token. Siempre `204` si el servicio confirma, también con una sesión ya cerrada o desconocida (idempotente). Con `503`/`504` la revocación remota no se confirmó: la aplicación conserva la credencial en su cola cifrada y reintenta (ADR-026, CA6-CA7). `Idempotency-Key` (UUID) es opcional y la cola la repite en cada reintento.",
+        "operationId": "revoke_v1_sessions_revoke_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Cerrar sesión (HU004)",
         "tags": [
           "sessions"
         ]

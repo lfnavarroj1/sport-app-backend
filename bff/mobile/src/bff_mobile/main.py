@@ -14,7 +14,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.3.0"
+API_VERSION = "0.4.0"
 CHANNEL = "mobile"
 
 

@@ -34,6 +34,10 @@ class UsersManagementClient:
     def refresh_session(self, payload: dict[str, Any]) -> httpx.Response:
         return self._post("/v1/sessions/refresh", payload, {})
 
+    def revoke_session(self, payload: dict[str, Any]) -> httpx.Response:
+        """HU004: revoca la sesión del refresh token; el servicio responde `204` siempre."""
+        return self._post("/v1/sessions/revoke", payload, {})
+
     def lookup_user(self, email: str) -> dict[str, Any] | None:
         """HU010: `user_id` y `actor_type` de una cuenta activa con ese correo exacto.
 

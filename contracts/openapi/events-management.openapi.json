@@ -62,6 +62,119 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EventDetailResponse": {
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "discipline": {
+            "title": "Discipline",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventFee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` hasta HU025."
+          },
+          "location": {
+            "$ref": "#/components/schemas/RegistrationLocation"
+          },
+          "my_registration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MyRegistration"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "const": "PUBLISHED",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "name",
+          "description",
+          "discipline",
+          "location",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "capacity",
+          "status",
+          "version",
+          "fee",
+          "my_registration"
+        ],
+        "title": "EventDetailResponse",
+        "type": "object"
+      },
+      "EventFee": {
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal con dos decimales.",
+            "title": "Amount",
+            "type": "string"
+          },
+          "billing_unit": {
+            "title": "Billing Unit",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "billing_unit"
+        ],
+        "title": "EventFee",
+        "type": "object"
+      },
       "EventLocation": {
         "additionalProperties": false,
         "properties": {
@@ -196,6 +309,38 @@
         "title": "EventResponse",
         "type": "object"
       },
+      "Fee": {
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal con dos decimales.",
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "title": "Fee",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthStatus": {
         "properties": {
           "checks": {
@@ -222,6 +367,32 @@
           "status"
         ],
         "title": "HealthStatus",
+        "type": "object"
+      },
+      "MyRegistration": {
+        "properties": {
+          "registered_at": {
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "title": "Registration Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "REGISTERED",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration_id",
+          "status",
+          "registered_at"
+        ],
+        "title": "MyRegistration",
         "type": "object"
       },
       "PublishedEventItem": {
@@ -331,12 +502,190 @@
         ],
         "title": "PublishedEventsResponse",
         "type": "object"
+      },
+      "RegistrationEvent": {
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/RegistrationLocation"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "location"
+        ],
+        "title": "RegistrationEvent",
+        "type": "object"
+      },
+      "RegistrationLocation": {
+        "properties": {
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "city",
+          "country_code"
+        ],
+        "title": "RegistrationLocation",
+        "type": "object"
+      },
+      "RegistrationResponse": {
+        "properties": {
+          "applied_fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Fee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Informativa: no es un cobro."
+          },
+          "event": {
+            "$ref": "#/components/schemas/RegistrationEvent"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "registered_at": {
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "title": "Registration Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "REGISTERED",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "registration_id",
+          "event_id",
+          "status",
+          "registered_at",
+          "applied_fee",
+          "version",
+          "event"
+        ],
+        "title": "RegistrationResponse",
+        "type": "object"
+      },
+      "RegistrationsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegistrationResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "RegistrationsResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
       }
     }
   },
   "info": {
     "title": "SportApp - Eventos",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -715,6 +1064,356 @@
         "summary": "Crear un evento masivo en borrador (HU021)",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/events/{event_id}": {
+      "get": {
+        "description": "Visible para cualquier actor autenticado; `my_registration` solo se compone para el deportista y es `null` para los demás actores.",
+        "operationId": "event_detail_v1_events__event_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: inexistente o no publicado."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Detalle de un evento publicado (ADR-033) con mi inscripción (HU041)",
+        "tags": [
+          "event-registrations"
+        ]
+      }
+    },
+    "/v1/events/{event_id}/registrations": {
+      "post": {
+        "operationId": "register_for_event_v1_events__event_id__registrations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: inexistente o no publicado."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_registration_exists` (con `registration_id` en `details`), `event_full`, `event_registration_closed` o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `Idempotency-Key` ausente o inválida."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Inscribirme a un evento publicado (HU041)",
+        "tags": [
+          "event-registrations"
+        ]
+      }
+    },
+    "/v1/me/event-registrations": {
+      "get": {
+        "operationId": "my_registrations_v1_me_event_registrations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `status`, `limit` o `cursor` inválidos."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Mis inscripciones a eventos (HU041)",
+        "tags": [
+          "event-registrations"
         ]
       }
     }

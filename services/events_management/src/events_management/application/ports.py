@@ -6,6 +6,10 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
+from events_management.domain.registrations.model import (
+    EventForRegistration,
+    EventRegistration,
+)
 from events_management.domain.sport_events.model import SportEvent
 
 
@@ -120,9 +124,11 @@ class Transaction(Protocol):
 class EventCreationUnitOfWork(Transaction, Protocol):
     """Transacción local de HU021: evento, idempotencia y outbox juntos."""
 
-    def find_idempotency(self, actor_id: UUID, key: UUID) -> IdempotencyRecord | None: ...
+    def find_idempotency(
+        self, actor_id: UUID, operation: str, key: UUID
+    ) -> IdempotencyRecord | None: ...
 
-    def delete_idempotency(self, actor_id: UUID, key: UUID) -> None: ...
+    def delete_idempotency(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
 
     def add_event(self, event: SportEvent) -> None: ...
 
@@ -132,6 +138,98 @@ class EventCreationUnitOfWork(Transaction, Protocol):
 
     def commit(self) -> None:
         """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+class RegistrationUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU041: evento bloqueado, inscripción, idempotencia y outbox."""
+
+    def find_idempotency(
+        self, actor_id: UUID, operation: str, key: UUID
+    ) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def lock_event(self, event_id: UUID) -> EventForRegistration | None:
+        """Bloquea la fila del evento hasta el fin de la transacción: serializa el cupo."""
+        ...
+
+    def event_summary(self, event_id: UUID) -> "EventSummary":
+        """Datos del evento (ya bloqueado) que acompañan a la inscripción en la respuesta."""
+        ...
+
+    def count_registrations(self, event_id: UUID) -> int: ...
+
+    def find_registration(self, event_id: UUID, athlete_id: UUID) -> EventRegistration | None: ...
+
+    def add_registration(self, registration: EventRegistration) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y una segunda inscripción del
+        mismo deportista al evento a `RegistrationConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class EventSummary:
+    """Datos del evento que acompañan a una inscripción en las respuestas."""
+
+    name: str
+    starts_at: datetime
+    ends_at: datetime
+    time_zone: str
+    location_name: str
+    location_city: str
+    location_country_code: str
+
+
+@dataclass(frozen=True)
+class RegistrationView:
+    registration: EventRegistration
+    event: EventSummary
+
+
+@dataclass(frozen=True)
+class EventDetailView:
+    """Evento publicado tal como lo ve el deportista (HU041), sin `organizer_id`."""
+
+    event: CalendarEventView
+    description: str
+    capacity: int
+    my_registration: EventRegistration | None
+
+
+@dataclass(frozen=True)
+class RegistrationPosition:
+    """Posición del cursor en el orden `event.starts_at`, `registration_id`."""
+
+    starts_at: datetime
+    registration_id: UUID
+
+
+@dataclass(frozen=True)
+class RegistrationsQuery:
+    athlete_id: UUID
+    status: str | None
+    after: RegistrationPosition | None
+    limit: int
+
+
+class EventDetailReader(Protocol):
+    def published_detail(self, event_id: UUID, athlete_id: UUID | None) -> EventDetailView | None:
+        """El evento `PUBLISHED` con la inscripción proyectada de ese deportista, si existe;
+        sin deportista (`None`), `my_registration` es `None`."""
+        ...
+
+
+class RegistrationReader(Protocol):
+    def list(self, query: RegistrationsQuery) -> list[RegistrationView]:
+        """Hasta `limit` inscripciones propias, en orden ascendente estrictamente después de
+        `after`."""
         ...
 
 
@@ -149,6 +247,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         ...
 
     def add_event_view(self, event: SportEvent, projected_at: datetime) -> None: ...
+
+    def registration_version(self, registration_id: UUID) -> int | None:
+        """Versión proyectada de la inscripción; bloquea la fila."""
+        ...
+
+    def add_registration_view(
+        self, registration: EventRegistration, projected_at: datetime
+    ) -> None: ...
 
     def add_processed(
         self, message_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

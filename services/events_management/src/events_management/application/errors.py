@@ -33,3 +33,17 @@ class CapabilitiesTimeout(CapabilitiesUnavailable):
     """Afiliación no respondió a tiempo."""
 
     code = "upstream_timeout"
+
+
+class EventRegistrationExists(Exception):
+    """HU041: el deportista ya está inscrito al evento."""
+
+    code = "event_registration_exists"
+
+    def __init__(self, registration_id: object) -> None:
+        super().__init__(str(registration_id))
+        self.registration_id = registration_id
+
+
+class RegistrationConflict(Exception):
+    """Otra solicitud concurrente inscribió primero al mismo deportista en el evento."""

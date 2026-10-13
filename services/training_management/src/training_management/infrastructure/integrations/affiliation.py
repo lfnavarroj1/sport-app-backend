@@ -2,7 +2,8 @@
 
 `GET /v1/subscriptions/by-user/{user_id}/capabilities` responde `ACTIVE` con las
 capacidades vigentes o `NONE` sin ellas. Cualquier otra respuesta, un error de red
-o un timeout es indisponibilidad: nunca se concede una capacidad por suposición.
+o un timeout es indisponibilidad: nunca se concede una capacidad por suposición. El
+timeout se distingue (`CapabilitiesTimeout`, subclase) para que HU032 responda `504`.
 Se llama fuera de cualquier transacción local.
 """
 
@@ -11,7 +12,7 @@ from uuid import UUID
 import httpx
 
 from sportapp_platform.correlation import CORRELATION_HEADER, current_correlation_id
-from training_management.application.errors import CapabilitiesUnavailable
+from training_management.application.errors import CapabilitiesTimeout, CapabilitiesUnavailable
 
 
 class AffiliationCapabilityChecker:
@@ -25,6 +26,8 @@ class AffiliationCapabilityChecker:
             response = self._http.get(
                 f"/v1/subscriptions/by-user/{user_id}/capabilities", headers=headers
             )
+        except httpx.TimeoutException:
+            raise CapabilitiesTimeout() from None
         except httpx.HTTPError:
             raise CapabilitiesUnavailable() from None
         if response.status_code != httpx.codes.OK:

@@ -1,17 +1,19 @@
 """Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
-proyector (CMP-003) para planes, autorizaciones e historial de sesiones (HU011)."""
+proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011) y sesión
+activa (HU032)."""
 
 from datetime import date, datetime
 from types import TracebackType
 from typing import Any, Self
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from training_management.application.ports import (
+    ActiveSessionView,
     AuthorizationView,
     DuplicateDelivery,
     PlanView,
@@ -21,6 +23,7 @@ from training_management.application.ports import (
 from training_management.infrastructure.persistence_read.models import (
     PLAN_VIEW_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
+    ActiveTrainingSessionRow,
     ProcessedEventRow,
     TrainingAuthorizationViewRow,
     TrainingPlanViewRow,
@@ -192,6 +195,39 @@ class SqlAlchemyProjectionUnitOfWork:
             statement.on_conflict_do_update(
                 index_elements=["session_id"],
                 set_={key: statement.excluded[key] for key in values if key != "session_id"},
+            )
+        )
+
+    def active_session_version(self, session_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(ActiveTrainingSessionRow.version)
+            .where(ActiveTrainingSessionRow.session_id == session_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_active_session(self, view: ActiveSessionView, projected_at: datetime) -> None:
+        values = {
+            "session_id": view.session_id,
+            "athlete_id": view.athlete_id,
+            "plan_id": view.plan_id,
+            "sport": view.sport,
+            "started_at": view.started_at,
+            "version": view.version,
+            "projected_at": projected_at,
+        }
+        statement = insert(ActiveTrainingSessionRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["session_id"],
+                set_={key: statement.excluded[key] for key in values if key != "session_id"},
+            )
+        )
+
+    def delete_active_session(self, session_id: UUID) -> None:
+        self.session.execute(
+            delete(ActiveTrainingSessionRow).where(
+                ActiveTrainingSessionRow.session_id == session_id
             )
         )
 

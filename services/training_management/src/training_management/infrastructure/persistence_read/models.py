@@ -76,6 +76,21 @@ class TrainingSessionHistoryRow(ReadBase):
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ActiveTrainingSessionRow(ReadBase):
+    """Sesión activa (HU032) a partir de `entrenamiento.iniciado.v1`; la elimina
+    `entrenamiento.finalizado.v1`. Sin datos de salud ni ubicación."""
+
+    __tablename__ = "active_training_session"
+
+    session_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    plan_id: Mapped[UUID | None]
+    sport: Mapped[str] = mapped_column(String(16))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ProcessedEventRow(ReadBase):
     """Deduplicación del proyector por `event_id` (entrega al menos una vez)."""
 

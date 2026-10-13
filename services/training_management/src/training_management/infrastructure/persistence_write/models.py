@@ -26,6 +26,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sportapp_platform.database import new_metadata
 
 IDEMPOTENCY_PRIMARY_KEY = "pk_idempotency_key"
+COMMAND_IDEMPOTENCY_PRIMARY_KEY = "pk_command_idempotency"
+TRAINING_SESSION_PRIMARY_KEY = "pk_training_session"
+ACTIVE_SESSION_INDEX = "uq_training_session_athlete_active"
 AUTHORIZATION_PRIMARY_KEY = "pk_training_authorization"
 
 
@@ -129,6 +132,60 @@ class IdempotencyKeyRow(WriteBase):
 
     key: Mapped[UUID] = mapped_column(primary_key=True)
     operation: Mapped[str] = mapped_column(String(64))
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    resource_id: Mapped[UUID]
+    response: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class TrainingSessionRow(WriteBase):
+    """Sesión de entrenamiento de HU032 (ADR-029); `plan_id` opcional de HU010."""
+
+    __tablename__ = "training_session"
+    __table_args__ = (
+        CheckConstraint("status IN ('ACTIVE', 'FINISHED')", name="status"),
+        CheckConstraint(
+            "sport IN ('running', 'cycling', 'swimming', 'strength', 'other')", name="sport"
+        ),
+        CheckConstraint(
+            "(status = 'ACTIVE' AND ended_at IS NULL AND duration_seconds IS NULL AND version = 1)"
+            " OR (status = 'FINISHED' AND ended_at >= started_at AND duration_seconds >= 0"
+            " AND version = 2)",
+            name="transition",
+        ),
+        # Como máximo una sesión activa por deportista: serializa los inicios concurrentes.
+        Index(
+            ACTIVE_SESSION_INDEX,
+            "athlete_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    plan_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("training_plan.plan_id", ondelete="RESTRICT")
+    )
+    sport: Mapped[str] = mapped_column(String(16))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CommandIdempotencyRow(WriteBase):
+    """Resultado de un comando de HU032 por deportista y operación, vigente 30 días."""
+
+    __tablename__ = "command_idempotency"
+
+    actor_id: Mapped[UUID] = mapped_column(primary_key=True)
+    operation: Mapped[str] = mapped_column(String(64), primary_key=True)
+    key: Mapped[UUID] = mapped_column(primary_key=True)
     request_fingerprint: Mapped[str] = mapped_column(String(64))
     resource_id: Mapped[UUID]
     response: Mapped[dict[str, Any]] = mapped_column(JSONB)

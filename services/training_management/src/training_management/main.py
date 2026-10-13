@@ -14,11 +14,17 @@ from sportapp_platform.tokens import CachedJwksVerifier
 from training_management.api.authorizations import build_authorizations_router
 from training_management.api.history import build_history_router
 from training_management.api.plans import build_plans_router
+from training_management.api.training_sessions import build_training_sessions_router
 from training_management.application.commands.authorizations import (
     GrantAuthorization,
     RevokeAuthorization,
 )
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
+from training_management.application.commands.training_sessions import (
+    FinishTrainingSession,
+    StartTrainingSession,
+)
+from training_management.application.queries.active_session import GetActiveTrainingSession
 from training_management.application.queries.get_training_plan import GetTrainingPlan
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.infrastructure.authorization import ContractPermissionPolicy
@@ -27,6 +33,7 @@ from training_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
 )
 from training_management.infrastructure.persistence_read.history import (
+    SqlAlchemyActiveSessionReader,
     SqlAlchemyAuthorizationReader,
     SqlAlchemyHistoryReader,
 )
@@ -34,11 +41,12 @@ from training_management.infrastructure.persistence_read.plans import SqlAlchemy
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
+    SqlAlchemySessionUnitOfWork,
 )
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.3.0"
+API_VERSION = "0.4.0"
 
 
 def create_app(
@@ -115,6 +123,18 @@ def create_app(
                     authorizations=SqlAlchemyAuthorizationReader(reads),
                     permissions=permissions,
                 ),
+            ),
+            build_training_sessions_router(
+                verify_token=verifier.verify,
+                start=StartTrainingSession(
+                    unit_of_work=lambda: SqlAlchemySessionUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
+                finish=FinishTrainingSession(
+                    unit_of_work=lambda: SqlAlchemySessionUnitOfWork(writes), clock=clock
+                ),
+                get_active=GetActiveTrainingSession(reader=SqlAlchemyActiveSessionReader(reads)),
             ),
         ],
         shutdown_hooks=[

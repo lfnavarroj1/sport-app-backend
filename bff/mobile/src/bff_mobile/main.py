@@ -5,7 +5,9 @@ from fastapi import FastAPI
 
 from bff_mobile.api.capabilities import build_capabilities_router
 from bff_mobile.api.sessions import build_sessions_router
+from bff_mobile.api.training_sessions import build_training_sessions_router
 from bff_mobile.clients.affiliation_management import AffiliationManagementClient
+from bff_mobile.clients.training_management import TrainingManagementClient
 from bff_mobile.clients.users_management import UsersManagementClient
 from bff_mobile.settings import BffMobileSettings
 from sportapp_platform.app import create_service_app
@@ -14,7 +16,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.4.0"
+API_VERSION = "0.5.0"
 CHANNEL = "mobile"
 
 
@@ -22,8 +24,9 @@ def create_app(
     settings: BffMobileSettings | None = None,
     users_http: httpx.Client | None = None,
     affiliation_http: httpx.Client | None = None,
+    training_http: httpx.Client | None = None,
 ) -> FastAPI:
-    """`users_http` y `affiliation_http` permiten inyectar transportes en pruebas de componente."""
+    """Los transportes `*_http` permiten inyectar servicios en pruebas de componente."""
     settings = settings or load_settings(BffMobileSettings)
     permissions = load_actor_permissions(
         settings.actor_permissions_path or resolve_actor_permissions_path()
@@ -34,6 +37,10 @@ def create_app(
     )
     affiliation_http = affiliation_http or httpx.Client(
         base_url=str(settings.affiliation_management_base_url),
+        timeout=settings.upstream_timeout_seconds,
+    )
+    training_http = training_http or httpx.Client(
+        base_url=str(settings.training_management_base_url),
         timeout=settings.upstream_timeout_seconds,
     )
     users = UsersManagementClient(users_http)
@@ -54,6 +61,9 @@ def create_app(
                 athlete_snapshot=affiliation.user_capabilities,
                 channel=CHANNEL,
             ),
+            build_training_sessions_router(
+                verify_token=verifier.verify, training=TrainingManagementClient(training_http)
+            ),
         ],
-        shutdown_hooks=[users_http.close, affiliation_http.close],
+        shutdown_hooks=[users_http.close, affiliation_http.close, training_http.close],
     )

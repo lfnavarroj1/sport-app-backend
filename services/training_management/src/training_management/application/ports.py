@@ -7,7 +7,8 @@ from typing import Any, Protocol, Self
 from uuid import UUID
 
 from training_management.domain.authorizations.model import TrainingAuthorization
-from training_management.domain.plans.model import TrainingPlan
+from training_management.domain.plans.model import Sport, TrainingPlan
+from training_management.domain.sessions.model import TrainingSession
 
 
 class Clock(Protocol):
@@ -278,6 +279,67 @@ class AuthorizationReader(Protocol):
     def get(self, athlete_id: UUID, professional_id: UUID) -> AuthorizationView | None: ...
 
 
+@dataclass(frozen=True)
+class CommandRecord:
+    """Resultado de un comando de HU032, con clave aislada por deportista y operación."""
+
+    actor_id: UUID
+    operation: str
+    key: UUID
+    request_fingerprint: str
+    resource_id: UUID
+    response: dict[str, Any]
+    created_at: datetime
+    expires_at: datetime
+
+
+class SessionUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU032: sesión, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_session(self, session_id: UUID, *, for_update: bool = False) -> TrainingSession | None:
+        """Con `for_update`, bloquea la fila hasta el fin de la transacción (finalización)."""
+        ...
+
+    def plan_allows(self, plan_id: UUID, athlete_id: UUID, sport: Sport) -> bool:
+        """El plan existe, está `ASSIGNED` al deportista y contiene una sesión del deporte."""
+        ...
+
+    def add_session(self, session: TrainingSession) -> None: ...
+
+    def update_session(self, session: TrainingSession) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`, el `session_id` duplicado a
+        `SessionIdConflict` y una segunda sesión activa a `ActiveSessionExists`."""
+        ...
+
+
+@dataclass(frozen=True)
+class ActiveSessionView:
+    """Sesión activa proyectada (HU032) a partir de `entrenamiento.iniciado.v1`."""
+
+    session_id: UUID
+    athlete_id: UUID
+    plan_id: UUID | None
+    sport: str
+    started_at: datetime
+    version: int
+
+
+class ActiveSessionReader(Protocol):
+    def current(self, athlete_id: UUID) -> ActiveSessionView | None:
+        """La sesión activa proyectada más reciente del deportista."""
+        ...
+
+
 class DuplicateDelivery(Exception):
     """Otra entrega del mismo evento confirmó primero su registro en `processed_event`."""
 
@@ -304,6 +366,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     def save_session_entry(self, entry: SessionHistoryEntry, projected_at: datetime) -> None:
         """Inserta o reemplaza la sesión terminada en el historial."""
         ...
+
+    def active_session_version(self, session_id: UUID) -> int | None:
+        """Versión de la sesión activa proyectada; bloquea la fila."""
+        ...
+
+    def save_active_session(self, view: ActiveSessionView, projected_at: datetime) -> None: ...
+
+    def delete_active_session(self, session_id: UUID) -> None: ...
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

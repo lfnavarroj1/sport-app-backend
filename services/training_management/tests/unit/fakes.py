@@ -13,6 +13,7 @@ from training_management.application.errors import (
     IdempotencyKeyConflict,
 )
 from training_management.application.ports import (
+    ActiveSessionView,
     AuthorizationView,
     DuplicateDelivery,
     HistoryQuery,
@@ -183,6 +184,7 @@ class InMemoryReadStore:
     processed: dict[UUID, tuple[str, UUID]] = field(default_factory=dict)
     authorizations: dict[tuple[UUID, UUID], AuthorizationView] = field(default_factory=dict)
     sessions: dict[UUID, SessionHistoryEntry] = field(default_factory=dict)
+    active: dict[UUID, ActiveSessionView] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -233,6 +235,8 @@ class InMemoryProjectionUnitOfWork:
         self._processed: list[tuple[UUID, str, UUID]] = []
         self._authorizations: list[AuthorizationView] = []
         self._sessions: list[SessionHistoryEntry] = []
+        self._active: list[ActiveSessionView] = []
+        self._removed: list[UUID] = []
 
     def __enter__(self) -> Self:
         return self
@@ -244,6 +248,7 @@ class InMemoryProjectionUnitOfWork:
         traceback: TracebackType | None,
     ) -> None:
         self._views, self._processed, self._authorizations, self._sessions = [], [], [], []
+        self._active, self._removed = [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -269,6 +274,16 @@ class InMemoryProjectionUnitOfWork:
     def save_session_entry(self, entry: SessionHistoryEntry, projected_at: datetime) -> None:
         self._sessions.append(entry)
 
+    def active_session_version(self, session_id: UUID) -> int | None:
+        view = self.store.active.get(session_id)
+        return view.version if view is not None else None
+
+    def save_active_session(self, view: ActiveSessionView, projected_at: datetime) -> None:
+        self._active.append(view)
+
+    def delete_active_session(self, session_id: UUID) -> None:
+        self._removed.append(session_id)
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -287,6 +302,10 @@ class InMemoryProjectionUnitOfWork:
             self.store.authorizations[key] = authorization
         for entry in self._sessions:
             self.store.sessions[entry.session_id] = entry
+        for active in self._active:
+            self.store.active[active.session_id] = active
+        for session_id in self._removed:
+            self.store.active.pop(session_id, None)
         for event_id, event_type, aggregate_id in self._processed:
             self.store.processed[event_id] = (event_type, aggregate_id)
 

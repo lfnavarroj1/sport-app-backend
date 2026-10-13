@@ -10,10 +10,12 @@ from bff_web.api.registration import (
     REPLAYED_HEADER,
     build_registration_router,
 )
+from bff_web.api.services import build_services_router
 from bff_web.api.sessions import RETRY_AFTER_HEADER, RefreshCookie, build_sessions_router
 from bff_web.api.training import build_training_router
 from bff_web.api.training_history import build_training_history_router
 from bff_web.clients.affiliation_management import AffiliationManagementClient
+from bff_web.clients.complementary_services import ComplementaryServicesClient
 from bff_web.clients.training_management import TrainingManagementClient
 from bff_web.clients.users_management import UsersManagementClient
 from bff_web.settings import BffWebSettings
@@ -24,7 +26,7 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.8.0"
+API_VERSION = "0.9.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
@@ -43,6 +45,7 @@ def create_app(
     users_http: httpx.Client | None = None,
     affiliation_http: httpx.Client | None = None,
     training_http: httpx.Client | None = None,
+    services_http: httpx.Client | None = None,
 ) -> FastAPI:
     """Los transportes `*_http` permiten inyectar servicios en pruebas de componente."""
     settings = settings or load_settings(BffWebSettings)
@@ -59,6 +62,10 @@ def create_app(
     )
     training_http = training_http or httpx.Client(
         base_url=str(settings.training_management_base_url),
+        timeout=settings.upstream_timeout_seconds,
+    )
+    services_http = services_http or httpx.Client(
+        base_url=str(settings.complementary_services_base_url),
         timeout=settings.upstream_timeout_seconds,
     )
     users = UsersManagementClient(users_http)
@@ -98,8 +105,19 @@ def create_app(
                 training=training,
                 channel=CHANNEL,
             ),
+            build_services_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                services=ComplementaryServicesClient(services_http),
+                channel=CHANNEL,
+            ),
         ],
-        shutdown_hooks=[users_http.close, affiliation_http.close, training_http.close],
+        shutdown_hooks=[
+            users_http.close,
+            affiliation_http.close,
+            training_http.close,
+            services_http.close,
+        ],
     )
     # Se agrega al final para que sea la capa externa y responda la preflight.
     # Con credenciales (HU003 0.4.0): el navegador envía la cookie del refresh token, por

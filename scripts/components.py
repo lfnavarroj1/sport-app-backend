@@ -66,7 +66,9 @@ _BFF = {
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
     "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
     "TRAINING_MANAGEMENT_BASE_URL": "http://training-management.invalid",
+    "COMPLEMENTARY_SERVICES_BASE_URL": "http://complementary-services.invalid",
 }
+_COMPLEMENTARY = {**_SINGLE, "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid"}
 _TRAINING = {
     **_CQRS,
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
@@ -91,7 +93,7 @@ COMPONENTS = (
         "complementary-services",
         "complementary_services",
         "services/complementary_services",
-        _SINGLE,
+        _COMPLEMENTARY,
     ),
     Component(
         "training-management", "training_management", "services/training_management", _TRAINING

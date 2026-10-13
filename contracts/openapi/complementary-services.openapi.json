@@ -1,6 +1,123 @@
 {
   "components": {
     "schemas": {
+      "AvailabilityInterval": {
+        "additionalProperties": false,
+        "description": "Intervalo `[starts_at, ends_at)`. En la solicitud, con desfase coherente con\n`time_zone`; en la respuesta, en UTC con sufijo `Z`.",
+        "properties": {
+          "capacity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada, p. ej. America/Bogota.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "capacity"
+        ],
+        "title": "AvailabilityInterval",
+        "type": "object"
+      },
+      "BillingUnit": {
+        "enum": [
+          "SERVICE",
+          "SESSION",
+          "HOUR",
+          "DAY"
+        ],
+        "title": "BillingUnit",
+        "type": "string"
+      },
+      "Category": {
+        "enum": [
+          "SPORTS_MEDICINE",
+          "COACHING",
+          "NUTRITION",
+          "TRANSPORT",
+          "ACCOMPANIMENT"
+        ],
+        "title": "Category",
+        "type": "string"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "issue": {
+            "title": "Issue",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "details": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "correlation_id"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "HealthStatus": {
         "properties": {
           "checks": {
@@ -28,12 +145,130 @@
         ],
         "title": "HealthStatus",
         "type": "object"
+      },
+      "Modality": {
+        "enum": [
+          "IN_PERSON",
+          "VIRTUAL",
+          "HYBRID"
+        ],
+        "title": "Modality",
+        "type": "string"
+      },
+      "ServicePrice": {
+        "additionalProperties": false,
+        "description": "Precio público de referencia en COP, impuestos aplicables incluidos; no es un cobro.",
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal de 0.00 a 999999999.99, máximo dos decimales.",
+            "examples": [
+              "120000.00"
+            ],
+            "pattern": "^\\d{1,9}(\\.\\d{1,2})?$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "billing_unit": {
+            "$ref": "#/components/schemas/BillingUnit"
+          },
+          "currency": {
+            "const": "COP",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "billing_unit"
+        ],
+        "title": "ServicePrice",
+        "type": "object"
+      },
+      "ServiceResponse": {
+        "properties": {
+          "availability": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityInterval"
+            },
+            "title": "Availability",
+            "type": "array"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "modality": {
+            "$ref": "#/components/schemas/Modality"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ServicePrice"
+          },
+          "provider_id": {
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ServiceStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "service_id",
+          "provider_id",
+          "name",
+          "description",
+          "category",
+          "modality",
+          "price",
+          "availability",
+          "status",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ServiceResponse",
+        "type": "object"
+      },
+      "ServiceStatus": {
+        "enum": [
+          "DRAFT",
+          "PUBLISHED"
+        ],
+        "title": "ServiceStatus",
+        "type": "string"
       }
     }
   },
   "info": {
     "title": "SportApp - Servicios complementarios",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -86,6 +321,185 @@
         "summary": "Ready",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/v1/services": {
+      "post": {
+        "operationId": "create_v1_services_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hacen el transporte y el dominio.",
+                "properties": {
+                  "availability": {
+                    "anyOf": [
+                      {
+                        "items": {
+                          "$ref": "#/components/schemas/AvailabilityInterval"
+                        },
+                        "maxItems": 100,
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Opcional; intervalos futuros de hasta 24 h, con fin dentro de 365 días, contiguos permitidos y sin superposición.",
+                    "title": "Availability"
+                  },
+                  "category": {
+                    "$ref": "#/components/schemas/Category"
+                  },
+                  "description": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 2000,
+                    "minLength": 20,
+                    "title": "Description",
+                    "type": "string"
+                  },
+                  "modality": {
+                    "$ref": "#/components/schemas/Modality"
+                  },
+                  "name": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 120,
+                    "minLength": 3,
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "price": {
+                    "$ref": "#/components/schemas/ServicePrice"
+                  }
+                },
+                "required": [
+                  "name",
+                  "description",
+                  "category",
+                  "modality",
+                  "price"
+                ],
+                "title": "CreateServiceRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: el actor no tiene el permiso de la operación."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (ADR-027)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Crear un servicio en borrador (HU015)",
+        "tags": [
+          "services"
         ]
       }
     }

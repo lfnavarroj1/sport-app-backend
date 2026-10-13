@@ -17,6 +17,7 @@ SETTINGS = BffWebSettings(
     users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
     affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
     training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
+    complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
 )
 PASSWORD = "contraseña-muy-secreta"
 CREATED = {

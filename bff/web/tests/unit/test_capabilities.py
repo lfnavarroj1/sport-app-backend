@@ -104,6 +104,7 @@ def client_with(upstream: Upstream) -> TestClient:
         users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
         affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
         training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
+        complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
         cors_allowed_origins=(ORIGIN,),
     )
     app = create_app(

@@ -26,6 +26,7 @@ class OpenApiContractTest(unittest.TestCase):
                 affiliation_management_base_url="http://affiliation.invalid",
                 training_management_base_url="http://training.invalid",
                 complementary_services_base_url="http://services.invalid",
+                events_management_base_url="http://events.invalid",
             )
         )
 

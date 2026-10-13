@@ -48,6 +48,7 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 | HU010 Crear plan de entrenamiento | `POST /v1/me/training-authorizations` y `DELETE /v1/me/training-authorizations/{professional_id}` (deportista); `POST /v1/training-plans` (`Idempotency-Key` obligatorio) y `GET /v1/training-plans/{plan_id}`, todos con access token; internos: `POST /v1/users/lookup` en Usuarios y las mismas rutas por identificador en Entrenamientos | `bff_web` → `users_management` (lookup en la base de lectura) → `training_management` → `training_authorization` / `training_plan` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `training_plan_view` | OpenAPI 0.4.0 de `users-management`, 0.2.0 de `training-management` y 0.6.0 de `bff-web`; evento `plan.entrenamiento_creado.v1` |
 | HU011 Ver historial de entrenamiento | `GET /v1/training-history` (deportista, su historial) y `GET /v1/athletes/{athlete_id}/training-history` (profesional autorizado), con `from`, `to`, `sport`, `limit` y `cursor` | `bff_web` → `training_management` → `training_session_history` y `training_authorization_view` (base de lectura) ← `entrenamientos-read-projector` ← `entrenamiento.finalizado.v1` (lo publicará HU032) y `autorizacion_entrenamiento.*.v1` (outbox de la autorización) | OpenAPI 0.3.0 de `training-management` y 0.8.0 de `bff-web`; eventos `autorizacion_entrenamiento.otorgada.v1`, `autorizacion_entrenamiento.revocada.v1` y `entrenamiento.finalizado.v1` |
 | HU015 Crear servicio | `POST /v1/services` (profesional con `services.create`; `Idempotency-Key` obligatorio) | `bff_web` → `complementary_services` → `service` + `service_availability` + `idempotency_key` (base única, sin eventos) | OpenAPI 0.2.0 de `complementary-services` y 0.9.0 de `bff-web`; ADR-027 |
+| HU021 Crear evento masivo | `POST /v1/events` (organizador con `events.create`; `Idempotency-Key` obligatorio) | `bff_web` → `events_management` → `event` + `command_idempotency` + `outbox_event` → `eventos-outbox-publisher` → `sportapp.eventos.v1` → `eventos-read-projector` → `event_read` + `processed_event` | OpenAPI 0.2.0 de `events-management` y 0.10.0 de `bff-web`; evento `evento.creado.v1`; ADR-028 |
 
 Detalles de HU001:
 
@@ -197,6 +198,19 @@ Detalles de HU004 (decisiones y contrato aprobados el 2026-10-12):
 - **Auditoría (CA4):** `audit.session_revoke` con `result` (`revoked`, `already_revoked` o `unknown`), `user_id`, `family_id`, `idempotency_key` si llegó, y la fecha del registro; nunca el token ni su hash.
 - **Sin evento:** `credencial.revocada.v1` sigue siendo un candidato sin consumidores.
 
+Detalles de HU021 (ADR-028, aceptada el 2026-10-12):
+
+- **Quién crea:** solo `organizer` con `events.create`, verificado en el BFF y de nuevo en el servicio (que valida el access token con el JWKS de Usuarios, en caché, sin llamar a otro dominio durante el comando). `organizer_id` sale del token; en el cuerpo se rechaza (`field_not_allowed`), igual que `event_id`, `ends_at`, `status`, `version` y las marcas de tiempo.
+- **Evento:** `name` (3–120), `description` (20–2.000) y `discipline` (2–80, texto libre sin catálogo) recortados; `location` con `name` (3–120), `address` (5–200), `city` (2–80) y `country_code` ISO 3166-1 alfa-2 en mayúsculas (lista de 249 códigos en el dominio); `starts_at` futuro con desfase explícito, coherente con la zona IANA `time_zone` en ese instante; `duration_minutes` de 15 a 1.440 y `capacity` de 1 a 100.000. El backend calcula `ends_at = starts_at + duration_minutes`.
+- **Fechas:** `starts_at`, `ends_at`, `created_at` y `updated_at` se guardan y responden en UTC con sufijo `Z`; `time_zone` es un dato del evento (dónde ocurre). El frontend convierte a la zona del usuario.
+- **Respuesta:** `201` con `Location: /v1/events/{event_id}` y el borrador `DRAFT`, versión 1 (contrato de ADR-028). La respuesta usa la escritura confirmada y no espera la proyección.
+- **Idempotencia:** `Idempotency-Key` UUID por organizador, 24 horas (`command_idempotency`). Misma clave y payload normalizado → mismo `201` con `Idempotent-Replayed: true`; otro payload → `409 idempotency_key_reused`; la clave de otro organizador crea su propio evento. Solicitudes concurrentes con la misma clave producen un evento y un mensaje.
+- **Transacción y evento (CQRS, CMP-004):** `event`, `command_idempotency` y `evento.creado.v1` en `outbox_event` se confirman juntos. `eventos-outbox-publisher` publica en `sportapp.eventos.v1` con `event_id` como clave de orden; `causation_id` es la clave de idempotencia. El payload lleva el estado completo del borrador, sin credenciales ni datos de pago.
+- **Proyección:** `eventos-read-projector` consume `proyector-eventos-v1` (DLQ `sportapp.eventos.proyeccion.dlq`, 10 intentos, espera de 10 a 600 s: aprobados en ADR-028), deduplica por el `event_id` del sobre en `processed_event`, aplica solo la siguiente `aggregate_version` y confirma el mensaje después del COMMIT de `event_read`. Un `DRAFT` solo lo ve su organizador y nunca aparece en el catálogo público; HU021 no expone consultas HTTP (las agregan HU022-HU024).
+- **Errores de validación:** `422 validation_error` con `details[{field, issue}]`; `field` usa rutas como `location.country_code` e `issue` es uno de `required`, `field_not_allowed`, `invalid_length`, `unknown_value`, `not_in_future`, `out_of_range`, `time_zone_unknown` o `time_zone_offset_mismatch`. El BFF reenvía cuerpo y clave sin reinterpretarlos.
+- **Otros errores:** `401 invalid_access_token`, `403 permission_required`, `503 upstream_unavailable` (JWKS) y, en el BFF, `503`/`504 upstream_timeout`. ADR-028 nombra estos casos `unauthenticated`, `forbidden` y `service_unavailable`; se conservan los códigos que ya usa el repositorio (igual que en HU015).
+- **Auditoría:** `audit.event_created` con resultado, `event_id`, `organizer_id` y `correlation_id`; sin textos libres, ubicación ni token.
+
 Detalles de HU015 (ADR-027, aceptada el 2026-10-12):
 
 - **Quién crea:** solo `service_provider` con `services.create`; `provider_id` sale del token y, si viene en el cuerpo, se rechaza (`field_not_allowed`). El servicio nace `DRAFT`, versión 1, y no aparece en ningún catálogo hasta publicarse (HU019).
@@ -272,6 +286,10 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `JWT_ISSUER`, `JWT_AUDIENCE` | bff-web, bff-mobile | `iss` y `aud` esperados en el access token (por defecto los mismos que emite `users-management`). |
 | `ACTOR_PERMISSIONS_PATH` | bff-web, bff-mobile | Ruta del contrato `actor-permissions.v1.json`. La imagen la fija en `/opt/sportapp/contracts/authorization/`; en el repositorio se localiza sola. Un contrato ausente o inválido detiene el arranque. |
 | `COMPLEMENTARY_SERVICES_BASE_URL` | bff-web | URL del servicio de servicios complementarios para HU015 (obligatoria; en el clúster, `http://complementary-services`). |
+| `EVENTS_MANAGEMENT_BASE_URL` | bff-web | URL del servicio de eventos masivos para HU021 (obligatoria; en el clúster, `http://events-management`). |
+| `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | events | JWKS de Usuarios para verificar el access token (obligatoria), timeout (5 s), `iss`/`aud` esperados y contrato de permisos; además `DATABASE_WRITE_URL` y `DATABASE_READ_URL`. |
+| `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC`, `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de eventos | Proyecto, tópico (por defecto `sportapp.eventos.v1`), lote (100), arrendamiento (30 s) e identidad de la réplica; usa `DATABASE_WRITE_URL`. |
+| `PUBSUB_PROJECT_ID`, `PROJECTOR_SUBSCRIPTION`, `CONSUMER_MAX_MESSAGES` | proyector de eventos | Proyecto, suscripción (por defecto `proyector-eventos-v1`) y mensajes simultáneos por réplica (10); usa `DATABASE_READ_URL`. |
 | `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | complementary services | JWKS de Usuarios para verificar el access token (obligatoria), timeout (5 s), `iss`/`aud` esperados y contrato de permisos. |
 | `TRAINING_MANAGEMENT_BASE_URL` | bff-web | URL del servicio de entrenamientos para HU010 (obligatoria; en el clúster, `http://training-management`). |
 | `USERS_MANAGEMENT_BASE_URL`, `AFFILIATION_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | training | JWKS de Usuarios para verificar el access token y contrato interno de capacidades de Afiliación (obligatorias), y timeout (5 s). |
@@ -361,20 +379,20 @@ Marque cada casilla al terminar el paso. Así sabe en qué punto está si se int
  │  events-management ─────────────────┘                                                                   │
  │  third-party-management                                                                                 │
  │                                                                                                        │
- │  publicadores outbox, consumidor de afiliación y proyector de entrenamientos ──► pubsub-emulator      │
+ │  publicadores outbox, consumidor de afiliación y proyectores de entrenamientos y eventos ──► pubsub   │
  │                                                                                                        │
- │  Jobs que se ejecutan una vez: 8 migraciones de base de datos + 3 preparaciones de Pub/Sub            │
+ │  Jobs que se ejecutan una vez: 8 migraciones de base de datos + 4 preparaciones de Pub/Sub            │
  └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Inventario exacto de lo que se crea (41 recursos):
+Inventario exacto de lo que se crea (44 recursos):
 
 | Tipo | Cantidad | Nombres |
 | --- | ---: | --- |
 | Namespace | 1 | `sportapp-local` |
 | StatefulSet | 1 | `postgres` |
-| Deployment | 14 | `bff-web`, `bff-mobile`, `users-management`, `affiliation-management`, `complementary-services`, `training-management`, `events-management`, `third-party-management`, `users-management-outbox-publisher`, `affiliation-management-free-plan-consumer`, `affiliation-management-outbox-publisher`, `training-management-outbox-publisher`, `training-management-read-projector`, `pubsub-emulator` |
-| Job | 11 | `users-management-migrate-write`, `users-management-migrate-read`, `affiliation-management-migrate-main`, `complementary-services-migrate-main`, `training-management-migrate-write`, `training-management-migrate-read`, `events-management-migrate-write`, `events-management-migrate-read`, `users-management-pubsub-setup`, `affiliation-management-pubsub-setup`, `training-management-pubsub-setup` |
+| Deployment | 16 | `bff-web`, `bff-mobile`, `users-management`, `affiliation-management`, `complementary-services`, `training-management`, `events-management`, `third-party-management`, `users-management-outbox-publisher`, `affiliation-management-free-plan-consumer`, `affiliation-management-outbox-publisher`, `training-management-outbox-publisher`, `training-management-read-projector`, `events-management-outbox-publisher`, `events-management-read-projector`, `pubsub-emulator` |
+| Job | 12 | `users-management-migrate-write`, `users-management-migrate-read`, `affiliation-management-migrate-main`, `complementary-services-migrate-main`, `training-management-migrate-write`, `training-management-migrate-read`, `events-management-migrate-write`, `events-management-migrate-read`, `users-management-pubsub-setup`, `affiliation-management-pubsub-setup`, `training-management-pubsub-setup`, `events-management-pubsub-setup` |
 | Service | 10 | uno por Deployment de aplicación, más `postgres` y `pubsub-emulator` |
 | ConfigMap | 2 | `sportapp-runtime-<hash>` (configuración) y `postgres-init-<hash>` (script que crea las bases) |
 | Secret | 2 | `sportapp-database-<hash>` (contraseñas del paso 9) y `sportapp-users-jwt-<hash>` (clave de firma de HU003) |
@@ -901,8 +919,8 @@ kubectl --context docker-desktop --namespace sportapp-local get pods
 
 Debe ver:
 
-- **15 pods `Running` con `READY 1/1`:** `postgres-0`, `pubsub-emulator-...`, `users-management-...`, `affiliation-management-...`, `complementary-services-...`, `training-management-...`, `events-management-...`, `third-party-management-...`, `bff-web-...`, `bff-mobile-...`, `users-management-outbox-publisher-...`, `affiliation-management-free-plan-consumer-...`, `affiliation-management-outbox-publisher-...`, `training-management-outbox-publisher-...` y `training-management-read-projector-...`.
-- **Pods `Completed`** de los 11 Jobs.
+- **17 pods `Running` con `READY 1/1`:** `postgres-0`, `pubsub-emulator-...`, `users-management-...`, `affiliation-management-...`, `complementary-services-...`, `training-management-...`, `events-management-...`, `third-party-management-...`, `bff-web-...`, `bff-mobile-...`, `users-management-outbox-publisher-...`, `affiliation-management-free-plan-consumer-...`, `affiliation-management-outbox-publisher-...`, `training-management-outbox-publisher-...`, `training-management-read-projector-...`, `events-management-outbox-publisher-...` y `events-management-read-projector-...`.
+- **Pods `Completed`** de los 12 Jobs.
 - Pueden quedar además pods de Jobs en `Error`: son los intentos fallidos del principio. Mientras su Job tenga un pod `Completed`, está bien.
 
 Resumen de Jobs (todos deben decir `Complete`):
@@ -1187,7 +1205,7 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
 - GCP: proyectos, Workload Identity Provider, Artifact Registry, destino GKE/Cloud Run y Terraform (ADR-017).
 - Manifiesto de release, workflows de staging/producción, SBOM y escaneo de imágenes.
 - Contrato compartido de errores, sobre de eventos y primeros esquemas. Tópicos, suscripciones y DLQ.
-- Proyector de lectura de usuarios (`usuarios-read-projector`, suscripción `proyector-usuarios-v1`, DLQ): refactor pendiente de HU001. Debe llenar `user_directory` a partir de `usuario.registrado.v1`; HU010 ya lo consulta (`POST /v1/users/lookup`). Workers CQRS de eventos (CMP-002).
+- Proyector de lectura de usuarios (`usuarios-read-projector`, suscripción `proyector-usuarios-v1`, DLQ): refactor pendiente de HU001. Debe llenar `user_directory` a partir de `usuario.registrado.v1`; HU010 ya lo consulta (`POST /v1/users/lookup`). Los workers CQRS de eventos existen desde HU021 (CMP-004).
 - HU001:
   - prueba de carga HA003 en un ambiente representativo (escenario listo en `load/locust/registration.py`);
   - protección contra abuso y enumeración en el registro (el `409 email_already_registered` revela qué correos existen);
@@ -1202,6 +1220,12 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - IP real del usuario detrás del balanceador: Uvicorn solo confía en `X-Forwarded-For` de las IP en `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`), que debe fijar la plataforma;
   - revocación por incidente, MFA y recuperación de cuenta (el cierre de sesión ya existe: HU004);
   - clientes web y móvil (almacenamiento seguro y E2E).
+- HU021:
+  - `T-HU021-WEB`: formulario `/organizador/eventos/nuevo` contra `bff-web` 0.10.0 (errores por campo, misma clave en los reintentos de red, `502`, `503` y `504`) y E2E vertical;
+  - `T-HU021-PLAT`: tópico `sportapp.eventos.v1`, suscripción `proyector-eventos-v1` con orden, DLQ, reintentos, IAM, métricas y alerta en la composición local de la plataforma y en GCP (aquí solo existe la creación en el emulador);
+  - consultas del borrador por su organizador, catálogo y calendario públicos (HU022-HU024): deben reutilizar la regla de visibilidad de `event_read` (un `DRAFT` nunca es público);
+  - tamaño de lote, arrendamiento, pool y HPA de los workers de eventos, y SLA de frescura de la proyección (CMP-004, no bloqueantes);
+  - purga de claves de idempotencia vencidas, como en HU001, HU010 y HU015.
 - HU015:
   - `T-HU015-WEB` (formulario y borrador) y su E2E;
   - purga de claves de idempotencia vencidas, como en HU001 y HU010.

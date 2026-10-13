@@ -9,6 +9,7 @@ SETTINGS = EventsManagementSettings(
     app_env="test",
     database_write_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
     database_read_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
+    users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
     db_connect_timeout_seconds=1,
 )
 

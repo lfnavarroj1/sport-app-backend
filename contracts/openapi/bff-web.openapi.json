@@ -245,6 +245,140 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EventLocation": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "description": "Se recortan los espacios exteriores.",
+            "maxLength": 200,
+            "minLength": 5,
+            "title": "Address",
+            "type": "string"
+          },
+          "city": {
+            "description": "Se recortan los espacios exteriores.",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "description": "ISO 3166-1 alfa-2 en mayúsculas.",
+            "examples": [
+              "CO"
+            ],
+            "pattern": "^[A-Z]{2}$",
+            "title": "Country Code",
+            "type": "string"
+          },
+          "name": {
+            "description": "Se recortan los espacios exteriores.",
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "address",
+          "city",
+          "country_code"
+        ],
+        "title": "EventLocation",
+        "type": "object"
+      },
+      "EventResponse": {
+        "description": "Borrador confirmado; `starts_at`, `ends_at` y las marcas de tiempo en UTC (`Z`).",
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "discipline": {
+            "title": "Discipline",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "ends_at": {
+            "description": "`starts_at` + `duration_minutes`.",
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/EventLocation"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "organizer_id": {
+            "format": "uuid",
+            "title": "Organizer Id",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "const": "DRAFT",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "organizer_id",
+          "name",
+          "description",
+          "discipline",
+          "location",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "duration_minutes",
+          "capacity",
+          "status",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "EventResponse",
+        "type": "object"
+      },
       "GrantAuthorizationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -929,7 +1063,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.9.0"
+    "version": "0.10.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1167,6 +1301,212 @@
         "summary": "Historial de entrenamiento de un deportista que me autorizó (HU011)",
         "tags": [
           "training"
+        ]
+      }
+    },
+    "/v1/events": {
+      "post": {
+        "operationId": "create_v1_events_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el servicio (ADR-028).",
+                "properties": {
+                  "capacity": {
+                    "maximum": 100000,
+                    "minimum": 1,
+                    "title": "Capacity",
+                    "type": "integer"
+                  },
+                  "description": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 2000,
+                    "minLength": 20,
+                    "title": "Description",
+                    "type": "string"
+                  },
+                  "discipline": {
+                    "description": "Texto libre en el MVP (sin catálogo). Se recortan los espacios exteriores.",
+                    "maxLength": 80,
+                    "minLength": 2,
+                    "title": "Discipline",
+                    "type": "string"
+                  },
+                  "duration_minutes": {
+                    "maximum": 1440,
+                    "minimum": 15,
+                    "title": "Duration Minutes",
+                    "type": "integer"
+                  },
+                  "location": {
+                    "$ref": "#/components/schemas/EventLocation"
+                  },
+                  "name": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 120,
+                    "minLength": 3,
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "starts_at": {
+                    "description": "Instante futuro ISO 8601 con desfase UTC explícito, coherente con `time_zone` en ese instante.",
+                    "examples": [
+                      "2026-11-15T07:00:00-05:00"
+                    ],
+                    "format": "date-time",
+                    "title": "Starts At",
+                    "type": "string"
+                  },
+                  "time_zone": {
+                    "description": "Zona IANA declarada.",
+                    "examples": [
+                      "America/Bogota"
+                    ],
+                    "title": "Time Zone",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "description",
+                  "discipline",
+                  "location",
+                  "starts_at",
+                  "time_zone",
+                  "duration_minutes",
+                  "capacity"
+                ],
+                "title": "CreateEventRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`organizer` con `events.create`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (ADR-028)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Crear un evento masivo en borrador (HU021)",
+        "tags": [
+          "events"
         ]
       }
     },

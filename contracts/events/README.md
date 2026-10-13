@@ -9,6 +9,7 @@ Cada esquema se ubica en `<dominio>/<tipo>.vN.schema.json` y debe incluir el sob
 | [`plan.entrenamiento_creado.v1`](entrenamientos/plan.entrenamiento_creado.v1.schema.json) | `sportapp.entrenamientos.v1` | `aggregate_id` (= `plan_id`) | `training_management` (`entrenamientos-outbox-publisher`) | Aprobado 2026-10-12 (CMP-003, HU010) |
 | [`autorizacion_entrenamiento.otorgada.v1`](entrenamientos/autorizacion_entrenamiento.otorgada.v1.schema.json) y [`autorizacion_entrenamiento.revocada.v1`](entrenamientos/autorizacion_entrenamiento.revocada.v1.schema.json) | `sportapp.entrenamientos.v1` | `aggregate_id` (UUIDv5 de `athlete_id:professional_id`) | `training_management` (`entrenamientos-outbox-publisher`) | Aprobados 2026-10-12 (HU011); estado completo de la autorización |
 | [`entrenamiento.finalizado.v1`](entrenamientos/entrenamiento.finalizado.v1.schema.json) | `sportapp.entrenamientos.v1` | `aggregate_id` (= `session_id`) | `training_management` (lo publicará HU032; sin productor todavía) | Aprobado 2026-10-12 (CMP-003, HU011) |
+| [`evento.creado.v1`](eventos/evento.creado.v1.schema.json) | `sportapp.eventos.v1` | `aggregate_id` (= `event_id`) | `events_management` (`eventos-outbox-publisher`) | Aprobado 2026-10-12 (ADR-028, CMP-004, HU021); estado completo del borrador, instantes en UTC (`Z`) |
 
 Consumidores aprobados:
 
@@ -16,6 +17,7 @@ Consumidores aprobados:
 | --- | --- | --- | --- | --- |
 | `usuario.registrado.v1` | `affiliation_management` (alta gratuita) | `sportapp.afiliacion.alta-gratuita.v1` (con orden) | `sportapp.afiliacion.alta-gratuita.dlq` (+ `…dlq.ops`) | 10 intentos; backoff de 10 a 600 s; ACK después del COMMIT |
 | eventos de `sportapp.entrenamientos.v1` (hoy proyecta `plan.entrenamiento_creado.v1`, `autorizacion_entrenamiento.*.v1` y `entrenamiento.finalizado.v1`; otros tipos se confirman sin efectos) | `training_management` (`entrenamientos-read-projector`) | `proyector-entrenamientos-v1` (con orden) | `sportapp.entrenamientos.proyeccion.dlq` (+ `…dlq.ops`) | PROPUESTO: 10 intentos; backoff de 10 a 600 s; ACK después del COMMIT |
+| eventos de `sportapp.eventos.v1` (hoy proyecta `evento.creado.v1`; otros tipos se confirman sin efectos) | `events_management` (`eventos-read-projector`) | `proyector-eventos-v1` (con orden) | `sportapp.eventos.proyeccion.dlq` (+ `…dlq.ops`) | Aprobado en ADR-028: 10 intentos; backoff de 10 a 600 s; deduplicación por `event_id` del sobre; ACK después del COMMIT |
 
 `suscripcion.activada.v1` todavía no tiene consumidores aprobados: no se crea suscripción ni DLQ para él (ADR-024).
 

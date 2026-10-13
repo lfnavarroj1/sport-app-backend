@@ -1,5 +1,6 @@
-"""Cargas asíncronas de `events_management`: publicador de outbox y proyector de lectura.
+"""Cargas asíncronas de `events_management` (CMP-004, HU021).
 
-Se implementan cuando existan tópico, payload, ordering key, reintentos y DLQ
-versionados (CMP-002); hasta entonces no existe ningún worker desplegable.
+- `eventos-outbox-publisher`: `python -m events_management.workers.outbox_publisher`.
+- `eventos-read-projector`: `python -m events_management.workers.read_projector`.
+- Recursos del emulador: `python -m events_management.workers.pubsub_setup`.
 """

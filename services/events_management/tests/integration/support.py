@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -14,14 +15,20 @@ from events_management.application.commands.create_event import (
     CreateEvent,
     CreateEventCommand,
 )
-from events_management.application.projections.event_projection import ProjectEventCreated
+from events_management.application.commands.register_for_event import RegisterForEvent
+from events_management.application.projections.event_projection import EventsProjector
 from events_management.infrastructure.clock import SystemClock
 from events_management.infrastructure.persistence_read.events import (
+    SqlAlchemyEventDetailReader,
     SqlAlchemyEventReader,
     SqlAlchemyProjectionUnitOfWork,
+    SqlAlchemyRegistrationReader,
 )
+from events_management.infrastructure.persistence_read.models import EventReadRow
+from events_management.infrastructure.persistence_write.models import EventRow
 from events_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyEventCreationUnitOfWork,
+    SqlAlchemyRegistrationUnitOfWork,
 )
 from sportapp_platform.migrations import upgrade
 from sportapp_platform.testing.postgres import temporary_database
@@ -57,10 +64,57 @@ class EventDatabases:
             clock=SystemClock(),
         )
 
-    def project(self) -> ProjectEventCreated:
-        return ProjectEventCreated(
+    def project(self) -> EventsProjector:
+        return EventsProjector(
             unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.reads), clock=SystemClock()
         )
+
+    def register(self) -> RegisterForEvent:
+        return RegisterForEvent(
+            unit_of_work=lambda: SqlAlchemyRegistrationUnitOfWork(self.writes), clock=SystemClock()
+        )
+
+    def detail_reader(self) -> SqlAlchemyEventDetailReader:
+        return SqlAlchemyEventDetailReader(self.reads)
+
+    def registration_reader(self) -> SqlAlchemyRegistrationReader:
+        return SqlAlchemyRegistrationReader(self.reads)
+
+    def publish_event(
+        self,
+        *,
+        capacity: int = 100,
+        starts_in: timedelta = timedelta(days=30),
+        status: str = "PUBLISHED",
+    ) -> UUID:
+        """Evento sintético en escritura y lectura: la publicación real pertenece a HU024."""
+        event_id, now = uuid4(), datetime.now(UTC)
+        starts_at = now + starts_in
+        values: dict[str, Any] = {
+            "event_id": event_id,
+            "organizer_id": uuid4(),
+            "name": "Carrera 10K Bogotá",
+            "description": "Carrera recreativa de diez kilómetros para aficionados.",
+            "discipline": "Running",
+            "location_name": "Parque Metropolitano Simón Bolívar",
+            "location_address": "Avenida Calle 63 # 60-50",
+            "location_city": "Bogotá",
+            "location_country_code": "CO",
+            "starts_at": starts_at,
+            "ends_at": starts_at + timedelta(hours=3),
+            "time_zone": "America/Bogota",
+            "duration_minutes": 180,
+            "capacity": capacity,
+            "status": status,
+            "version": 2 if status == "PUBLISHED" else 1,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.writes() as session, session.begin():
+            session.add(EventRow(**values))
+        with self.reads() as session, session.begin():
+            session.add(EventReadRow(**values, projected_at=now))
+        return event_id
 
     def reader(self) -> SqlAlchemyEventReader:
         return SqlAlchemyEventReader(self.reads)

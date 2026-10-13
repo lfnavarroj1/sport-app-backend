@@ -2,6 +2,7 @@
 
 Ejecución: `python -m events_management.workers.read_projector`.
 
+- Proyecta `evento.creado.v1` y `usuario.inscrito.v1` (HU041).
 - Consume `sportapp.eventos.v1` por la suscripción ordenada `proyector-eventos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de `event_read` y `processed_event`.
 - Un mensaje inválido, un hueco de versión o un fallo de procesamiento no se confirma:
@@ -22,11 +23,12 @@ from sqlalchemy.orm import sessionmaker
 from events_management.application.messages import (
     EventCreatedMessage,
     InvalidEvent,
+    SportEventMessage,
     UnsupportedEvent,
     parse_sport_event_message,
 )
 from events_management.application.projections.event_projection import (
-    ProjectEventCreated,
+    EventsProjector,
     ProjectionOutcome,
 )
 from events_management.infrastructure.clock import SystemClock
@@ -57,7 +59,7 @@ class InboundMessage(Protocol):
 
 
 class ProjectionMessageHandler:
-    def __init__(self, project: Callable[[EventCreatedMessage], ProjectionOutcome]) -> None:
+    def __init__(self, project: Callable[[SportEventMessage], ProjectionOutcome]) -> None:
         self._project = project
 
     def __call__(self, message: InboundMessage) -> None:
@@ -82,7 +84,11 @@ class ProjectionMessageHandler:
             return
         fields |= {
             "event_id": str(event.message_id),
-            "aggregate_id": str(event.event.event_id),
+            "aggregate_id": str(
+                event.event.event_id
+                if isinstance(event, EventCreatedMessage)
+                else event.registration.registration_id
+            ),
             "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         }
         try:
@@ -113,7 +119,7 @@ def main() -> None:
         level=settings.log_level,
     )
     engine = create_database_engine(settings.database_read_url, settings)
-    project = ProjectEventCreated(
+    project = EventsProjector(
         unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(sessionmaker(engine)),
         clock=SystemClock(),
     )

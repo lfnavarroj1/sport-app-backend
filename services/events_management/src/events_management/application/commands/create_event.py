@@ -170,7 +170,7 @@ class CreateEvent:
 
     def _previous(self, organizer_id: UUID, key: UUID, fingerprint: str) -> CreatedEvent | None:
         with self._unit_of_work() as unit_of_work:
-            record = unit_of_work.find_idempotency(organizer_id, key)
+            record = unit_of_work.find_idempotency(organizer_id, OPERATION, key)
         if record is None or record.expires_at <= self._clock.now():
             return None
         if record.operation != OPERATION or record.request_fingerprint != fingerprint:
@@ -183,11 +183,15 @@ class CreateEvent:
         now = event.created_at
         document = event_document(event)
         with self._unit_of_work() as unit_of_work:
-            existing = unit_of_work.find_idempotency(event.organizer_id, command.idempotency_key)
+            existing = unit_of_work.find_idempotency(
+                event.organizer_id, OPERATION, command.idempotency_key
+            )
             if existing is not None:
                 if existing.expires_at > now:
                     raise IdempotencyKeyConflict()
-                unit_of_work.delete_idempotency(event.organizer_id, command.idempotency_key)
+                unit_of_work.delete_idempotency(
+                    event.organizer_id, OPERATION, command.idempotency_key
+                )
             unit_of_work.add_event(event)
             unit_of_work.add_outbox(
                 OutboxMessage(

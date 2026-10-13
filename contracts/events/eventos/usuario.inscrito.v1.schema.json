@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/eventos/usuario.inscrito.v1.schema.json",
+  "title": "usuario.inscrito.v1",
+  "description": "Publicado en sportapp.eventos.v1 con ordering_key = registration_id (= aggregate_id) cuando un deportista se inscribe a un evento publicado (HU041, ADR-032, CMP-004). Versión de agregado 1; eventos-read-projector construye event_registration_read. No transporta datos del evento, perfil ni pago; applied_fee es informativo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador del mensaje; el proyector deduplica por este valor en processed_event."
+    },
+    "event_type": {"const": "usuario.inscrito.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "events-management"},
+    "aggregate_type": {"const": "event_registration"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "registration_id de la inscripción."
+    },
+    "aggregate_version": {"const": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Idempotency-Key del comando de inscripción."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registration_id",
+        "event_id",
+        "athlete_id",
+        "status",
+        "registered_at",
+        "applied_fee",
+        "version"
+      ],
+      "properties": {
+        "registration_id": {"type": "string", "format": "uuid"},
+        "event_id": {"type": "string", "format": "uuid"},
+        "athlete_id": {"type": "string", "format": "uuid"},
+        "status": {"const": "REGISTERED"},
+        "registered_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "applied_fee": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["amount", "currency"],
+              "properties": {
+                "amount": {"type": "string", "pattern": "^\\d{1,10}\\.\\d{2}$"},
+                "currency": {"type": "string", "pattern": "^[A-Z]{3}$"}
+              }
+            }
+          ],
+          "description": "Tarifa vigente del evento al inscribirse (HU025); informativa, no es un cobro."
+        },
+        "version": {"const": 1}
+      }
+    }
+  }
+}

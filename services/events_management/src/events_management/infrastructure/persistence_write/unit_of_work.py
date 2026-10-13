@@ -1,19 +1,28 @@
-"""Unidad de trabajo SQLAlchemy de la creación de eventos (HU021)."""
+"""Unidades de trabajo SQLAlchemy de la base de escritura de eventos (HU021, HU041)."""
 
+from collections.abc import Mapping
 from types import TracebackType
-from typing import Self
+from typing import ClassVar, Self
 from uuid import UUID
 
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from events_management.application.errors import IdempotencyKeyConflict
-from events_management.application.ports import IdempotencyRecord, OutboxMessage
-from events_management.domain.sport_events.model import SportEvent
+from events_management.application.errors import IdempotencyKeyConflict, RegistrationConflict
+from events_management.application.ports import EventSummary, IdempotencyRecord, OutboxMessage
+from events_management.domain.registrations.model import (
+    AppliedFee,
+    EventForRegistration,
+    EventRegistration,
+    RegistrationStatus,
+)
+from events_management.domain.sport_events.model import EventStatus, SportEvent
 from events_management.infrastructure.persistence_write.models import (
     IDEMPOTENCY_PRIMARY_KEY,
+    REGISTRATION_UNIQUE,
     CommandIdempotencyRow,
+    EventRegistrationRow,
     EventRow,
     OutboxEventRow,
 )
@@ -24,7 +33,13 @@ def _violated_constraint(error: IntegrityError) -> str | None:
     return getattr(diagnostics, "constraint_name", None)
 
 
-class SqlAlchemyEventCreationUnitOfWork:
+class _WriteUnitOfWork:
+    """Sesión, idempotencia por actor y operación, y outbox comunes a los comandos."""
+
+    _conflicts: ClassVar[Mapping[str | None, type[Exception]]] = {
+        IDEMPOTENCY_PRIMARY_KEY: IdempotencyKeyConflict
+    }
+
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
         self._session: Session | None = None
@@ -50,8 +65,12 @@ class SqlAlchemyEventCreationUnitOfWork:
         self.session.close()
         self._session = None
 
-    def find_idempotency(self, actor_id: UUID, key: UUID) -> IdempotencyRecord | None:
-        row = self.session.get(CommandIdempotencyRow, (actor_id, key))
+    def find_idempotency(
+        self, actor_id: UUID, operation: str, key: UUID
+    ) -> IdempotencyRecord | None:
+        # Sin autoflush: los conflictos deben aflorar en `commit`, donde se traducen.
+        with self.session.no_autoflush:
+            row = self.session.get(CommandIdempotencyRow, (actor_id, operation, key))
         if row is None:
             return None
         return IdempotencyRecord(
@@ -65,12 +84,60 @@ class SqlAlchemyEventCreationUnitOfWork:
             expires_at=row.expires_at,
         )
 
-    def delete_idempotency(self, actor_id: UUID, key: UUID) -> None:
+    def delete_idempotency(self, actor_id: UUID, operation: str, key: UUID) -> None:
         self.session.execute(
             delete(CommandIdempotencyRow).where(
-                CommandIdempotencyRow.actor_id == actor_id, CommandIdempotencyRow.key == key
+                CommandIdempotencyRow.actor_id == actor_id,
+                CommandIdempotencyRow.operation == operation,
+                CommandIdempotencyRow.key == key,
             )
         )
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None:
+        self.session.add(
+            CommandIdempotencyRow(
+                actor_id=record.actor_id,
+                operation=record.operation,
+                key=record.key,
+                request_fingerprint=record.request_fingerprint,
+                resource_id=record.resource_id,
+                response=record.response,
+                created_at=record.created_at,
+                expires_at=record.expires_at,
+            )
+        )
+
+    def add_outbox(self, message: OutboxMessage) -> None:
+        self.session.add(
+            OutboxEventRow(
+                event_id=message.event_id,
+                aggregate_type=message.aggregate_type,
+                aggregate_id=message.aggregate_id,
+                aggregate_version=message.aggregate_version,
+                event_type=message.event_type,
+                schema_version=message.schema_version,
+                occurred_at=message.occurred_at,
+                correlation_id=message.correlation_id,
+                causation_id=message.causation_id,
+                payload=message.payload,
+                attempts=0,
+                next_attempt_at=message.occurred_at,
+            )
+        )
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            conflict = self._conflicts.get(_violated_constraint(error))
+            if conflict is not None:
+                raise conflict() from None
+            raise
+
+
+class SqlAlchemyEventCreationUnitOfWork(_WriteUnitOfWork):
+    """HU021: evento en borrador, idempotencia y `evento.creado.v1`."""
 
     def add_event(self, event: SportEvent) -> None:
         details = event.details
@@ -97,43 +164,95 @@ class SqlAlchemyEventCreationUnitOfWork:
             )
         )
 
-    def add_outbox(self, message: OutboxMessage) -> None:
-        self.session.add(
-            OutboxEventRow(
-                event_id=message.event_id,
-                aggregate_type=message.aggregate_type,
-                aggregate_id=message.aggregate_id,
-                aggregate_version=message.aggregate_version,
-                event_type=message.event_type,
-                schema_version=message.schema_version,
-                occurred_at=message.occurred_at,
-                correlation_id=message.correlation_id,
-                causation_id=message.causation_id,
-                payload=message.payload,
-                attempts=0,
-                next_attempt_at=message.occurred_at,
-            )
+
+def _registration(row: EventRegistrationRow) -> EventRegistration:
+    fee = (
+        AppliedFee(row.applied_fee_amount, row.applied_fee_currency)
+        if row.applied_fee_amount is not None and row.applied_fee_currency is not None
+        else None
+    )
+    return EventRegistration(
+        registration_id=row.registration_id,
+        event_id=row.event_id,
+        athlete_id=row.athlete_id,
+        status=RegistrationStatus(row.status),
+        registered_at=row.registered_at,
+        applied_fee=fee,
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+class SqlAlchemyRegistrationUnitOfWork(_WriteUnitOfWork):
+    """HU041: evento bloqueado, inscripción, idempotencia y `usuario.inscrito.v1`."""
+
+    _conflicts: ClassVar[Mapping[str | None, type[Exception]]] = {
+        IDEMPOTENCY_PRIMARY_KEY: IdempotencyKeyConflict,
+        REGISTRATION_UNIQUE: RegistrationConflict,
+    }
+
+    def lock_event(self, event_id: UUID) -> EventForRegistration | None:
+        row = self.session.scalar(
+            select(EventRow).where(EventRow.event_id == event_id).with_for_update()
+        )
+        if row is None:
+            return None
+        # Sin tarifa hasta HU025: `applied_fee` queda `null`.
+        return EventForRegistration(
+            event_id=row.event_id,
+            status=EventStatus(row.status),
+            starts_at=row.starts_at,
+            capacity=row.capacity,
         )
 
-    def add_idempotency(self, record: IdempotencyRecord) -> None:
-        self.session.add(
-            CommandIdempotencyRow(
-                actor_id=record.actor_id,
-                key=record.key,
-                operation=record.operation,
-                request_fingerprint=record.request_fingerprint,
-                resource_id=record.resource_id,
-                response=record.response,
-                created_at=record.created_at,
-                expires_at=record.expires_at,
-            )
+    def event_summary(self, event_id: UUID) -> EventSummary:
+        row = self.session.get(EventRow, event_id)
+        if row is None:
+            raise RuntimeError("El evento bloqueado no está cargado.")
+        return EventSummary(
+            name=row.name,
+            starts_at=row.starts_at,
+            ends_at=row.ends_at,
+            time_zone=row.time_zone,
+            location_name=row.location_name,
+            location_city=row.location_city,
+            location_country_code=row.location_country_code,
         )
 
-    def commit(self) -> None:
-        try:
-            self.session.commit()
-        except IntegrityError as error:
-            self.session.rollback()
-            if _violated_constraint(error) == IDEMPOTENCY_PRIMARY_KEY:
-                raise IdempotencyKeyConflict() from None
-            raise
+    def count_registrations(self, event_id: UUID) -> int:
+        count: int = (
+            self.session.scalar(
+                select(func.count())
+                .select_from(EventRegistrationRow)
+                .where(EventRegistrationRow.event_id == event_id)
+            )
+            or 0
+        )
+        return count
+
+    def find_registration(self, event_id: UUID, athlete_id: UUID) -> EventRegistration | None:
+        row = self.session.scalar(
+            select(EventRegistrationRow).where(
+                EventRegistrationRow.event_id == event_id,
+                EventRegistrationRow.athlete_id == athlete_id,
+            )
+        )
+        return _registration(row) if row is not None else None
+
+    def add_registration(self, registration: EventRegistration) -> None:
+        fee = registration.applied_fee
+        self.session.add(
+            EventRegistrationRow(
+                registration_id=registration.registration_id,
+                event_id=registration.event_id,
+                athlete_id=registration.athlete_id,
+                status=registration.status.value,
+                registered_at=registration.registered_at,
+                applied_fee_amount=fee.amount if fee else None,
+                applied_fee_currency=fee.currency if fee else None,
+                version=registration.version,
+                created_at=registration.created_at,
+                updated_at=registration.updated_at,
+            )
+        )

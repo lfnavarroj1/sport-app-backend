@@ -8,16 +8,27 @@ from sqlalchemy.orm import sessionmaker
 
 from events_management.api.events import build_events_router
 from events_management.api.published_events import build_published_events_router
+from events_management.api.registrations import build_registrations_router
 from events_management.application.commands.create_event import CreateEvent
+from events_management.application.commands.register_for_event import RegisterForEvent
 from events_management.application.queries.published_events import ListPublishedEvents
+from events_management.application.queries.registrations import (
+    GetPublishedEvent,
+    ListMyRegistrations,
+)
 from events_management.infrastructure.authorization import ContractPermissionPolicy
 from events_management.infrastructure.clock import SystemClock
 from events_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
 )
-from events_management.infrastructure.persistence_read.events import SqlAlchemyPublishedEventReader
+from events_management.infrastructure.persistence_read.events import (
+    SqlAlchemyEventDetailReader,
+    SqlAlchemyPublishedEventReader,
+    SqlAlchemyRegistrationReader,
+)
 from events_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyEventCreationUnitOfWork,
+    SqlAlchemyRegistrationUnitOfWork,
 )
 from events_management.settings import EventsManagementSettings
 from sportapp_platform.app import create_service_app
@@ -27,7 +38,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "events-management"
-API_VERSION = "0.3.0"
+API_VERSION = "0.4.0"
 
 
 def create_app(
@@ -86,6 +97,15 @@ def create_app(
                     reader=SqlAlchemyPublishedEventReader(reads),
                     capabilities=AffiliationCapabilityChecker(affiliation_http),
                 ),
+            ),
+            build_registrations_router(
+                verify_token=verifier.verify,
+                get_event=GetPublishedEvent(reader=SqlAlchemyEventDetailReader(reads)),
+                register=RegisterForEvent(
+                    unit_of_work=lambda: SqlAlchemyRegistrationUnitOfWork(writes),
+                    clock=SystemClock(),
+                ),
+                list_registrations=ListMyRegistrations(reader=SqlAlchemyRegistrationReader(reads)),
             ),
         ],
         shutdown_hooks=[

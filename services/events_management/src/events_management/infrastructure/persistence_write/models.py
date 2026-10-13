@@ -5,16 +5,29 @@ Usuarios: no hay claves foráneas hacia otra base.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from sportapp_platform.database import new_metadata
 
 IDEMPOTENCY_PRIMARY_KEY = "pk_command_idempotency"
+REGISTRATION_UNIQUE = "uq_event_registration_event_id_athlete_id"
 
 
 class WriteBase(DeclarativeBase):
@@ -26,7 +39,7 @@ class EventRow(WriteBase):
 
     __tablename__ = "event"
     __table_args__ = (
-        CheckConstraint("status IN ('DRAFT')", name="status"),
+        CheckConstraint("status IN ('DRAFT', 'PUBLISHED')", name="status"),
         CheckConstraint("char_length(name) BETWEEN 3 AND 120", name="name"),
         CheckConstraint("char_length(description) BETWEEN 20 AND 2000", name="description"),
         CheckConstraint("char_length(discipline) BETWEEN 2 AND 80", name="discipline"),
@@ -99,10 +112,38 @@ class CommandIdempotencyRow(WriteBase):
     __tablename__ = "command_idempotency"
 
     actor_id: Mapped[UUID] = mapped_column(primary_key=True)
+    # HU041: la clave se aísla también por operación (HU021 y HU041 del mismo actor).
+    operation: Mapped[str] = mapped_column(String(64), primary_key=True)
     key: Mapped[UUID] = mapped_column(primary_key=True)
-    operation: Mapped[str] = mapped_column(String(64))
     request_fingerprint: Mapped[str] = mapped_column(String(64))
     resource_id: Mapped[UUID]
     response: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class EventRegistrationRow(WriteBase):
+    """Inscripción del deportista a un evento publicado (HU041, ADR-032)."""
+
+    __tablename__ = "event_registration"
+    __table_args__ = (
+        UniqueConstraint("event_id", "athlete_id", name=REGISTRATION_UNIQUE),
+        CheckConstraint("status IN ('REGISTERED')", name="status"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint(
+            "(applied_fee_amount IS NULL) = (applied_fee_currency IS NULL)", name="applied_fee"
+        ),
+    )
+
+    registration_id: Mapped[UUID] = mapped_column(primary_key=True)
+    event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event.event_id", ondelete="RESTRICT"), index=True
+    )
+    athlete_id: Mapped[UUID]
+    status: Mapped[str] = mapped_column(String(16))
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    applied_fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    applied_fee_currency: Mapped[str | None] = mapped_column(String(3))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -51,6 +51,7 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 | HU021 Crear evento masivo | `POST /v1/events` (organizador con `events.create`; `Idempotency-Key` obligatorio) | `bff_web` → `events_management` → `event` + `command_idempotency` + `outbox_event` → `eventos-outbox-publisher` → `sportapp.eventos.v1` → `eventos-read-projector` → `event_read` + `processed_event` | OpenAPI 0.2.0 de `events-management` y 0.10.0 de `bff-web`; evento `evento.creado.v1`; ADR-028 |
 | HU032 Iniciar o finalizar entrenamiento | `POST /v1/training-sessions`, `POST /v1/training-sessions/{session_id}/finish` y `GET /v1/training-sessions/active` (deportista; `Idempotency-Key` obligatorio en los comandos) | `bff_mobile` → `training_management` (capacidad en Afiliación solo al iniciar) → `training_session` + `command_idempotency` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `active_training_session` y `training_session_history` | OpenAPI 0.4.0 de `training-management` y 0.5.0 de `bff-mobile`; eventos `entrenamiento.iniciado.v1` y `entrenamiento.finalizado.v1`; ADR-029 |
 | HU035 Ver calendario con eventos o salidas programadas | `GET /v1/me/calendar?from&to` en `bff-mobile` (deportista con `calendar.sport.view`); internos: `GET /v1/events?from&to&limit&cursor` en Eventos y `GET /v1/me/training-plan-sessions?from&to&limit&cursor` en Entrenamientos | `bff_mobile` compone en paralelo `events_management` (`event_read`, solo `PUBLISHED`; capacidad verificada de nuevo en Afiliación) y `training_management` (`training_plan_session_view`, proyectada desde `plan.entrenamiento_creado.v1`); solo lectura | OpenAPI 0.3.0 de `events-management`, 0.5.0 de `training-management` y 0.6.0 de `bff-mobile`; sin eventos nuevos; ADR-031 |
+| HU041 Inscribirse a un evento publicado | `GET /v1/events/{event_id}` (detalle `PUBLISHED` con `my_registration`), `POST /v1/events/{event_id}/registrations` (sin cuerpo; `Idempotency-Key` obligatorio) y `GET /v1/me/event-registrations` (deportista; sin capacidad de plan) en `bff-mobile` y `events-management` | `bff_mobile` → `events_management` → bloqueo de `event` + `event_registration` + `command_idempotency` + `outbox_event` → `eventos-outbox-publisher` → `sportapp.eventos.v1` → `eventos-read-projector` → `event_registration_read` + `processed_event` | OpenAPI 0.4.0 de `events-management` y 0.7.0 de `bff-mobile`; evento `usuario.inscrito.v1`; ADR-032 |
 
 Detalles de HU001:
 
@@ -200,6 +201,18 @@ Detalles de HU004 (decisiones y contrato aprobados el 2026-10-12):
 - **Auditoría (CA4):** `audit.session_revoke` con `result` (`revoked`, `already_revoked` o `unknown`), `user_id`, `family_id`, `idempotency_key` si llegó, y la fecha del registro; nunca el token ni su hash.
 - **Sin evento:** `credencial.revocada.v1` sigue siendo un candidato sin consumidores.
 
+Detalles de HU041 (ADR-032, aceptada el 2026-10-12):
+
+- **Quién:** solo `athlete`, filtrado en `bff-mobile` y de nuevo en el servicio (`403 permission_required`); el deportista sale del token y el cliente nunca envía `athlete_id`. No exige capacidad de plan.
+- **Elegibilidad y errores:** evento `PUBLISHED` con `starts_at` futuro; inexistente o `DRAFT` → `404 event_not_found`; ya iniciado → `409 event_registration_closed`; ya inscrito → `409 event_registration_exists` con `details=[{"field": "registration_id", "issue": "<uuid>"}]` para que la app abra la inscripción existente (el formato de `details` es elección de esta tarea); sin cupo → `409 event_full`; `Idempotency-Key` ausente o no UUID → `422 validation_error`.
+- **Cupo y unicidad:** el comando bloquea la fila de `event` (`FOR UPDATE`), cuenta las inscripciones frente a `capacity` y guarda inscripción, clave y `usuario.inscrito.v1` en la misma transacción; la unicidad `(event_id, athlete_id)` de la base respalda la regla. Ocho solicitudes concurrentes al último cupo → una `201` y siete `event_full` (prueba de integración).
+- **Idempotencia:** clave por deportista y operación, 24 h. `command_idempotency` pasa a tener PK `(actor_id, operation, key)` (migración de escritura `0003_event_registration`), así que la misma clave en HU021 y en HU041 no se cruza. Misma clave y evento → respuesta original con `Idempotent-Replayed: true` (también si llegan a la vez); otro evento → `409 idempotency_key_reused`.
+- **Estado y tarifa:** `REGISTERED`, versión `1`; `applied_fee` es informativa y hoy `null` (las tarifas son de HU025); sin cobro ni estados de pago. `201` con `Location: /v1/me/event-registrations/{registration_id}`.
+- **Proyección:** `eventos-read-projector` despacha por tipo (`evento.creado.v1` y `usuario.inscrito.v1`); la inscripción se guarda en `event_registration_read` (migración de lectura `0004_event_registration_read`, porque `0003` ya la usó HU035) junto con `processed_event`; la misma versión repetida se descarta y otra versión del mismo `registration_id` va a reintentos y DLQ.
+- **Consultas:** el detalle lee `event_read` (solo `PUBLISHED`; `fee` en `null` hasta HU025); en el servicio es visible para cualquier actor autenticado, como fija ADR-033 (el `DRAFT` para su organizador llega con HU024), y `my_registration` solo se compone para el deportista desde `event_registration_read` (en `bff-mobile` solo entra `athlete`); «mis inscripciones» filtra por el deportista del token y `status` (`REGISTERED`), `limit` 1-100 (20 por defecto) y cursor keyset `starts_at, registration_id`. Ambas leen la proyección, así que una inscripción recién creada aparece con el retraso del proyector.
+- **Modelo de escritura:** `event.status` admite `PUBLISHED` (restricción ampliada) para que la inscripción pueda validarlo; la transición `DRAFT → PUBLISHED` sigue siendo de HU024, todavía inexistente. Las pruebas publican eventos de forma sintética.
+- **Auditoría:** `audit.event_registration_created` con resultado, `registration_id`, `event_id`, `athlete_id` y correlación; sin cuerpos ni token.
+
 Detalles de HU035 (ADR-031, aceptada el 2026-10-12):
 
 - **Quién:** solo `athlete` con `calendar.sport.view` vigente (Afiliación), verificado en `bff-mobile`; `events-management` vuelve a verificar la capacidad antes de servir eventos (`403 capability_required`, `503 upstream_unavailable` si no puede evaluarla, también ante timeout); `training-management` solo exige `athlete` y usa el `athlete_id` del token, sin capacidad, para las sesiones propias.
@@ -310,7 +323,7 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `JWT_ISSUER`, `JWT_AUDIENCE` | bff-web, bff-mobile | `iss` y `aud` esperados en el access token (por defecto los mismos que emite `users-management`). |
 | `ACTOR_PERMISSIONS_PATH` | bff-web, bff-mobile | Ruta del contrato `actor-permissions.v1.json`. La imagen la fija en `/opt/sportapp/contracts/authorization/`; en el repositorio se localiza sola. Un contrato ausente o inválido detiene el arranque. |
 | `COMPLEMENTARY_SERVICES_BASE_URL` | bff-web | URL del servicio de servicios complementarios para HU015 (obligatoria; en el clúster, `http://complementary-services`). |
-| `EVENTS_MANAGEMENT_BASE_URL` | bff-web, bff-mobile | URL del servicio de eventos masivos para HU021 (web) y HU035 (móvil); obligatoria; en el clúster, `http://events-management`. |
+| `EVENTS_MANAGEMENT_BASE_URL` | bff-web, bff-mobile | URL del servicio de eventos masivos para HU021 (web), HU035 y HU041 (móvil); obligatoria; en el clúster, `http://events-management`. |
 | `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | events | JWKS de Usuarios para verificar el access token (obligatoria), timeout (5 s), `iss`/`aud` esperados y contrato de permisos; además `DATABASE_WRITE_URL` y `DATABASE_READ_URL`. |
 | `AFFILIATION_MANAGEMENT_BASE_URL` | events | Contrato interno de capacidades de Afiliación para `GET /v1/events` (HU035; obligatoria; en el clúster, `http://affiliation-management`). |
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC`, `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de eventos | Proyecto, tópico (por defecto `sportapp.eventos.v1`), lote (100), arrendamiento (30 s) e identidad de la réplica; usa `DATABASE_WRITE_URL`. |
@@ -1257,11 +1270,17 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
 - HU019 y HU020 (siguientes):
   - HU019 publica `servicio.publicado.v1` en `sportapp.servicios.v1` con `servicios-outbox-publisher` (contrato en ADR-027);
   - HU020 queda en pausa hasta HU019; su consulta mostrará los intervalos explícitos de ADR-027 y responderá en UTC (sin parámetro `tz`).
+- HU041:
+  - `T-HU041-MOB`: detalle, botón de inscripción con clave conservada en reintentos y «mis inscripciones» con caché Room cifrada (`STALE` 24 h) contra `bff-mobile` 0.7.0, y su E2E;
+  - el E2E vertical queda **BLOQUEADO** hasta HU024 (publicación de eventos);
+  - plataforma: `proyector-eventos-v1` y su DLQ fuera del emulador, como en HU021;
+  - riesgo de clave caliente en eventos muy demandados (bloqueo de la fila del evento) para HA017;
+  - purga de claves de idempotencia vencidas, como en las demás historias.
 - HU035:
   - `T-HU035-MOB`: pantalla `/calendario` con caché Room cifrada, `STALE` a las 24 h y estados de fuente incompleta contra `bff-mobile` 0.6.0, y su E2E;
   - dependencias para la aceptación (ADR-031): consumidor `FREE` operativo, `usuarios-read-projector`, HU024 (publicación de eventos) y `T-HU010-WEB`;
   - ADR-031 no fija qué responder si llega solo uno de `from`/`to`: se respondió `422 required`;
-  - inscripción del deportista a eventos: sin HU (brecha de producto registrada en ADR-031).
+  - inscripción del deportista a eventos: cubierta por HU041 (ADR-032).
 - HU032:
   - `T-HU032-MOB`: pantalla `/entrenamientos/sesion` offline first (Room, WorkManager, cifrado con Keystore, orden inicio→fin, expiración de 30 días) contra `bff-mobile` 0.5.0, y su E2E sin red;
   - plataforma: confirmar que tópico `sportapp.entrenamientos.v1`, `proyector-entrenamientos-v1`, DLQ, IAM, métricas y alertas existan fuera del emulador antes del E2E desplegado;

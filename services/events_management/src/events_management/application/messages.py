@@ -1,18 +1,28 @@
 """Lectura validada de los eventos de `sportapp.eventos.v1` para el proyector (CMP-004).
 
-Se proyecta `evento.creado.v1` (HU021). Un mensaje que no cumple el contrato es un
-`InvalidEvent`: no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo
-de evento del tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se
-confirma sin efectos.
+Se proyectan `evento.creado.v1` (HU021) y `usuario.inscrito.v1` (HU041). Un mensaje que
+no cumple el contrato es un `InvalidEvent`: no se confirma y, agotados los reintentos,
+termina en la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este proyector
+todavía no lo proyecta y se confirma sin efectos.
 
 `parse_event_document` también reconstruye el evento guardado como resultado idempotente.
 """
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from events_management.domain.registrations.events import EVENT_TYPE as REGISTERED
+from events_management.domain.registrations.events import (
+    SCHEMA_VERSION as REGISTERED_SCHEMA,
+)
+from events_management.domain.registrations.model import (
+    AppliedFee,
+    EventRegistration,
+    RegistrationStatus,
+)
 from events_management.domain.sport_events.countries import COUNTRY_CODES
 from events_management.domain.sport_events.created import EVENT_TYPE, SCHEMA_VERSION
 from events_management.domain.sport_events.model import (
@@ -63,6 +73,17 @@ class EventCreatedMessage:
     event: SportEvent
 
 
+@dataclass(frozen=True)
+class RegistrationCreatedMessage:
+    message_id: UUID
+    aggregate_version: int
+    correlation_id: UUID | None
+    registration: EventRegistration
+
+
+SportEventMessage = EventCreatedMessage | RegistrationCreatedMessage
+
+
 def _uuid(value: object, field: str) -> UUID:
     try:
         return UUID(str(value))
@@ -111,7 +132,8 @@ def parse_event_document(document: object) -> SportEvent:
     """Evento con la forma de ADR-028 (instantes en UTC); `InvalidEvent` si no la cumple."""
     if not isinstance(document, dict):
         raise InvalidEvent("payload_not_object")
-    if document.get("status") not in {status.value for status in EventStatus}:
+    # `evento.creado.v1` y el resultado idempotente de HU021 siempre describen un borrador.
+    if document.get("status") != EventStatus.DRAFT.value:
         raise InvalidEvent("unknown_status")
     time_zone = document.get("time_zone")
     if not isinstance(time_zone, str) or not time_zone:
@@ -164,7 +186,54 @@ def _event_created(envelope: dict[str, Any]) -> EventCreatedMessage:
     )
 
 
-def parse_sport_event_message(envelope: object) -> EventCreatedMessage:
+def _fee(value: object) -> AppliedFee | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("currency"), str):
+        raise InvalidEvent("applied_fee_invalid")
+    try:
+        return AppliedFee(Decimal(str(value.get("amount"))), value["currency"])
+    except InvalidOperation:
+        raise InvalidEvent("applied_fee_invalid") from None
+
+
+def _registration_created(envelope: dict[str, Any]) -> RegistrationCreatedMessage:
+    if envelope.get("schema_version") != REGISTERED_SCHEMA:
+        raise InvalidEvent("unsupported_schema_version")
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise InvalidEvent("payload_not_object")
+    version = envelope.get("aggregate_version")
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise InvalidEvent("aggregate_version_invalid")
+    registration_id = _uuid(payload.get("registration_id"), "registration_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != registration_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if payload.get("version") != version:
+        raise InvalidEvent("version_mismatch")
+    if payload.get("status") not in {status.value for status in RegistrationStatus}:
+        raise InvalidEvent("unknown_status")
+    registered_at = _instant(payload.get("registered_at"), "registered_at")
+    correlation = envelope.get("correlation_id")
+    return RegistrationCreatedMessage(
+        message_id=_uuid(envelope.get("event_id"), "event_id"),
+        aggregate_version=version,
+        correlation_id=_uuid(correlation, "correlation_id") if correlation else None,
+        registration=EventRegistration(
+            registration_id=registration_id,
+            event_id=_uuid(payload.get("event_id"), "event_id"),
+            athlete_id=_uuid(payload.get("athlete_id"), "athlete_id"),
+            status=RegistrationStatus(payload["status"]),
+            registered_at=registered_at,
+            applied_fee=_fee(payload.get("applied_fee")),
+            version=version,
+            created_at=registered_at,
+            updated_at=registered_at,
+        ),
+    )
+
+
+def parse_sport_event_message(envelope: object) -> SportEventMessage:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
     event_type = envelope.get("event_type")
@@ -172,4 +241,6 @@ def parse_sport_event_message(envelope: object) -> EventCreatedMessage:
         raise InvalidEvent("event_type_missing")
     if event_type == EVENT_TYPE:
         return _event_created(envelope)
+    if event_type == REGISTERED:
+        return _registration_created(envelope)
     raise UnsupportedEvent(event_type)

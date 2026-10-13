@@ -4,15 +4,17 @@ Nunca se exponen como respuestas públicas.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, Index, Integer, String
+from sqlalchemy import BigInteger, DateTime, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from sportapp_platform.database import new_metadata
 
 PROCESSED_EVENT_PRIMARY_KEY = "pk_processed_event"
 EVENT_READ_PRIMARY_KEY = "pk_event_read"
+REGISTRATION_READ_PRIMARY_KEY = "pk_event_registration_read"
 
 
 class ReadBase(DeclarativeBase):
@@ -48,6 +50,29 @@ class EventReadRow(ReadBase):
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class EventRegistrationReadRow(ReadBase):
+    """Inscripción proyectada (HU041) a partir de `usuario.inscrito.v1`; HU022 la reutilizará
+    para listar inscritos. Sin contador en `event_read` (clave caliente, CMP-004)."""
+
+    __tablename__ = "event_registration_read"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "athlete_id", name="uq_event_registration_read_event_id_athlete_id"
+        ),
+        Index("ix_event_registration_read_athlete_registered", "athlete_id", "registered_at"),
+    )
+
+    registration_id: Mapped[UUID] = mapped_column(primary_key=True)
+    event_id: Mapped[UUID]
+    athlete_id: Mapped[UUID]
+    status: Mapped[str] = mapped_column(String(16))
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    applied_fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    applied_fee_currency: Mapped[str | None] = mapped_column(String(3))
+    version: Mapped[int] = mapped_column(BigInteger)
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

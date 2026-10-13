@@ -32,6 +32,9 @@ INITIAL_VERSION = 1
 
 class EventStatus(StrEnum):
     DRAFT = "DRAFT"
+    # Representable para que HU041 valide la inscripción en la escritura (ADR-032); la
+    # transición de publicación pertenece a HU024 y todavía no existe.
+    PUBLISHED = "PUBLISHED"
 
 
 @dataclass(frozen=True)

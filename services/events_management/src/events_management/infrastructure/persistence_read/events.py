@@ -18,7 +18,16 @@ from sqlalchemy.orm import Session, sessionmaker
 from events_management.application.ports import (
     CalendarEventView,
     DuplicateDelivery,
+    EventDetailView,
+    EventSummary,
     PublishedEventsQuery,
+    RegistrationsQuery,
+    RegistrationView,
+)
+from events_management.domain.registrations.model import (
+    AppliedFee,
+    EventRegistration,
+    RegistrationStatus,
 )
 from events_management.domain.sport_events.model import (
     EventDetails,
@@ -29,7 +38,9 @@ from events_management.domain.sport_events.model import (
 from events_management.infrastructure.persistence_read.models import (
     EVENT_READ_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
+    REGISTRATION_READ_PRIMARY_KEY,
     EventReadRow,
+    EventRegistrationReadRow,
     ProcessedEventRow,
 )
 
@@ -135,6 +146,100 @@ class SqlAlchemyPublishedEventReader:
             return [_calendar(item) for item in session.scalars(statement)]
 
 
+def _registration(row: EventRegistrationReadRow) -> EventRegistration:
+    fee = (
+        AppliedFee(row.applied_fee_amount, row.applied_fee_currency)
+        if row.applied_fee_amount is not None and row.applied_fee_currency is not None
+        else None
+    )
+    return EventRegistration(
+        registration_id=row.registration_id,
+        event_id=row.event_id,
+        athlete_id=row.athlete_id,
+        status=RegistrationStatus(row.status),
+        registered_at=row.registered_at,
+        applied_fee=fee,
+        version=row.version,
+        created_at=row.registered_at,
+        updated_at=row.registered_at,
+    )
+
+
+def _summary(row: EventReadRow) -> EventSummary:
+    return EventSummary(
+        name=row.name,
+        starts_at=row.starts_at,
+        ends_at=row.ends_at,
+        time_zone=row.time_zone,
+        location_name=row.location_name,
+        location_city=row.location_city,
+        location_country_code=row.location_country_code,
+    )
+
+
+class SqlAlchemyEventDetailReader:
+    """HU041: detalle de un evento publicado con la inscripción del deportista."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def published_detail(self, event_id: UUID, athlete_id: UUID | None) -> EventDetailView | None:
+        with self._session_factory() as session:
+            row = session.scalar(
+                select(EventReadRow).where(
+                    EventReadRow.event_id == event_id, EventReadRow.status.in_(PUBLIC_STATUSES)
+                )
+            )
+            if row is None:
+                return None
+            mine = (
+                session.scalar(
+                    select(EventRegistrationReadRow).where(
+                        EventRegistrationReadRow.event_id == event_id,
+                        EventRegistrationReadRow.athlete_id == athlete_id,
+                    )
+                )
+                if athlete_id is not None
+                else None
+            )
+            return EventDetailView(
+                event=_calendar(row),
+                description=row.description,
+                capacity=row.capacity,
+                my_registration=_registration(mine) if mine is not None else None,
+            )
+
+
+class SqlAlchemyRegistrationReader:
+    """HU041: inscripciones propias enriquecidas con el evento proyectado."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def list(self, query: RegistrationsQuery) -> list[RegistrationView]:
+        registration, event = EventRegistrationReadRow, EventReadRow
+        statement = (
+            select(registration, event)
+            .join(event, event.event_id == registration.event_id)
+            .where(registration.athlete_id == query.athlete_id)
+        )
+        if query.status is not None:
+            statement = statement.where(registration.status == query.status)
+        if query.after is not None:
+            statement = statement.where(
+                tuple_(event.starts_at, registration.registration_id)
+                > tuple_(query.after.starts_at, query.after.registration_id)
+            )
+        statement = statement.order_by(event.starts_at, registration.registration_id).limit(
+            query.limit
+        )
+        with self._session_factory() as session:
+            return [
+                RegistrationView(registration=_registration(row), event=_summary(event_row))
+                for row, event_row in session.execute(statement)
+            ]
+
+
 class SqlAlchemyProjectionUnitOfWork:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -196,6 +301,32 @@ class SqlAlchemyProjectionUnitOfWork:
             )
         )
 
+    def registration_version(self, registration_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(EventRegistrationReadRow.version)
+            .where(EventRegistrationReadRow.registration_id == registration_id)
+            .with_for_update()
+        )
+        return version
+
+    def add_registration_view(
+        self, registration: EventRegistration, projected_at: datetime
+    ) -> None:
+        fee = registration.applied_fee
+        self.session.add(
+            EventRegistrationReadRow(
+                registration_id=registration.registration_id,
+                event_id=registration.event_id,
+                athlete_id=registration.athlete_id,
+                status=registration.status.value,
+                registered_at=registration.registered_at,
+                applied_fee_amount=fee.amount if fee else None,
+                applied_fee_currency=fee.currency if fee else None,
+                version=registration.version,
+                projected_at=projected_at,
+            )
+        )
+
     def add_processed(
         self, message_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -214,6 +345,10 @@ class SqlAlchemyProjectionUnitOfWork:
         except IntegrityError as error:
             self.session.rollback()
             # Otra entrega del mismo mensaje (o del mismo evento nuevo) confirmó primero.
-            if _violated_constraint(error) in {PROCESSED_EVENT_PRIMARY_KEY, EVENT_READ_PRIMARY_KEY}:
+            if _violated_constraint(error) in {
+                PROCESSED_EVENT_PRIMARY_KEY,
+                EVENT_READ_PRIMARY_KEY,
+                REGISTRATION_READ_PRIMARY_KEY,
+            }:
                 raise DuplicateDelivery() from None
             raise

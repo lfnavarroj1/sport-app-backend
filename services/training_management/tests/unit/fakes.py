@@ -185,6 +185,7 @@ class InMemoryReadStore:
     authorizations: dict[tuple[UUID, UUID], AuthorizationView] = field(default_factory=dict)
     sessions: dict[UUID, SessionHistoryEntry] = field(default_factory=dict)
     active: dict[UUID, ActiveSessionView] = field(default_factory=dict)
+    planned: dict[UUID, PlanView] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -237,6 +238,7 @@ class InMemoryProjectionUnitOfWork:
         self._sessions: list[SessionHistoryEntry] = []
         self._active: list[ActiveSessionView] = []
         self._removed: list[UUID] = []
+        self._planned: list[PlanView] = []
 
     def __enter__(self) -> Self:
         return self
@@ -248,7 +250,7 @@ class InMemoryProjectionUnitOfWork:
         traceback: TracebackType | None,
     ) -> None:
         self._views, self._processed, self._authorizations, self._sessions = [], [], [], []
-        self._active, self._removed = [], []
+        self._active, self._removed, self._planned = [], [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -259,6 +261,9 @@ class InMemoryProjectionUnitOfWork:
 
     def add_plan_view(self, view: PlanView, projected_at: datetime) -> None:
         self._views.append(view)
+
+    def save_planned_sessions(self, view: PlanView, projected_at: datetime) -> None:
+        self._planned.append(view)
 
     def authorization_version(self, athlete_id: UUID, professional_id: UUID) -> int | None:
         view = self.store.authorizations.get((athlete_id, professional_id))
@@ -304,6 +309,8 @@ class InMemoryProjectionUnitOfWork:
             self.store.sessions[entry.session_id] = entry
         for active in self._active:
             self.store.active[active.session_id] = active
+        for planned in self._planned:
+            self.store.planned[planned.plan_id] = planned
         for session_id in self._removed:
             self.store.active.pop(session_id, None)
         for event_id, event_type, aggregate_id in self._processed:

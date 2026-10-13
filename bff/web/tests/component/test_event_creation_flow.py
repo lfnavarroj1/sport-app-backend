@@ -114,6 +114,7 @@ class EventCreationFlowTest(unittest.TestCase):
                         database_write_url=self.write_url,  # type: ignore[arg-type]
                         database_read_url=read_url,  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
+                        affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
                     ),
                     users_http=users,
                 ),

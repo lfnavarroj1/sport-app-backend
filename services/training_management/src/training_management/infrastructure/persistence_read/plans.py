@@ -20,12 +20,14 @@ from training_management.application.ports import (
     SessionHistoryEntry,
     SessionView,
 )
+from training_management.domain.plans.events import planned_session_id
 from training_management.infrastructure.persistence_read.models import (
     PLAN_VIEW_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     ActiveTrainingSessionRow,
     ProcessedEventRow,
     TrainingAuthorizationViewRow,
+    TrainingPlanSessionViewRow,
     TrainingPlanViewRow,
     TrainingSessionHistoryRow,
 )
@@ -136,6 +138,37 @@ class SqlAlchemyProjectionUnitOfWork:
                 projected_at=projected_at,
             )
         )
+
+    def save_planned_sessions(self, view: PlanView, projected_at: datetime) -> None:
+        rows = [
+            {
+                "session_id": planned_session_id(view.plan_id, position),
+                "plan_id": view.plan_id,
+                "athlete_id": view.athlete_id,
+                "plan_title": view.title,
+                "plan_status": view.status,
+                "plan_version": view.version,
+                "position": position,
+                "scheduled_date": session.scheduled_date,
+                "sport": session.sport,
+                "duration_minutes": session.duration_minutes,
+                "intensity_rpe": session.intensity_rpe,
+                "projected_at": projected_at,
+            }
+            for position, session in enumerate(view.sessions)
+        ]
+        if not rows:
+            return
+        statement = insert(TrainingPlanSessionViewRow).values(rows)
+        # Sin autoflush: la vista del plan sigue pendiente hasta `commit`, donde una entrega
+        # concurrente del mismo evento se traduce a `DuplicateDelivery`.
+        with self.session.no_autoflush:
+            self.session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["session_id"],
+                    set_={key: statement.excluded[key] for key in rows[0] if key != "session_id"},
+                )
+            )
 
     def authorization_version(self, athlete_id: UUID, professional_id: UUID) -> int | None:
         version: int | None = self.session.scalar(

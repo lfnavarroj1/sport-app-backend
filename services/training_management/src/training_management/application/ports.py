@@ -340,6 +340,45 @@ class ActiveSessionReader(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class PlannedSessionEntry:
+    """Sesión planificada de un plan asignado (HU035), proyectada desde el plan de HU010."""
+
+    session_id: UUID
+    plan_id: UUID
+    athlete_id: UUID
+    plan_title: str
+    scheduled_date: date
+    sport: str
+    duration_minutes: int
+    intensity_rpe: int
+
+
+@dataclass(frozen=True)
+class PlannedSessionPosition:
+    """Posición del cursor en el orden `scheduled_date`, `plan_id`, `session_id`."""
+
+    scheduled_date: date
+    plan_id: UUID
+    session_id: UUID
+
+
+@dataclass(frozen=True)
+class PlannedSessionQuery:
+    athlete_id: UUID
+    date_from: date
+    date_to: date
+    after: PlannedSessionPosition | None
+    limit: int
+
+
+class PlannedSessionReader(Protocol):
+    def list(self, query: PlannedSessionQuery) -> list[PlannedSessionEntry]:
+        """Hasta `limit` sesiones de planes `ASSIGNED` del deportista con fecha en el rango
+        (inclusivo), estrictamente después de `after` en el orden ascendente."""
+        ...
+
+
 class DuplicateDelivery(Exception):
     """Otra entrega del mismo evento confirmó primero su registro en `processed_event`."""
 
@@ -352,6 +391,10 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     def projected_version(self, plan_id: UUID) -> int | None: ...
 
     def add_plan_view(self, view: PlanView, projected_at: datetime) -> None: ...
+
+    def save_planned_sessions(self, view: PlanView, projected_at: datetime) -> None:
+        """HU035: inserta o reemplaza las sesiones del plan en `training_plan_session_view`."""
+        ...
 
     def authorization_version(self, athlete_id: UUID, professional_id: UUID) -> int | None:
         """Versión proyectada; bloquea la fila para aplicar las versiones en serie."""

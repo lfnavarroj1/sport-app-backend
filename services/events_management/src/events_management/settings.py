@@ -25,6 +25,8 @@ class EventsManagementSettings(ServiceSettings, DatabasePoolSettings):
     # HU021: identidad verificada con el JWKS de users-management (con caché); el comando
     # no llama a otro dominio.
     users_management_base_url: AnyHttpUrl
+    # HU035: capacidad `calendar.sport.view` del deportista (contrato interno de Afiliación).
+    affiliation_management_base_url: AnyHttpUrl
     upstream_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)

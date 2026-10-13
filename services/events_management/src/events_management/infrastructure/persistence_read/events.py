@@ -11,11 +11,15 @@ from types import TracebackType
 from typing import Self
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from events_management.application.ports import DuplicateDelivery
+from events_management.application.ports import (
+    CalendarEventView,
+    DuplicateDelivery,
+    PublishedEventsQuery,
+)
 from events_management.domain.sport_events.model import (
     EventDetails,
     EventStatus,
@@ -29,9 +33,9 @@ from events_management.infrastructure.persistence_read.models import (
     ProcessedEventRow,
 )
 
-# Estados que un catálogo público puede mostrar; `DRAFT` nunca lo es. HU021 no crea
-# ninguno: la publicación pertenece a HU024.
-PUBLIC_STATUSES: frozenset[str] = frozenset()
+# Estados que un catálogo o calendario público puede mostrar; `DRAFT` nunca lo es. Solo
+# HU024 (pendiente) llevará eventos a `PUBLISHED`.
+PUBLIC_STATUSES: frozenset[str] = frozenset({"PUBLISHED"})
 
 
 def _event(row: EventReadRow) -> SportEvent:
@@ -61,6 +65,22 @@ def _event(row: EventReadRow) -> SportEvent:
     )
 
 
+def _calendar(row: EventReadRow) -> CalendarEventView:
+    return CalendarEventView(
+        event_id=row.event_id,
+        name=row.name,
+        discipline=row.discipline,
+        location_name=row.location_name,
+        location_city=row.location_city,
+        location_country_code=row.location_country_code,
+        starts_at=row.starts_at,
+        ends_at=row.ends_at,
+        time_zone=row.time_zone,
+        status=row.status,
+        version=row.version,
+    )
+
+
 def _violated_constraint(error: IntegrityError) -> str | None:
     diagnostics = getattr(error.orig, "diag", None)
     return getattr(diagnostics, "constraint_name", None)
@@ -80,7 +100,7 @@ class SqlAlchemyEventReader:
             )
             return _event(row) if row is not None else None
 
-    def public_events(self, limit: int = 100) -> list[SportEvent]:
+    def public_events(self, limit: int = 100) -> list[CalendarEventView]:
         """Eventos visibles en catálogo y calendario públicos; excluye siempre `DRAFT`."""
         with self._session_factory() as session:
             rows = session.scalars(
@@ -89,7 +109,30 @@ class SqlAlchemyEventReader:
                 .order_by(EventReadRow.starts_at, EventReadRow.event_id)
                 .limit(limit)
             )
-            return [_event(row) for row in rows]
+            return [_calendar(row) for row in rows]
+
+
+class SqlAlchemyPublishedEventReader:
+    """HU035: eventos publicados que se superponen con un periodo (ADR-031)."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def published(self, query: PublishedEventsQuery) -> list[CalendarEventView]:
+        row = EventReadRow
+        statement = select(row).where(
+            row.status.in_(PUBLIC_STATUSES),
+            row.starts_at <= query.starts_before_or_at,
+            row.ends_at >= query.ends_at_or_after,
+        )
+        if query.after is not None:
+            statement = statement.where(
+                tuple_(row.starts_at, row.event_id)
+                > tuple_(query.after.starts_at, query.after.event_id)
+            )
+        statement = statement.order_by(row.starts_at, row.event_id).limit(query.limit)
+        with self._session_factory() as session:
+            return [_calendar(item) for item in session.scalars(statement)]
 
 
 class SqlAlchemyProjectionUnitOfWork:

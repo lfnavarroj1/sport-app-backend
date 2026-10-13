@@ -27,6 +27,55 @@ class PermissionPolicy(Protocol):
     def allows(self, actor_type: str, permission: str) -> bool: ...
 
 
+class CapabilityChecker(Protocol):
+    """Capacidades vigentes del deportista en Afiliación (ADR-024).
+
+    Lanza `CapabilitiesUnavailable` si no puede evaluarlas.
+    """
+
+    def has_capability(self, user_id: UUID, capability: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class EventPosition:
+    """Posición del cursor en el orden `starts_at`, `event_id`."""
+
+    starts_at: datetime
+    event_id: UUID
+
+
+@dataclass(frozen=True)
+class PublishedEventsQuery:
+    starts_before_or_at: datetime  # `to` del periodo
+    ends_at_or_after: datetime  # `from` del periodo
+    after: EventPosition | None
+    limit: int
+
+
+@dataclass(frozen=True)
+class CalendarEventView:
+    """Evento publicado tal como lo muestra el calendario (sin `organizer_id` ni textos largos)."""
+
+    event_id: UUID
+    name: str
+    discipline: str
+    location_name: str
+    location_city: str
+    location_country_code: str
+    starts_at: datetime
+    ends_at: datetime
+    time_zone: str
+    status: str
+    version: int
+
+
+class PublishedEventReader(Protocol):
+    def published(self, query: PublishedEventsQuery) -> list[CalendarEventView]:
+        """Hasta `limit` eventos `PUBLISHED` que se superponen con el periodo, en orden
+        `starts_at`, `event_id` y estrictamente después de `after`."""
+        ...
+
+
 @dataclass(frozen=True)
 class OutboxMessage:
     """Evento pendiente de publicar; se confirma en la misma transacción del agregado."""

@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import Response
 
-from events_management.application.errors import PermissionRequired
+from events_management.application.errors import CapabilityRequired, PermissionRequired
 from events_management.application.ports import Caller
 from sportapp_platform.correlation import current_correlation_id
 from sportapp_platform.errors import ErrorResponse, error_response
@@ -52,10 +52,14 @@ def unauthenticated() -> Response:
     return response
 
 
-def forbidden(error: PermissionRequired) -> Response:
-    return error_response(
-        HTTPStatus.FORBIDDEN, error.code, "Su tipo de usuario no puede realizar esta operación."
-    )
+_FORBIDDEN_MESSAGES = {
+    PermissionRequired.code: "Su tipo de usuario no puede realizar esta operación.",
+    CapabilityRequired.code: "Su plan no incluye esta funcionalidad.",
+}
+
+
+def forbidden(error: PermissionRequired | CapabilityRequired) -> Response:
+    return error_response(HTTPStatus.FORBIDDEN, error.code, _FORBIDDEN_MESSAGES[error.code])
 
 
 def authenticate(verify_token: TokenVerifier, authorization: str | None) -> Caller | Response:

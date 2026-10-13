@@ -26,6 +26,8 @@ class EventReadRow(ReadBase):
     __tablename__ = "event_read"
     __table_args__ = (
         Index("ix_event_read_organizer_status_starts", "organizer_id", "status", "starts_at"),
+        # HU035 (ADR-031): eventos publicados por periodo.
+        Index("ix_event_read_status_starts", "status", "starts_at"),
     )
 
     event_id: Mapped[UUID] = mapped_column(primary_key=True)

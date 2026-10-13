@@ -231,6 +231,53 @@
         "title": "HistoryFiltersResponse",
         "type": "object"
       },
+      "PlannedSessionItem": {
+        "properties": {
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "plan_id": {
+            "format": "uuid",
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "plan_title": {
+            "title": "Plan Title",
+            "type": "string"
+          },
+          "rpe": {
+            "description": "Intensidad percibida RPE, escala CR10 (1 a 10).",
+            "title": "Rpe",
+            "type": "integer"
+          },
+          "scheduled_date": {
+            "format": "date",
+            "title": "Scheduled Date",
+            "type": "string"
+          },
+          "session_id": {
+            "description": "Identificador estable de la sesión dentro del plan.",
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "sport": {
+            "$ref": "#/components/schemas/Sport"
+          }
+        },
+        "required": [
+          "plan_id",
+          "plan_title",
+          "session_id",
+          "scheduled_date",
+          "sport",
+          "duration_minutes",
+          "rpe"
+        ],
+        "title": "PlannedSessionItem",
+        "type": "object"
+      },
       "PlannedSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -291,6 +338,35 @@
           "intensity_rpe"
         ],
         "title": "PlannedSessionResponse",
+        "type": "object"
+      },
+      "PlannedSessionsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedSessionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "PlannedSessionsResponse",
         "type": "object"
       },
       "SessionHistoryItem": {
@@ -633,7 +709,7 @@
   },
   "info": {
     "title": "SportApp - Entrenamientos",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -854,6 +930,138 @@
         "summary": "Historial de entrenamiento de un deportista que me autorizó (HU011)",
         "tags": [
           "training-history"
+        ]
+      }
+    },
+    "/v1/me/training-plan-sessions": {
+      "get": {
+        "operationId": "planned_sessions_v1_me_training_plan_sessions_get",
+        "parameters": [
+          {
+            "description": "Fecha inclusiva.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "description": "Fecha inclusiva.",
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Fecha inclusiva.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "description": "Fecha inclusiva.",
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedSessionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: fechas, rango, límite o cursor inválidos."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          }
+        },
+        "summary": "Mis sesiones planificadas por fecha (HU035, interno)",
+        "tags": [
+          "training-plan-sessions"
         ]
       }
     },

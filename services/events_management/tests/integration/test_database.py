@@ -19,7 +19,7 @@ HISTORIES = {
     ),
     "read": (
         "events_management.infrastructure.persistence_read:migrations",
-        "0002_event_read",
+        "0003_event_read_calendar_index",
     ),
 }
 
@@ -69,6 +69,7 @@ class DatabaseIntegrationTest(unittest.TestCase):
                 database_write_url=url,
                 database_read_url=url,
                 users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
+                affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
             )
             with TestClient(create_app(settings)) as client:
                 response = client.get("/health/ready")

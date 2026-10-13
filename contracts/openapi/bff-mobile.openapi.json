@@ -64,6 +64,117 @@
         "title": "ActiveTrainingSessionResponse",
         "type": "object"
       },
+      "CalendarLocation": {
+        "properties": {
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "city",
+          "country_code"
+        ],
+        "title": "CalendarLocation",
+        "type": "object"
+      },
+      "CalendarResponse": {
+        "properties": {
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "title": "From",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "EVENT_PUBLISHED": "#/components/schemas/EventCalendarItem",
+                  "TRAINING_PLAN_SESSION": "#/components/schemas/SessionCalendarItem"
+                },
+                "propertyName": "source"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/EventCalendarItem"
+                },
+                {
+                  "$ref": "#/components/schemas/SessionCalendarItem"
+                }
+              ]
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "to": {
+            "format": "date-time",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "items",
+          "sources",
+          "evaluated_at"
+        ],
+        "title": "CalendarResponse",
+        "type": "object"
+      },
+      "CalendarSource": {
+        "properties": {
+          "name": {
+            "enum": [
+              "events",
+              "training"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "OK",
+              "UNAVAILABLE",
+              "TIMEOUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "truncated"
+        ],
+        "title": "CalendarSource",
+        "type": "object"
+      },
       "CapabilitiesResponse": {
         "properties": {
           "actor_type": {
@@ -216,6 +327,81 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EventCalendarItem": {
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/CalendarLocation"
+          },
+          "occurs_on": {
+            "description": "Fecha del evento en su `time_zone`.",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/EventReference"
+          },
+          "source": {
+            "const": "EVENT_PUBLISHED",
+            "title": "Source",
+            "type": "string"
+          },
+          "sport": {
+            "title": "Sport",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "source",
+          "occurs_on",
+          "title",
+          "sport",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "location",
+          "reference"
+        ],
+        "title": "EventCalendarItem",
+        "type": "object"
+      },
+      "EventReference": {
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "EventReference",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -298,6 +484,91 @@
           "refresh_token"
         ],
         "title": "RefreshSessionRequest",
+        "type": "object"
+      },
+      "SessionCalendarItem": {
+        "properties": {
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "ends_at": {
+            "title": "Ends At",
+            "type": "null"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "occurs_on": {
+            "description": "`scheduled_date` de la sesión (sin hora).",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/SessionReference"
+          },
+          "rpe": {
+            "title": "Rpe",
+            "type": "integer"
+          },
+          "source": {
+            "const": "TRAINING_PLAN_SESSION",
+            "title": "Source",
+            "type": "string"
+          },
+          "sport": {
+            "title": "Sport",
+            "type": "string"
+          },
+          "starts_at": {
+            "title": "Starts At",
+            "type": "null"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "null"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "source",
+          "occurs_on",
+          "title",
+          "sport",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "duration_minutes",
+          "rpe",
+          "reference"
+        ],
+        "title": "SessionCalendarItem",
+        "type": "object"
+      },
+      "SessionReference": {
+        "properties": {
+          "plan_id": {
+            "format": "uuid",
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id",
+          "session_id"
+        ],
+        "title": "SessionReference",
         "type": "object"
       },
       "SessionResponse": {
@@ -522,7 +793,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -575,6 +846,131 @@
         "summary": "Ready",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/v1/me/calendar": {
+      "get": {
+        "operationId": "calendar_v1_me_calendar_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase (zona del dispositivo); sin ambos, el mes UTC en curso.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase (zona del dispositivo); sin ambos, el mes UTC en curso.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase (zona del dispositivo); sin ambos, el mes UTC en curso.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase (zona del dispositivo); sin ambos, el mes UTC en curso.",
+              "title": "To"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`calendar.sport.view`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `invalid_datetime`, `ends_before_starts`, `out_of_range` (más de 92 días) o `required` (solo uno de los dos extremos)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no evaluable o ambas fuentes caídas."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o ambas fuentes sin respuesta."
+          }
+        },
+        "summary": "Calendario deportivo: eventos publicados y sesiones planificadas (HU035)",
+        "tags": [
+          "calendar"
         ]
       }
     },

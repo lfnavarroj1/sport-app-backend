@@ -1,5 +1,5 @@
-"""Consultas de lectura de HU011 (historial paginado y autorizaciones proyectadas) y HU032
-(sesión activa)."""
+"""Consultas de lectura de HU011 (historial paginado y autorizaciones proyectadas), HU032
+(sesión activa) y HU035 (sesiones planificadas del calendario)."""
 
 from uuid import UUID
 
@@ -10,11 +10,14 @@ from training_management.application.ports import (
     ActiveSessionView,
     AuthorizationView,
     HistoryQuery,
+    PlannedSessionEntry,
+    PlannedSessionQuery,
     SessionHistoryEntry,
 )
 from training_management.infrastructure.persistence_read.models import (
     ActiveTrainingSessionRow,
     TrainingAuthorizationViewRow,
+    TrainingPlanSessionViewRow,
     TrainingSessionHistoryRow,
 )
 
@@ -102,3 +105,40 @@ class SqlAlchemyActiveSessionReader:
                 started_at=item.started_at,
                 version=item.version,
             )
+
+
+class SqlAlchemyPlannedSessionReader:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def list(self, query: PlannedSessionQuery) -> list[PlannedSessionEntry]:
+        row = TrainingPlanSessionViewRow
+        statement = select(row).where(
+            row.athlete_id == query.athlete_id,
+            row.plan_status == "ASSIGNED",
+            row.scheduled_date >= query.date_from,
+            row.scheduled_date <= query.date_to,
+        )
+        if query.after is not None:
+            # Keyset: estrictamente después de la última entregada en el orden ascendente.
+            statement = statement.where(
+                tuple_(row.scheduled_date, row.plan_id, row.session_id)
+                > tuple_(query.after.scheduled_date, query.after.plan_id, query.after.session_id)
+            )
+        statement = statement.order_by(row.scheduled_date, row.plan_id, row.session_id).limit(
+            query.limit
+        )
+        with self._session_factory() as session:
+            return [
+                PlannedSessionEntry(
+                    session_id=item.session_id,
+                    plan_id=item.plan_id,
+                    athlete_id=item.athlete_id,
+                    plan_title=item.plan_title,
+                    scheduled_date=item.scheduled_date,
+                    sport=item.sport,
+                    duration_minutes=item.duration_minutes,
+                    intensity_rpe=item.intensity_rpe,
+                )
+                for item in session.scalars(statement)
+            ]

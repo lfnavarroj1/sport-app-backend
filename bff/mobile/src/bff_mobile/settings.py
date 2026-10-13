@@ -12,8 +12,10 @@ class BffMobileSettings(ServiceSettings):
     upstream_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     # HU003 CA7-CA10 (ADR-024/025): composición de `GET /v1/me/capabilities`.
     affiliation_management_base_url: AnyHttpUrl
-    # HU032: sesiones de entrenamiento.
+    # HU032: sesiones de entrenamiento; HU035: sesiones planificadas del calendario.
     training_management_base_url: AnyHttpUrl
+    # HU035: eventos publicados del calendario.
+    events_management_base_url: AnyHttpUrl
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
     jwt_audience: str = Field(default="sportapp", min_length=1, max_length=128)

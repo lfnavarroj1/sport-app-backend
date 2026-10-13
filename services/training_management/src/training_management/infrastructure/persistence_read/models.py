@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Date, DateTime, Index, Integer, String
+from sqlalchemy import BigInteger, Date, DateTime, Index, Integer, SmallInteger, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -73,6 +73,35 @@ class TrainingSessionHistoryRow(ReadBase):
     ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     duration_seconds: Mapped[int] = mapped_column(Integer)
     version: Mapped[int] = mapped_column(BigInteger)
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingPlanSessionViewRow(ReadBase):
+    """Sesión planificada de un plan (HU035) a partir de `plan.entrenamiento_creado.v1`."""
+
+    __tablename__ = "training_plan_session_view"
+    __table_args__ = (
+        # Orden y cursor del calendario: deportista, fecha, plan y sesión.
+        Index(
+            "ix_training_plan_session_view_calendar",
+            "athlete_id",
+            "scheduled_date",
+            "plan_id",
+            "session_id",
+        ),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(primary_key=True)
+    plan_id: Mapped[UUID]
+    athlete_id: Mapped[UUID]
+    plan_title: Mapped[str] = mapped_column(String(120))
+    plan_status: Mapped[str] = mapped_column(String(16))
+    plan_version: Mapped[int] = mapped_column(BigInteger)
+    position: Mapped[int] = mapped_column(SmallInteger)
+    scheduled_date: Mapped[date] = mapped_column(Date)
+    sport: Mapped[str] = mapped_column(String(16))
+    duration_minutes: Mapped[int] = mapped_column(SmallInteger)
+    intensity_rpe: Mapped[int] = mapped_column(SmallInteger)
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

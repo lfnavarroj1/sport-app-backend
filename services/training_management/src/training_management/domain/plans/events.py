@@ -6,12 +6,25 @@ No incluye datos de perfil, nombres, correos ni texto libre clínico.
 """
 
 from typing import Any
+from uuid import UUID, uuid5
 
 from training_management.domain.plans.model import TrainingPlan
 
 EVENT_TYPE = "plan.entrenamiento_creado.v1"
 SCHEMA_VERSION = 1
 AGGREGATE_TYPE = "training_plan"
+# HU035 (ADR-031): identificador estable de cada sesión planificada en la base de lectura.
+PLANNED_SESSION_NAMESPACE = UUID("3f6b2c8e-91d4-4a57-b0e2-5c7d9a1e8f43")
+
+
+def planned_session_id(plan_id: UUID, position: int) -> UUID:
+    """UUIDv5 de `plan_id` y la posición de la sesión en el plan (orden del evento).
+
+    `plan.entrenamiento_creado.v1` no lleva identificador por sesión; la posición es la
+    misma que en la escritura (`training_plan_session.position`), así que la vista se
+    reconstruye con los mismos identificadores.
+    """
+    return uuid5(PLANNED_SESSION_NAMESPACE, f"{plan_id}:{position}")
 
 
 def plan_created_payload(plan: TrainingPlan) -> dict[str, Any]:

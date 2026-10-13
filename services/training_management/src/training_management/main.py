@@ -13,6 +13,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 from training_management.api.authorizations import build_authorizations_router
 from training_management.api.history import build_history_router
+from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
 from training_management.api.training_sessions import build_training_sessions_router
 from training_management.application.commands.authorizations import (
@@ -26,6 +27,7 @@ from training_management.application.commands.training_sessions import (
 )
 from training_management.application.queries.active_session import GetActiveTrainingSession
 from training_management.application.queries.get_training_plan import GetTrainingPlan
+from training_management.application.queries.planned_sessions import GetPlannedSessions
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.infrastructure.authorization import ContractPermissionPolicy
 from training_management.infrastructure.clock import SystemClock
@@ -36,6 +38,7 @@ from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyActiveSessionReader,
     SqlAlchemyAuthorizationReader,
     SqlAlchemyHistoryReader,
+    SqlAlchemyPlannedSessionReader,
 )
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
 from training_management.infrastructure.persistence_write.unit_of_work import (
@@ -46,7 +49,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.4.0"
+API_VERSION = "0.5.0"
 
 
 def create_app(
@@ -135,6 +138,10 @@ def create_app(
                     unit_of_work=lambda: SqlAlchemySessionUnitOfWork(writes), clock=clock
                 ),
                 get_active=GetActiveTrainingSession(reader=SqlAlchemyActiveSessionReader(reads)),
+            ),
+            build_planned_sessions_router(
+                verify_token=verifier.verify,
+                get_sessions=GetPlannedSessions(reader=SqlAlchemyPlannedSessionReader(reads)),
             ),
         ],
         shutdown_hooks=[

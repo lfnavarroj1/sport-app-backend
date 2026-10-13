@@ -47,6 +47,7 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 | HU004 Cerrar sesión | `POST /v1/sessions/revoke` en el servicio y en ambos BFF (web: sin cuerpo, con la cookie y `Origin` permitido; móvil: `{refresh_token}`) | `bff_web` y `bff_mobile` → `users_management` → revoca la familia en `refresh_token` | OpenAPI 0.5.0 de `users-management`, 0.7.0 de `bff-web` y 0.4.0 de `bff-mobile`; sin eventos |
 | HU010 Crear plan de entrenamiento | `POST /v1/me/training-authorizations` y `DELETE /v1/me/training-authorizations/{professional_id}` (deportista); `POST /v1/training-plans` (`Idempotency-Key` obligatorio) y `GET /v1/training-plans/{plan_id}`, todos con access token; internos: `POST /v1/users/lookup` en Usuarios y las mismas rutas por identificador en Entrenamientos | `bff_web` → `users_management` (lookup en la base de lectura) → `training_management` → `training_authorization` / `training_plan` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `training_plan_view` | OpenAPI 0.4.0 de `users-management`, 0.2.0 de `training-management` y 0.6.0 de `bff-web`; evento `plan.entrenamiento_creado.v1` |
 | HU011 Ver historial de entrenamiento | `GET /v1/training-history` (deportista, su historial) y `GET /v1/athletes/{athlete_id}/training-history` (profesional autorizado), con `from`, `to`, `sport`, `limit` y `cursor` | `bff_web` → `training_management` → `training_session_history` y `training_authorization_view` (base de lectura) ← `entrenamientos-read-projector` ← `entrenamiento.finalizado.v1` (lo publicará HU032) y `autorizacion_entrenamiento.*.v1` (outbox de la autorización) | OpenAPI 0.3.0 de `training-management` y 0.8.0 de `bff-web`; eventos `autorizacion_entrenamiento.otorgada.v1`, `autorizacion_entrenamiento.revocada.v1` y `entrenamiento.finalizado.v1` |
+| HU015 Crear servicio | `POST /v1/services` (profesional con `services.create`; `Idempotency-Key` obligatorio) | `bff_web` → `complementary_services` → `service` + `service_availability` + `idempotency_key` (base única, sin eventos) | OpenAPI 0.2.0 de `complementary-services` y 0.9.0 de `bff-web`; ADR-027 |
 
 Detalles de HU001:
 
@@ -196,6 +197,16 @@ Detalles de HU004 (decisiones y contrato aprobados el 2026-10-12):
 - **Auditoría (CA4):** `audit.session_revoke` con `result` (`revoked`, `already_revoked` o `unknown`), `user_id`, `family_id`, `idempotency_key` si llegó, y la fecha del registro; nunca el token ni su hash.
 - **Sin evento:** `credencial.revocada.v1` sigue siendo un candidato sin consumidores.
 
+Detalles de HU015 (ADR-027, aceptada el 2026-10-12):
+
+- **Quién crea:** solo `service_provider` con `services.create`; `provider_id` sale del token y, si viene en el cuerpo, se rechaza (`field_not_allowed`). El servicio nace `DRAFT`, versión 1, y no aparece en ningún catálogo hasta publicarse (HU019).
+- **Oferta:** nombre de 3 a 120 caracteres y descripción de 20 a 2.000, tras recortar espacios exteriores; categoría `SPORTS_MEDICINE`, `COACHING`, `NUTRITION`, `TRANSPORT` o `ACCOMPANIMENT`; modalidad `IN_PERSON`, `VIRTUAL` o `HYBRID`; tarifa `{amount, currency, billing_unit}` con `amount` como **cadena** decimal de `0.00` a `999999999.99` (máximo dos decimales), `currency = COP` y unidad `SERVICE`, `SESSION`, `HOUR` o `DAY`. Es un precio público de referencia con impuestos incluidos: no crea cobro, factura ni pago, y es independiente del plan de afiliación.
+- **Disponibilidad inicial (opcional):** hasta 100 intervalos explícitos `[starts_at, ends_at)` con desfase UTC, zona IANA (`time_zone`) y capacidad de 1 a 100; inicio futuro, duración de hasta 24 horas y fin dentro de 365 días; el desfase debe coincidir con la zona en cada instante; contiguos permitidos, superpuestos rechazados (se compara en UTC).
+- **Fechas:** el backend guarda y responde los instantes en UTC con sufijo `Z`; `time_zone` es un dato de la oferta (dónde ocurre el servicio), no una conversión. El frontend convierte a la zona del usuario.
+- **Idempotencia:** `Idempotency-Key` UUID por profesional, 24 horas. Misma clave y payload normalizado → mismo `201` con `Idempotent-Replayed: true`; otro payload → `409 idempotency_key_reused`; la misma clave de otro profesional crea su propio servicio.
+- **Errores de validación (ADR-027 §14):** `422 validation_error` con `details[{field, issue}]`; `field` usa índices entre corchetes (`availability[0].time_zone`) y `issue` es uno de `required`, `field_not_allowed`, `unsupported_currency`, `out_of_range`, `too_many_decimals`, `invalid_length`, `unknown_value`, `not_in_future`, `ends_before_starts`, `overlapping_interval`, `time_zone_unknown`, `time_zone_offset_mismatch` o `too_many_intervals`. Por eso esta ruta lee el JSON sin la validación automática de FastAPI; el esquema se publica igualmente en el OpenAPI. El BFF reenvía cuerpo y clave sin reinterpretarlos.
+- **Otros errores:** `401 invalid_access_token`, `403 permission_required`, `503 upstream_unavailable` (JWKS) y, en el BFF, `504 upstream_timeout`. Sin eventos (`servicio.creado` no existe; `servicio.publicado.v1` es de HU019).
+
 Detalles de HU011 (decisiones y contratos aprobados el 2026-10-12):
 
 - **Quién consulta:** el deportista, su propio historial (sin capacidad de plan: ADR-024 no define una para HU011); el `service_provider` con `training.history.view_assigned`, el de un deportista con autorización vigente (la de HU010). Otro actor o la ruta equivocada → `403 permission_required`; sin autorización vigente → `403 athlete_authorization_required`. El acceso del profesional se audita (`audit.training_history_access`).
@@ -260,6 +271,8 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `AFFILIATION_MANAGEMENT_BASE_URL` | bff-web, bff-mobile | URL del contrato interno de Afiliación para `GET /v1/me/capabilities` (obligatoria; en el clúster, `http://affiliation-management`). |
 | `JWT_ISSUER`, `JWT_AUDIENCE` | bff-web, bff-mobile | `iss` y `aud` esperados en el access token (por defecto los mismos que emite `users-management`). |
 | `ACTOR_PERMISSIONS_PATH` | bff-web, bff-mobile | Ruta del contrato `actor-permissions.v1.json`. La imagen la fija en `/opt/sportapp/contracts/authorization/`; en el repositorio se localiza sola. Un contrato ausente o inválido detiene el arranque. |
+| `COMPLEMENTARY_SERVICES_BASE_URL` | bff-web | URL del servicio de servicios complementarios para HU015 (obligatoria; en el clúster, `http://complementary-services`). |
+| `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | complementary services | JWKS de Usuarios para verificar el access token (obligatoria), timeout (5 s), `iss`/`aud` esperados y contrato de permisos. |
 | `TRAINING_MANAGEMENT_BASE_URL` | bff-web | URL del servicio de entrenamientos para HU010 (obligatoria; en el clúster, `http://training-management`). |
 | `USERS_MANAGEMENT_BASE_URL`, `AFFILIATION_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | training | JWKS de Usuarios para verificar el access token y contrato interno de capacidades de Afiliación (obligatorias), y timeout (5 s). |
 | `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | training | Igual que en los BFF: `iss`/`aud` esperados y ruta del contrato de permisos. |
@@ -1189,6 +1202,12 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - IP real del usuario detrás del balanceador: Uvicorn solo confía en `X-Forwarded-For` de las IP en `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`), que debe fijar la plataforma;
   - revocación por incidente, MFA y recuperación de cuenta (el cierre de sesión ya existe: HU004);
   - clientes web y móvil (almacenamiento seguro y E2E).
+- HU015:
+  - `T-HU015-WEB` (formulario y borrador) y su E2E;
+  - purga de claves de idempotencia vencidas, como en HU001 y HU010.
+- HU019 y HU020 (siguientes):
+  - HU019 publica `servicio.publicado.v1` en `sportapp.servicios.v1` con `servicios-outbox-publisher` (contrato en ADR-027);
+  - HU020 queda en pausa hasta HU019; su consulta mostrará los intervalos explícitos de ADR-027 y responderá en UTC (sin parámetro `tz`).
 - HU011:
   - HU032 debe publicar `entrenamiento.finalizado.v1` con el contrato aprobado; sin productor, el historial real está vacío;
   - `T-HU011-WEB` (línea de tiempo con filtros y paginación) y la opción del historial en el menú del deportista, que la navegación vigente solo asigna al profesional;

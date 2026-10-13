@@ -43,6 +43,10 @@ spec:
                 secretKeyRef: {name: sportapp-database, key: SERVICIOS_DB_PASSWORD}
             - name: DATABASE_URL
               value: "postgresql+psycopg://servicios:$(DB_PASSWORD)@$(DATABASE_HOST):5432/servicios"
+            # HU015: JWKS de Usuarios para verificar el access token reenviado por el BFF.
+            - name: USERS_MANAGEMENT_BASE_URL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

@@ -41,6 +41,8 @@ class BffWebSettings(ServiceSettings):
     affiliation_management_base_url: AnyHttpUrl
     # HU010: autorización del deportista y planes de entrenamiento.
     training_management_base_url: AnyHttpUrl
+    # HU015: oferta de servicios complementarios.
+    complementary_services_base_url: AnyHttpUrl
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
     jwt_audience: str = Field(default="sportapp", min_length=1, max_length=128)

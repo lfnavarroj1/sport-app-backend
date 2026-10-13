@@ -1,6 +1,41 @@
 {
   "components": {
     "schemas": {
+      "AvailabilityInterval": {
+        "additionalProperties": false,
+        "description": "Intervalo `[starts_at, ends_at)`. En la solicitud, con desfase coherente con\n`time_zone`; en la respuesta, en UTC con sufijo `Z`.",
+        "properties": {
+          "capacity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada, p. ej. America/Bogota.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "capacity"
+        ],
+        "title": "AvailabilityInterval",
+        "type": "object"
+      },
       "CapabilitiesResponse": {
         "properties": {
           "actor_type": {
@@ -406,6 +441,133 @@
         "title": "RegisterUserRequest",
         "type": "object"
       },
+      "ServicePrice": {
+        "additionalProperties": false,
+        "description": "Precio público de referencia en COP, impuestos aplicables incluidos; no es un cobro.",
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal de 0.00 a 999999999.99, máximo dos decimales.",
+            "examples": [
+              "120000.00"
+            ],
+            "pattern": "^\\d{1,9}(\\.\\d{1,2})?$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "billing_unit": {
+            "enum": [
+              "SERVICE",
+              "SESSION",
+              "HOUR",
+              "DAY"
+            ],
+            "title": "Billing Unit",
+            "type": "string"
+          },
+          "currency": {
+            "const": "COP",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "billing_unit"
+        ],
+        "title": "ServicePrice",
+        "type": "object"
+      },
+      "ServiceResponse": {
+        "properties": {
+          "availability": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityInterval"
+            },
+            "title": "Availability",
+            "type": "array"
+          },
+          "category": {
+            "enum": [
+              "SPORTS_MEDICINE",
+              "COACHING",
+              "NUTRITION",
+              "TRANSPORT",
+              "ACCOMPANIMENT"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "modality": {
+            "enum": [
+              "IN_PERSON",
+              "VIRTUAL",
+              "HYBRID"
+            ],
+            "title": "Modality",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ServicePrice"
+          },
+          "provider_id": {
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "service_id",
+          "provider_id",
+          "name",
+          "description",
+          "category",
+          "modality",
+          "price",
+          "availability",
+          "status",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ServiceResponse",
+        "type": "object"
+      },
       "SessionHistoryItem": {
         "properties": {
           "duration_seconds": {
@@ -767,7 +929,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.8.0"
+    "version": "0.9.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1295,6 +1457,209 @@
         "summary": "Revocar la autorización de un profesional (HU010)",
         "tags": [
           "training"
+        ]
+      }
+    },
+    "/v1/services": {
+      "post": {
+        "operationId": "create_v1_services_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el servicio (ADR-027).",
+                "properties": {
+                  "availability": {
+                    "anyOf": [
+                      {
+                        "items": {
+                          "$ref": "#/components/schemas/AvailabilityInterval"
+                        },
+                        "maxItems": 100,
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Opcional; intervalos futuros de hasta 24 h, con fin dentro de 365 días, contiguos permitidos y sin superposición.",
+                    "title": "Availability"
+                  },
+                  "category": {
+                    "enum": [
+                      "SPORTS_MEDICINE",
+                      "COACHING",
+                      "NUTRITION",
+                      "TRANSPORT",
+                      "ACCOMPANIMENT"
+                    ],
+                    "title": "Category",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 2000,
+                    "minLength": 20,
+                    "title": "Description",
+                    "type": "string"
+                  },
+                  "modality": {
+                    "enum": [
+                      "IN_PERSON",
+                      "VIRTUAL",
+                      "HYBRID"
+                    ],
+                    "title": "Modality",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 120,
+                    "minLength": 3,
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "price": {
+                    "$ref": "#/components/schemas/ServicePrice"
+                  }
+                },
+                "required": [
+                  "name",
+                  "description",
+                  "category",
+                  "modality",
+                  "price"
+                ],
+                "title": "CreateServiceRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`services.create`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (ADR-027)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Crear un servicio en borrador (HU015)",
+        "tags": [
+          "services"
         ]
       }
     },

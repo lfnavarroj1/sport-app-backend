@@ -15,11 +15,11 @@ from training_management.settings import TrainingManagementSettings
 HISTORIES = {
     "write": (
         "training_management.infrastructure.persistence_write:migrations",
-        "0003_authorization_backfill",
+        "0004_training_sessions",
     ),
     "read": (
         "training_management.infrastructure.persistence_read:migrations",
-        "0003_training_history",
+        "0004_active_training_session",
     ),
 }
 

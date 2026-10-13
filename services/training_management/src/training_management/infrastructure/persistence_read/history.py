@@ -1,4 +1,5 @@
-"""Consultas de lectura de HU011: historial paginado por cursor y autorizaciones proyectadas."""
+"""Consultas de lectura de HU011 (historial paginado y autorizaciones proyectadas) y HU032
+(sesión activa)."""
 
 from uuid import UUID
 
@@ -6,11 +7,13 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
 from training_management.application.ports import (
+    ActiveSessionView,
     AuthorizationView,
     HistoryQuery,
     SessionHistoryEntry,
 )
 from training_management.infrastructure.persistence_read.models import (
+    ActiveTrainingSessionRow,
     TrainingAuthorizationViewRow,
     TrainingSessionHistoryRow,
 )
@@ -70,4 +73,32 @@ class SqlAlchemyAuthorizationReader:
                 version=row.version,
                 granted_at=row.granted_at,
                 revoked_at=row.revoked_at,
+            )
+
+
+class SqlAlchemyActiveSessionReader:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def current(self, athlete_id: UUID) -> ActiveSessionView | None:
+        # Sesiones distintas tienen claves de orden distintas: el inicio de una nueva puede
+        # proyectarse antes que el fin de la anterior. Se devuelve la más reciente.
+        row = ActiveTrainingSessionRow
+        statement = (
+            select(row)
+            .where(row.athlete_id == athlete_id)
+            .order_by(row.started_at.desc(), row.session_id.desc())
+            .limit(1)
+        )
+        with self._session_factory() as session:
+            item = session.scalar(statement)
+            if item is None:
+                return None
+            return ActiveSessionView(
+                session_id=item.session_id,
+                athlete_id=item.athlete_id,
+                plan_id=item.plan_id,
+                sport=item.sport,
+                started_at=item.started_at,
+                version=item.version,
             )

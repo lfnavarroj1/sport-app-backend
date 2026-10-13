@@ -2,10 +2,10 @@
 
 Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
-(HU011). Cada uno se valida campo a campo; un mensaje que no cumple el contrato es un
-`InvalidEvent`: no se confirma y, agotados los reintentos, termina en la DLQ. Otro
-tipo de evento del tópico es `UnsupportedEvent`: este proyector todavía no lo
-proyecta y se confirma sin efectos.
+(HU011), y `entrenamiento.iniciado.v1` (HU032). Cada uno se valida campo a campo; un
+mensaje que no cumple el contrato es un `InvalidEvent`: no se confirma y, agotados los
+reintentos, termina en la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este
+proyector todavía no lo proyecta y se confirma sin efectos.
 """
 
 from dataclasses import dataclass
@@ -14,6 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from training_management.application.ports import (
+    ActiveSessionView,
     AuthorizationView,
     PlanView,
     SessionHistoryEntry,
@@ -40,6 +41,7 @@ from training_management.domain.plans.model import (
 )
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
 from training_management.domain.sessions.events import SCHEMA_VERSION as SESSION_SCHEMA
+from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
 from training_management.domain.sessions.events import SessionStatus
 
 
@@ -83,7 +85,16 @@ class SessionFinishedEvent:
     session: SessionHistoryEntry
 
 
-TrainingEvent = PlanCreatedEvent | AuthorizationChangedEvent | SessionFinishedEvent
+@dataclass(frozen=True)
+class SessionStartedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    session: ActiveSessionView
+
+
+TrainingEvent = (
+    PlanCreatedEvent | AuthorizationChangedEvent | SessionFinishedEvent | SessionStartedEvent
+)
 
 
 def _uuid(value: object, field: str) -> UUID:
@@ -273,6 +284,32 @@ def _session_finished(envelope: dict[str, Any]) -> SessionFinishedEvent:
     )
 
 
+def _session_started(envelope: dict[str, Any]) -> SessionStartedEvent:
+    payload = _payload(envelope, SESSION_SCHEMA)
+    version = _envelope_version(envelope)
+    session_id = _uuid(payload.get("session_id"), "session_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != session_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if payload.get("status") != SessionStatus.ACTIVE.value:
+        raise InvalidEvent("unknown_status")
+    sport = payload.get("sport")
+    if sport not in {value.value for value in Sport}:
+        raise InvalidEvent("unknown_sport")
+    plan_raw = payload.get("plan_id")
+    return SessionStartedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        session=ActiveSessionView(
+            session_id=session_id,
+            athlete_id=_uuid(payload.get("athlete_id"), "athlete_id"),
+            plan_id=_uuid(plan_raw, "plan_id") if plan_raw is not None else None,
+            sport=str(sport),
+            started_at=_datetime(payload.get("started_at"), "started_at"),
+            version=version,
+        ),
+    )
+
+
 def parse_training_event(envelope: object) -> TrainingEvent:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -285,4 +322,6 @@ def parse_training_event(envelope: object) -> TrainingEvent:
         return _authorization_changed(envelope, event_type)
     if event_type == SESSION_FINISHED:
         return _session_finished(envelope)
+    if event_type == SESSION_STARTED:
+        return _session_started(envelope)
     raise UnsupportedEvent(event_type)

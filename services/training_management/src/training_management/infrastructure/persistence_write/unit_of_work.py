@@ -1,4 +1,4 @@
-"""Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010)."""
+"""Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032)."""
 
 from types import TracebackType
 from typing import Self
@@ -8,21 +8,32 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from training_management.application.errors import AuthorizationConflict, IdempotencyKeyConflict
-from training_management.application.ports import IdempotencyRecord, OutboxMessage
+from training_management.application.errors import (
+    ActiveSessionExists,
+    AuthorizationConflict,
+    IdempotencyKeyConflict,
+    SessionIdConflict,
+)
+from training_management.application.ports import CommandRecord, IdempotencyRecord, OutboxMessage
 from training_management.domain.authorizations.model import (
     AuthorizationStatus,
     TrainingAuthorization,
 )
-from training_management.domain.plans.model import TrainingPlan
+from training_management.domain.plans.model import PlanStatus, Sport, TrainingPlan
+from training_management.domain.sessions.model import TrainingSession, TrainingSessionStatus
 from training_management.infrastructure.persistence_write.models import (
+    ACTIVE_SESSION_INDEX,
     AUTHORIZATION_PRIMARY_KEY,
+    COMMAND_IDEMPOTENCY_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
+    TRAINING_SESSION_PRIMARY_KEY,
+    CommandIdempotencyRow,
     IdempotencyKeyRow,
     OutboxEventRow,
     TrainingAuthorizationRow,
     TrainingPlanRow,
     TrainingPlanSessionRow,
+    TrainingSessionRow,
 )
 
 
@@ -215,4 +226,130 @@ class SqlAlchemyAuthorizationUnitOfWork(_SessionUnitOfWork):
             self.session.rollback()
             if _violated_constraint(error) == AUTHORIZATION_PRIMARY_KEY:
                 raise AuthorizationConflict() from None
+            raise
+
+
+def _session(row: TrainingSessionRow) -> TrainingSession:
+    return TrainingSession(
+        session_id=row.session_id,
+        athlete_id=row.athlete_id,
+        plan_id=row.plan_id,
+        sport=Sport(row.sport),
+        started_at=row.started_at,
+        ended_at=row.ended_at,
+        duration_seconds=row.duration_seconds,
+        status=TrainingSessionStatus(row.status),
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+_SESSION_CONFLICTS: dict[str | None, type[Exception]] = {
+    COMMAND_IDEMPOTENCY_PRIMARY_KEY: IdempotencyKeyConflict,
+    TRAINING_SESSION_PRIMARY_KEY: SessionIdConflict,
+    ACTIVE_SESSION_INDEX: ActiveSessionExists,
+}
+
+
+class SqlAlchemySessionUnitOfWork(_SessionUnitOfWork):
+    """HU032: sesión, outbox e idempotencia en una transacción de escritura."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None:
+        # Sin autoflush: los conflictos de la sesión deben aflorar en `commit`, donde se
+        # traducen a errores de aplicación, y no en esta consulta.
+        with self.session.no_autoflush:
+            row = self.session.get(CommandIdempotencyRow, (actor_id, operation, key))
+        if row is None:
+            return None
+        return CommandRecord(
+            actor_id=row.actor_id,
+            operation=row.operation,
+            key=row.key,
+            request_fingerprint=row.request_fingerprint,
+            resource_id=row.resource_id,
+            response=row.response,
+            created_at=row.created_at,
+            expires_at=row.expires_at,
+        )
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None:
+        self.session.execute(
+            delete(CommandIdempotencyRow).where(
+                CommandIdempotencyRow.actor_id == actor_id,
+                CommandIdempotencyRow.operation == operation,
+                CommandIdempotencyRow.key == key,
+            )
+        )
+
+    def add_command(self, record: CommandRecord) -> None:
+        self.session.add(
+            CommandIdempotencyRow(
+                actor_id=record.actor_id,
+                operation=record.operation,
+                key=record.key,
+                request_fingerprint=record.request_fingerprint,
+                resource_id=record.resource_id,
+                response=record.response,
+                created_at=record.created_at,
+                expires_at=record.expires_at,
+            )
+        )
+
+    def get_session(self, session_id: UUID, *, for_update: bool = False) -> TrainingSession | None:
+        statement = select(TrainingSessionRow).where(TrainingSessionRow.session_id == session_id)
+        if for_update:
+            statement = statement.with_for_update()
+        row = self.session.scalar(statement)
+        return _session(row) if row is not None else None
+
+    def plan_allows(self, plan_id: UUID, athlete_id: UUID, sport: Sport) -> bool:
+        found = self.session.scalar(
+            select(TrainingPlanRow.plan_id)
+            .join(TrainingPlanSessionRow, TrainingPlanSessionRow.plan_id == TrainingPlanRow.plan_id)
+            .where(
+                TrainingPlanRow.plan_id == plan_id,
+                TrainingPlanRow.athlete_id == athlete_id,
+                TrainingPlanRow.status == PlanStatus.ASSIGNED.value,
+                TrainingPlanSessionRow.sport == sport.value,
+            )
+            .limit(1)
+        )
+        return found is not None
+
+    def add_session(self, training_session: TrainingSession) -> None:
+        self.session.add(
+            TrainingSessionRow(
+                session_id=training_session.session_id,
+                athlete_id=training_session.athlete_id,
+                plan_id=training_session.plan_id,
+                sport=training_session.sport.value,
+                started_at=training_session.started_at,
+                ended_at=training_session.ended_at,
+                duration_seconds=training_session.duration_seconds,
+                status=training_session.status.value,
+                version=training_session.version,
+                created_at=training_session.created_at,
+                updated_at=training_session.updated_at,
+            )
+        )
+
+    def update_session(self, training_session: TrainingSession) -> None:
+        row = self.session.get(TrainingSessionRow, training_session.session_id)
+        if row is None:
+            raise RuntimeError("La sesión a actualizar no está cargada.")
+        row.ended_at = training_session.ended_at
+        row.duration_seconds = training_session.duration_seconds
+        row.status = training_session.status.value
+        row.version = training_session.version
+        row.updated_at = training_session.updated_at
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            conflict = _SESSION_CONFLICTS.get(_violated_constraint(error))
+            if conflict is not None:
+                raise conflict() from None
             raise

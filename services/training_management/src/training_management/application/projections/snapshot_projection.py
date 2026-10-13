@@ -1,4 +1,4 @@
-"""Proyecciones de HU011 a partir de eventos con el estado completo (snapshot).
+"""Proyecciones de HU011 y HU032 a partir de eventos con el estado completo (snapshot).
 
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
 traen el estado completo del agregado, así que no hace falta exigir la versión
@@ -6,6 +6,11 @@ siguiente: en una sola transacción de lectura se aplica el evento solo si su ve
 es mayor que la proyectada; uno igual o anterior queda registrado como superado. Así
 un duplicado, un evento atrasado o el backfill de autorizaciones nunca retroceden la
 vista y no bloquean la secuencia.
+
+HU032 (ADR-029): `entrenamiento.iniciado.v1` (versión 1) crea `active_training_session`
+salvo que la sesión ya figure en el historial o con una versión igual o mayor;
+`entrenamiento.finalizado.v1` (versión 2) la elimina y actualiza el historial en la misma
+transacción, aunque llegue antes que el inicio.
 """
 
 from collections.abc import Callable
@@ -14,6 +19,7 @@ from training_management.application.messages import (
     AuthorizationChangedEvent,
     PlanCreatedEvent,
     SessionFinishedEvent,
+    SessionStartedEvent,
     TrainingEvent,
 )
 from training_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
@@ -22,6 +28,7 @@ from training_management.application.projections.plan_projection import (
     ProjectPlanCreated,
 )
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
+from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
 
 
 class ProjectAuthorizationChanged:
@@ -71,7 +78,36 @@ class ProjectSessionFinished:
                 else:
                     unit_of_work.save_session_entry(entry, now)
                     outcome = ProjectionOutcome.PROJECTED
+                # Al terminar desaparece la sesión activa (HU032 CA8), aunque el inicio
+                # todavía no se haya proyectado.
+                unit_of_work.delete_active_session(entry.session_id)
                 unit_of_work.add_processed(event.event_id, SESSION_FINISHED, entry.session_id, now)
+                unit_of_work.commit()
+        except DuplicateDelivery:
+            return ProjectionOutcome.DUPLICATE
+        return outcome
+
+
+class ProjectSessionStarted:
+    def __init__(self, *, unit_of_work: Callable[[], ProjectionUnitOfWork], clock: Clock) -> None:
+        self._unit_of_work = unit_of_work
+        self._clock = clock
+
+    def __call__(self, event: SessionStartedEvent) -> ProjectionOutcome:
+        view = event.session
+        now = self._clock.now()
+        try:
+            with self._unit_of_work() as unit_of_work:
+                if unit_of_work.is_processed(event.event_id):
+                    return ProjectionOutcome.DUPLICATE
+                finished = unit_of_work.session_version(view.session_id)
+                active = unit_of_work.active_session_version(view.session_id)
+                if finished is not None or (active is not None and active >= view.version):
+                    outcome = ProjectionOutcome.STALE
+                else:
+                    unit_of_work.save_active_session(view, now)
+                    outcome = ProjectionOutcome.PROJECTED
+                unit_of_work.add_processed(event.event_id, SESSION_STARTED, view.session_id, now)
                 unit_of_work.commit()
         except DuplicateDelivery:
             return ProjectionOutcome.DUPLICATE
@@ -85,10 +121,13 @@ class TrainingProjector:
         self._plans = ProjectPlanCreated(unit_of_work=unit_of_work, clock=clock)
         self._authorizations = ProjectAuthorizationChanged(unit_of_work=unit_of_work, clock=clock)
         self._sessions = ProjectSessionFinished(unit_of_work=unit_of_work, clock=clock)
+        self._started = ProjectSessionStarted(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
             return self._plans(event)
         if isinstance(event, AuthorizationChangedEvent):
             return self._authorizations(event)
+        if isinstance(event, SessionStartedEvent):
+            return self._started(event)
         return self._sessions(event)

@@ -15,6 +15,7 @@ SETTINGS = BffMobileSettings(
     app_env="test",  # type: ignore[arg-type]
     users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
     affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
+    training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
 )
 PASSWORD = "contraseña-muy-secreta"
 SESSION = {

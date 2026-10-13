@@ -98,7 +98,7 @@ class ParseTrainingEventTest(unittest.TestCase):
 
     def test_other_event_types_are_unsupported(self) -> None:
         with self.assertRaises(UnsupportedEvent):
-            parse_training_event(envelope(event_type="entrenamiento.iniciado.v1"))
+            parse_training_event(envelope(event_type="indicador.calculado.v1"))
 
     def test_contract_violations(self) -> None:
         plan = a_plan()

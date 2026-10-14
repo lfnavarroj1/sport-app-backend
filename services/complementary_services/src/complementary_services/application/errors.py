@@ -21,3 +21,14 @@ class IdempotencyKeyReused(Exception):
 
 class IdempotencyKeyConflict(Exception):
     """Otra solicitud concurrente del mismo profesional confirmó primero la misma clave."""
+
+
+class CapabilitiesUnavailable(Exception):
+    """HU020: Afiliación no permitió evaluar la capacidad médica; nunca se concede por
+    suposición."""
+
+    code = "upstream_unavailable"
+
+
+class CapabilitiesTimeout(CapabilitiesUnavailable):
+    """Afiliación no respondió a tiempo; el contrato responde igual (`503`, ADR-038)."""

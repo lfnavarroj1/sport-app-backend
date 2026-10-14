@@ -69,7 +69,11 @@ _BFF = {
     "COMPLEMENTARY_SERVICES_BASE_URL": "http://complementary-services.invalid",
     "EVENTS_MANAGEMENT_BASE_URL": "http://events-management.invalid",
 }
-_COMPLEMENTARY = {**_SINGLE, "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid"}
+_COMPLEMENTARY = {
+    **_SINGLE,
+    "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
+    "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
+}
 _EVENTS = {
     **_CQRS,
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",

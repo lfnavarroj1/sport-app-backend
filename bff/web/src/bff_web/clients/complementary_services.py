@@ -1,4 +1,4 @@
-"""Cliente HTTP de `complementary_services` según su OpenAPI 0.3.0 (HU015 y HU019).
+"""Cliente HTTP de `complementary_services` según su OpenAPI 0.4.0 (HU015, HU019 y HU020).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad y permiso.
 """
@@ -45,6 +45,18 @@ class ComplementaryServicesClient:
         """HU019 (ADR-038): detalle de un servicio propio (`404` si es ajeno o no existe)."""
         return self._send("GET", f"/v1/me/services/{service_id}", access_token)
 
+    def service_availability(
+        self, access_token: str, params: list[tuple[str, str]]
+    ) -> httpx.Response:
+        """HU020 (ADR-038): catálogo del deportista; los parámetros viajan tal como llegaron,
+        incluidos los repetidos (`category`, `modality`), y los valida el servicio."""
+        return self._send(
+            "GET",
+            "/v1/services/availability",
+            access_token,
+            params=httpx.QueryParams(tuple(params)),
+        )
+
     def _send(
         self,
         method: str,
@@ -53,7 +65,7 @@ class ComplementaryServicesClient:
         *,
         json: Any = None,
         idempotency_key: str | None = None,
-        params: dict[str, str] | None = None,
+        params: dict[str, str] | httpx.QueryParams | None = None,
     ) -> httpx.Response:
         headers = {"Authorization": f"Bearer {access_token}"}
         if idempotency_key is not None:

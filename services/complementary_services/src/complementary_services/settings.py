@@ -26,6 +26,8 @@ class ComplementaryServicesSettings(ServiceSettings, DatabasePoolSettings):
     database_url: PostgresUrl
     # HU015: identidad desde el JWKS de users-management.
     users_management_base_url: AnyHttpUrl
+    # HU020: capacidad `services.sports_medicine.access` (contrato interno de Afiliación).
+    affiliation_management_base_url: AnyHttpUrl
     upstream_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)

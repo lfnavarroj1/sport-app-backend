@@ -80,6 +80,7 @@ class ServiceCreationFlowTest(unittest.TestCase):
                         app_env="test",  # type: ignore[arg-type]
                         database_url=services_url,  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
+                        affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
                     ),
                     users_http=users,
                 ),

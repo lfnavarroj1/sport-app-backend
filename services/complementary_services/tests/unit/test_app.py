@@ -9,6 +9,7 @@ SETTINGS = ComplementaryServicesSettings(
     app_env="test",
     database_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
     users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
+    affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
     db_connect_timeout_seconds=1,
 )
 

@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from bff_web.api.training import (
     _UNAUTHORIZED,
     _UPSTREAM,
+    ATHLETE,
     SERVICE_PROVIDER,
     _passthrough,
     _permission_required,
@@ -130,6 +131,34 @@ class PublishServiceResponse(BaseModel):
 class MyServicesResponse(BaseModel):
     items: list[ServiceResponse]
     next_cursor: str | None
+
+
+class CatalogService(BaseModel):
+    """HU020: servicio publicado con sus intervalos futuros que empiezan en el rango."""
+
+    service_id: UUID
+    provider_id: UUID
+    name: str
+    description: str
+    category: Category
+    modality: Modality
+    price: Annotated[ServicePrice, Field(description="Tarifa informativa: no es un cobro.")]
+    availability: list[AvailabilityInterval]
+    available: Annotated[
+        bool, Field(description="`false` solo con `availability=all` y sin intervalos.")
+    ]
+
+
+class ServiceAvailabilityResponse(BaseModel):
+    items: list[CatalogService]
+    next_cursor: str | None
+    restricted_categories: Annotated[
+        list[Category],
+        Field(
+            description="Categorías omitidas por falta de capacidad del plan "
+            '(`["SPORTS_MEDICINE"]` sin `services.sports_medicine.access`).'
+        ),
+    ]
 
 
 _REPLAYED_HEADER_DOC = {
@@ -393,6 +422,103 @@ def build_services_router(
                     HTTPStatus.UNAUTHORIZED,
                     HTTPStatus.FORBIDDEN,
                     HTTPStatus.NOT_FOUND,
+                },
+                source=SOURCE,
+            )
+        )
+
+    return router
+
+
+def build_service_availability_router(
+    *,
+    verify_token: Callable[[str], VerifiedAccessToken],
+    services: ComplementaryServicesClient,
+) -> APIRouter:
+    """HU020: catálogo de disponibilidad del deportista (ADR-038)."""
+    router = APIRouter(tags=["services"])
+
+    def athlete_session(authorization: str | None) -> _Session | Response:
+        session = authenticate_session(verify_token, authorization)
+        if isinstance(session, Response):
+            return session
+        if session.actor_type != ATHLETE:
+            return _permission_required()
+        return session
+
+    def private(response: Response) -> Response:
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @router.get(
+        "/v1/services/availability",
+        response_model=ServiceAvailabilityResponse,
+        summary="Disponibilidad de los servicios publicados (HU020, ADR-038)",
+        description="Solo el deportista. Instantes en UTC con la zona del intervalo (sin "
+        "parámetro de zona: el cliente convierte); la tarifa es informativa y la consulta no "
+        "reserva cupos. Sin `services.sports_medicine.access`, la categoría médica se omite y se "
+        "declara en `restricted_categories`.",
+        responses={
+            **_UNAUTHORIZED,
+            **_UPSTREAM,
+            HTTPStatus.FORBIDDEN.value: {
+                "model": ErrorResponse,
+                "description": "`permission_required`: solo el deportista.",
+            },
+            HTTPStatus.UNPROCESSABLE_ENTITY.value: {
+                "model": ErrorResponse,
+                "description": "`validation_error` en `query.from`, `query.to` (periodo de hasta "
+                "31 días), `query.category`, `query.modality`, `query.availability`, "
+                "`query.limit` o `query.cursor`.",
+            },
+        },
+    )
+    def availability(
+        *,
+        starts_from: Annotated[
+            str | None,
+            Query(alias="from", description="Instante ISO 8601 con desfase; obligatorio."),
+        ] = None,
+        starts_before: Annotated[
+            str | None,
+            Query(alias="to", description="Instante ISO 8601 con desfase; obligatorio."),
+        ] = None,
+        category: Annotated[list[str] | None, Query(description="Repetible.")] = None,
+        modality: Annotated[list[str] | None, Query(description="Repetible.")] = None,
+        availability: Annotated[
+            str | None, Query(description="`available` (por defecto) o `all`.")
+        ] = None,
+        limit: Annotated[str | None, Query(description="Entero de 1 a 50; 20 por defecto.")] = None,
+        cursor: Annotated[str | None, Query(description="`next_cursor` anterior.")] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        session = athlete_session(authorization)
+        if isinstance(session, Response):
+            return session
+        # Tal como llegan, incluidos los repetidos: el servicio valida y responde el `422`.
+        single = (
+            ("from", starts_from),
+            ("to", starts_before),
+            ("availability", availability),
+            ("limit", limit),
+            ("cursor", cursor),
+        )
+        params = [(name, value) for name, value in single if value is not None]
+        params += [("category", value) for value in category or ()]
+        params += [("modality", value) for value in modality or ()]
+        try:
+            upstream = services.service_availability(session.token, params)
+        except (UpstreamTimeout, UpstreamUnavailable) as error:
+            return _upstream_failure(error)
+        return private(
+            _passthrough(
+                upstream,
+                {
+                    HTTPStatus.OK,
+                    HTTPStatus.UNAUTHORIZED,
+                    HTTPStatus.FORBIDDEN,
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
                 },
                 source=SOURCE,
             )

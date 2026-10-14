@@ -60,6 +60,8 @@ class ServiceRow(Base):
         ),
         # HU019 (ADR-038): «mis servicios» por `updated_at` y `service_id` descendentes.
         Index("ix_service_provider_id_updated_at", "provider_id", "updated_at", "service_id"),
+        # HU020 (ADR-038): catálogo de publicados por categoría.
+        Index("ix_service_status_category", "status", "category"),
     )
 
     service_id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -86,6 +88,8 @@ class ServiceAvailabilityRow(Base):
         CheckConstraint("ends_at > starts_at", name="interval"),
         CheckConstraint("ends_at - starts_at <= interval '24 hours'", name="duration"),
         CheckConstraint("capacity BETWEEN 1 AND 100", name="capacity"),
+        # HU020 (ADR-038): intervalos de un servicio que empiezan en un rango.
+        Index("ix_service_availability_service_id_starts_at", "service_id", "starts_at"),
     )
 
     service_id: Mapped[UUID] = mapped_column(

@@ -1,7 +1,7 @@
-"""Cliente HTTP de `training_management` según su OpenAPI 0.5.0 (HU032 y HU035).
+"""Cliente HTTP de `training_management` según su OpenAPI 0.6.0 (HU032, HU034 y HU035).
 
-Reenvía el access token del usuario, la clave de idempotencia y la correlación; el
-servicio vuelve a verificar identidad, actor y capacidad.
+Reenvía el access token del usuario, la clave de idempotencia, `If-None-Match` y la
+correlación; el servicio vuelve a verificar identidad, actor y capacidad.
 """
 
 from datetime import date
@@ -13,6 +13,7 @@ from bff_mobile.clients.users_management import UpstreamTimeout, UpstreamUnavail
 from sportapp_platform.correlation import CORRELATION_HEADER, current_correlation_id
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+IF_NONE_MATCH_HEADER = "If-None-Match"
 
 
 class TrainingManagementClient:
@@ -55,6 +56,28 @@ class TrainingManagementClient:
             params={"from": date_from.isoformat(), "to": date_to.isoformat(), "limit": str(limit)},
         )
 
+    def metrics_catalog(self, access_token: str, if_none_match: str | None) -> httpx.Response:
+        """HU034: catálogo de métodos; con `If-None-Match` vigente el servicio responde `304`."""
+        return self._send(
+            "GET", "/v1/training-metrics/catalog", access_token, if_none_match=if_none_match
+        )
+
+    def calculate_metric(
+        self, access_token: str, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU034: calcular un indicador; cuerpo y clave viajan tal cual (ADR-030)."""
+        return self._send(
+            "POST",
+            "/v1/training-metrics/calculations",
+            access_token,
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def metric_calculations(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU034: resultados propios proyectados; solo los parámetros recibidos."""
+        return self._send("GET", "/v1/training-metrics/calculations", access_token, params=params)
+
     def _send(
         self,
         method: str,
@@ -64,11 +87,14 @@ class TrainingManagementClient:
         body: Any = None,
         idempotency_key: str | None = None,
         params: dict[str, str] | None = None,
+        if_none_match: str | None = None,
     ) -> httpx.Response:
-        """Cuerpo y clave viajan tal cual: el servicio responde los errores de ADR-029."""
+        """Cuerpo y clave viajan tal cual: el servicio responde los errores de ADR-029/030."""
         headers = {"Authorization": f"Bearer {access_token}"}
         if idempotency_key is not None:
             headers[IDEMPOTENCY_HEADER] = idempotency_key
+        if if_none_match is not None:
+            headers[IF_NONE_MATCH_HEADER] = if_none_match
         correlation_id = current_correlation_id()
         if correlation_id:
             headers[CORRELATION_HEADER] = correlation_id

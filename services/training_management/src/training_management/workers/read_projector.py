@@ -4,9 +4,10 @@ Ejecución: `python -m training_management.workers.read_projector`.
 
 - Consume `sportapp.entrenamientos.v1` por la suscripción ordenada `proyector-entrenamientos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de la vista y `processed_event`.
-- Un mensaje inválido, un hueco de versión o un fallo de procesamiento no se
-  confirma: Pub/Sub lo reintenta con el backoff de la suscripción y, tras 10
-  intentos, lo envía a `sportapp.entrenamientos.proyeccion.dlq`.
+- Un mensaje inválido, un hueco de versión, un cálculo ya proyectado con otros datos
+  (HU034) o un fallo de procesamiento no se confirma: Pub/Sub lo reintenta con el
+  backoff de la suscripción y, tras 10 intentos, lo envía a
+  `sportapp.entrenamientos.proyeccion.dlq`.
 - Un tipo de evento que este proyector aún no proyecta se confirma sin efectos.
 """
 
@@ -25,6 +26,7 @@ from sportapp_platform.logging import configure_logging
 from training_management.application.messages import (
     AuthorizationChangedEvent,
     InvalidEvent,
+    MetricCalculatedEvent,
     PlanCreatedEvent,
     TrainingEvent,
     UnsupportedEvent,
@@ -61,6 +63,8 @@ def _aggregate_id(event: TrainingEvent) -> object:
         return event.plan.plan_id
     if isinstance(event, AuthorizationChangedEvent):
         return event.aggregate_id
+    if isinstance(event, MetricCalculatedEvent):
+        return event.calculation.calculation_id
     return event.session.session_id
 
 

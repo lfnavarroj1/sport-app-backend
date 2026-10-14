@@ -14,6 +14,7 @@ from training_management.application.ports import Caller, CapabilityChecker, Per
 ATHLETE = "athlete"
 PLAN_AUTHOR_PERMISSION = "training.plan.author"
 PLAN_MANAGE_CAPABILITY = "training.plan.manage"
+METRICS_CAPABILITY = "training.metrics.ftp_vo2max"
 
 
 def require_plan_author(caller: Caller, permissions: PermissionPolicy) -> None:
@@ -30,4 +31,12 @@ def require_plan_capability(caller: Caller, capabilities: CapabilityChecker) -> 
     """Consulta Afiliación fuera de cualquier transacción local."""
     require_athlete(caller)
     if not capabilities.has_capability(caller.user_id, PLAN_MANAGE_CAPABILITY):
+        raise CapabilityRequired()
+
+
+def require_metrics_capability(caller: Caller, capabilities: CapabilityChecker) -> None:
+    """HU034 (ADR-030): catálogo, cálculo e historial exigen `athlete` con
+    `training.metrics.ftp_vo2max`. Consulta Afiliación fuera de cualquier transacción."""
+    require_athlete(caller)
+    if not capabilities.has_capability(caller.user_id, METRICS_CAPABILITY):
         raise CapabilityRequired()

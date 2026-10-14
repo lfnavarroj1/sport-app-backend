@@ -1,6 +1,6 @@
 """Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
-proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011) y sesión
-activa (HU032)."""
+proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011), sesión
+activa (HU032) y resultados de indicadores (HU034)."""
 
 from datetime import date, datetime
 from types import TracebackType
@@ -20,13 +20,19 @@ from training_management.application.ports import (
     SessionHistoryEntry,
     SessionView,
 )
+from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.plans.events import planned_session_id
+from training_management.infrastructure.persistence_read.metrics import (
+    metric_result,
+    metric_result_values,
+)
 from training_management.infrastructure.persistence_read.models import (
     PLAN_VIEW_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     ActiveTrainingSessionRow,
     ProcessedEventRow,
     TrainingAuthorizationViewRow,
+    TrainingMetricResultRow,
     TrainingPlanSessionViewRow,
     TrainingPlanViewRow,
     TrainingSessionHistoryRow,
@@ -263,6 +269,19 @@ class SqlAlchemyProjectionUnitOfWork:
                 ActiveTrainingSessionRow.session_id == session_id
             )
         )
+
+    def metric_result(self, calculation_id: UUID) -> TrainingMetricCalculation | None:
+        row = self.session.scalar(
+            select(TrainingMetricResultRow)
+            .where(TrainingMetricResultRow.calculation_id == calculation_id)
+            .with_for_update()
+        )
+        return metric_result(row) if row is not None else None
+
+    def add_metric_result(
+        self, calculation: TrainingMetricCalculation, projected_at: datetime
+    ) -> None:
+        self.session.add(TrainingMetricResultRow(**metric_result_values(calculation, projected_at)))
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

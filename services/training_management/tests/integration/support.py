@@ -16,6 +16,10 @@ from training_management.application.commands.authorizations import (
     GrantAuthorization,
     RevokeAuthorization,
 )
+from training_management.application.commands.calculate_training_metric import (
+    CalculateTrainingMetric,
+    CalculateTrainingMetricCommand,
+)
 from training_management.application.commands.create_training_plan import (
     CreateTrainingPlan,
     CreateTrainingPlanCommand,
@@ -30,6 +34,8 @@ from training_management.application.commands.training_sessions import (
 from training_management.application.ports import Caller
 from training_management.application.projections.snapshot_projection import TrainingProjector
 from training_management.application.queries.training_history import GetTrainingHistory
+from training_management.application.queries.training_metrics import ListTrainingMetricResults
+from training_management.domain.metrics.catalog import TRAINING_METRICS_CATALOG
 from training_management.domain.plans.model import Sport
 from training_management.domain.sessions.model import StartInput
 from training_management.infrastructure.clock import SystemClock
@@ -38,12 +44,16 @@ from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyAuthorizationReader,
     SqlAlchemyHistoryReader,
 )
+from training_management.infrastructure.persistence_read.metrics import (
+    SqlAlchemyMetricResultReader,
+)
 from training_management.infrastructure.persistence_read.plans import (
     SqlAlchemyPlanReader,
     SqlAlchemyProjectionUnitOfWork,
 )
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
+    SqlAlchemyMetricUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemySessionUnitOfWork,
 )
@@ -126,6 +136,21 @@ class TrainingDatabases:
     def finish_session(self) -> FinishTrainingSession:
         return FinishTrainingSession(
             unit_of_work=lambda: SqlAlchemySessionUnitOfWork(self.writes), clock=SystemClock()
+        )
+
+    def calculate_metric(self) -> CalculateTrainingMetric:
+        return CalculateTrainingMetric(
+            unit_of_work=lambda: SqlAlchemyMetricUnitOfWork(self.writes),
+            capabilities=AlwaysCapable(),
+            catalog=TRAINING_METRICS_CATALOG,
+            clock=SystemClock(),
+        )
+
+    def metric_results(self) -> ListTrainingMetricResults:
+        return ListTrainingMetricResults(
+            reader=SqlAlchemyMetricResultReader(self.reads),
+            capabilities=AlwaysCapable(),
+            catalog=TRAINING_METRICS_CATALOG,
         )
 
     def active_reader(self) -> SqlAlchemyActiveSessionReader:
@@ -217,5 +242,27 @@ def finish_command(
         session_id=str(session_id),
         ended_at=ended_at or utc_seconds(-timedelta(minutes=5)),
         idempotency_key=key or uuid4(),
+        correlation_id=uuid4(),
+    )
+
+
+def metric_command(
+    *,
+    key: UUID | None = None,
+    calculation_id: UUID | None = None,
+    watts: int = 250,
+    measured_at: str | None = None,
+) -> CalculateTrainingMetricCommand:
+    """FTP de ADR-030 (UTC, `Z`, segundos) relativo al reloj real."""
+    return CalculateTrainingMetricCommand(
+        body={
+            "calculation_id": str(calculation_id or uuid4()),
+            "metric_code": "FTP_ESTIMATED",
+            "method_code": "FTP_20_MIN_95_V1",
+            "method_version": 1,
+            "measured_at": measured_at or utc_seconds(-timedelta(hours=1)),
+            "inputs": [{"code": "mean_power_watts", "value": watts, "unit": "W"}],
+        },
+        idempotency_key=str(key or uuid4()),
         correlation_id=uuid4(),
     )

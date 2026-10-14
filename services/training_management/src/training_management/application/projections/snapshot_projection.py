@@ -11,18 +11,24 @@ HU032 (ADR-029): `entrenamiento.iniciado.v1` (versión 1) crea `active_training_
 salvo que la sesión ya figure en el historial o con una versión igual o mayor;
 `entrenamiento.finalizado.v1` (versión 2) la elimina y actualiza el historial en la misma
 transacción, aunque llegue antes que el inicio.
+
+HU034 (ADR-030): `indicador.calculado.v1` se despacha a `ProjectMetricCalculated`.
 """
 
 from collections.abc import Callable
 
 from training_management.application.messages import (
     AuthorizationChangedEvent,
+    MetricCalculatedEvent,
     PlanCreatedEvent,
     SessionFinishedEvent,
     SessionStartedEvent,
     TrainingEvent,
 )
 from training_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
+from training_management.application.projections.metric_projection import (
+    ProjectMetricCalculated,
+)
 from training_management.application.projections.plan_projection import (
     ProjectionOutcome,
     ProjectPlanCreated,
@@ -122,6 +128,7 @@ class TrainingProjector:
         self._authorizations = ProjectAuthorizationChanged(unit_of_work=unit_of_work, clock=clock)
         self._sessions = ProjectSessionFinished(unit_of_work=unit_of_work, clock=clock)
         self._started = ProjectSessionStarted(unit_of_work=unit_of_work, clock=clock)
+        self._metrics = ProjectMetricCalculated(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
@@ -130,4 +137,6 @@ class TrainingProjector:
             return self._authorizations(event)
         if isinstance(event, SessionStartedEvent):
             return self._started(event)
+        if isinstance(event, MetricCalculatedEvent):
+            return self._metrics(event)
         return self._sessions(event)

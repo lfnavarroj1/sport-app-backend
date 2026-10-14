@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/indicador.calculado.v1.schema.json",
+  "title": "indicador.calculado.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = calculation_id (= aggregate_id) cuando un deportista calcula un FTP o VO₂max estimado (HU034, ADR-030). Versión de agregado 1 (el cálculo es inmutable); entrenamientos-read-projector construye training_metric_result. Instantes en UTC con sufijo Z. Solo método, versión, entradas normalizadas y resultado: sin nombre, diagnóstico, rangos clínicos ni otros datos personales.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "indicador.calculado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "training-management"},
+    "aggregate_type": {"const": "training_metric_calculation"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "calculation_id generado por el cliente (UUID v4)."
+    },
+    "aggregate_version": {"const": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Idempotency-Key del comando de cálculo."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "calculation_id",
+        "athlete_id",
+        "metric_code",
+        "method_code",
+        "method_version",
+        "measured_at",
+        "calculated_at",
+        "inputs",
+        "result",
+        "status",
+        "disclaimer_key"
+      ],
+      "properties": {
+        "calculation_id": {"type": "string", "format": "uuid"},
+        "athlete_id": {"type": "string", "format": "uuid"},
+        "metric_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "description": "Indicador del catálogo, p. ej. FTP_ESTIMATED o VO2MAX_ESTIMATED."
+        },
+        "method_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "description": "Método del catálogo, p. ej. FTP_20_MIN_95_V1 o COOPER_12_MIN_V1."
+        },
+        "method_version": {"type": "integer", "minimum": 1},
+        "measured_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+          "description": "Fin de la prueba de campo, en segundos y UTC."
+        },
+        "calculated_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Entradas normalizadas tal como se calcularon (códigos únicos).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "value", "unit"],
+            "properties": {
+              "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+              "value": {"type": "integer"},
+              "unit": {"type": "string", "minLength": 1, "maxLength": 32}
+            }
+          }
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "unit", "scale"],
+          "properties": {
+            "value": {
+              "type": "number",
+              "description": "Valor redondeado con ROUND_HALF_UP a `scale` decimales."
+            },
+            "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+            "scale": {"type": "integer", "minimum": 0, "maximum": 4}
+          }
+        },
+        "status": {"const": "CONFIRMED"},
+        "disclaimer_key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "description": "Clave del aviso localizado del método; en HU034, estimated_not_diagnostic."
+        }
+      }
+    }
+  }
+}

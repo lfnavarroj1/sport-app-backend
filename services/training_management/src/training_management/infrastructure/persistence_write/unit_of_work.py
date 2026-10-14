@@ -1,4 +1,5 @@
-"""Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032)."""
+"""Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
+HU034)."""
 
 from types import TracebackType
 from typing import Self
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from training_management.application.errors import (
     ActiveSessionExists,
     AuthorizationConflict,
+    CalculationIdConflict,
     IdempotencyKeyConflict,
     SessionIdConflict,
 )
@@ -19,6 +21,12 @@ from training_management.domain.authorizations.model import (
     AuthorizationStatus,
     TrainingAuthorization,
 )
+from training_management.domain.metrics.model import (
+    CalculationStatus,
+    MetricInput,
+    MetricResult,
+    TrainingMetricCalculation,
+)
 from training_management.domain.plans.model import PlanStatus, Sport, TrainingPlan
 from training_management.domain.sessions.model import TrainingSession, TrainingSessionStatus
 from training_management.infrastructure.persistence_write.models import (
@@ -26,11 +34,14 @@ from training_management.infrastructure.persistence_write.models import (
     AUTHORIZATION_PRIMARY_KEY,
     COMMAND_IDEMPOTENCY_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
+    METRIC_CALCULATION_PRIMARY_KEY,
     TRAINING_SESSION_PRIMARY_KEY,
     CommandIdempotencyRow,
     IdempotencyKeyRow,
     OutboxEventRow,
     TrainingAuthorizationRow,
+    TrainingMetricCalculationRow,
+    TrainingMetricInputRow,
     TrainingPlanRow,
     TrainingPlanSessionRow,
     TrainingSessionRow,
@@ -252,8 +263,8 @@ _SESSION_CONFLICTS: dict[str | None, type[Exception]] = {
 }
 
 
-class SqlAlchemySessionUnitOfWork(_SessionUnitOfWork):
-    """HU032: sesión, outbox e idempotencia en una transacción de escritura."""
+class _CommandUnitOfWork(_SessionUnitOfWork):
+    """Idempotencia de comandos por deportista y operación (`command_idempotency`)."""
 
     def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None:
         # Sin autoflush: los conflictos de la sesión deben aflorar en `commit`, donde se
@@ -295,6 +306,10 @@ class SqlAlchemySessionUnitOfWork(_SessionUnitOfWork):
                 expires_at=record.expires_at,
             )
         )
+
+
+class SqlAlchemySessionUnitOfWork(_CommandUnitOfWork):
+    """HU032: sesión, outbox e idempotencia en una transacción de escritura."""
 
     def get_session(self, session_id: UUID, *, for_update: bool = False) -> TrainingSession | None:
         statement = select(TrainingSessionRow).where(TrainingSessionRow.session_id == session_id)
@@ -350,6 +365,91 @@ class SqlAlchemySessionUnitOfWork(_SessionUnitOfWork):
         except IntegrityError as error:
             self.session.rollback()
             conflict = _SESSION_CONFLICTS.get(_violated_constraint(error))
+            if conflict is not None:
+                raise conflict() from None
+            raise
+
+
+def _calculation(
+    row: TrainingMetricCalculationRow, inputs: list[TrainingMetricInputRow]
+) -> TrainingMetricCalculation:
+    return TrainingMetricCalculation(
+        calculation_id=row.calculation_id,
+        athlete_id=row.athlete_id,
+        metric_code=row.metric_code,
+        method_code=row.method_code,
+        method_version=row.method_version,
+        measured_at=row.measured_at,
+        calculated_at=row.calculated_at,
+        inputs=tuple(
+            MetricInput(code=item.code, value=item.value, unit=item.unit) for item in inputs
+        ),
+        result=MetricResult(value=row.result_value, unit=row.result_unit, scale=row.result_scale),
+        disclaimer_key=row.disclaimer_key,
+        status=CalculationStatus(row.status),
+        version=row.version,
+    )
+
+
+_METRIC_CONFLICTS: dict[str | None, type[Exception]] = {
+    COMMAND_IDEMPOTENCY_PRIMARY_KEY: IdempotencyKeyConflict,
+    METRIC_CALCULATION_PRIMARY_KEY: CalculationIdConflict,
+}
+
+
+class SqlAlchemyMetricUnitOfWork(_CommandUnitOfWork):
+    """HU034: cálculo, entradas, outbox e idempotencia en una transacción de escritura."""
+
+    def get_calculation(self, calculation_id: UUID) -> TrainingMetricCalculation | None:
+        with self.session.no_autoflush:
+            row = self.session.get(TrainingMetricCalculationRow, calculation_id)
+            if row is None:
+                return None
+            inputs = list(
+                self.session.scalars(
+                    select(TrainingMetricInputRow)
+                    .where(TrainingMetricInputRow.calculation_id == calculation_id)
+                    .order_by(TrainingMetricInputRow.position)
+                )
+            )
+        return _calculation(row, inputs)
+
+    def add_calculation(self, calculation: TrainingMetricCalculation) -> None:
+        self.session.add(
+            TrainingMetricCalculationRow(
+                calculation_id=calculation.calculation_id,
+                athlete_id=calculation.athlete_id,
+                metric_code=calculation.metric_code,
+                method_code=calculation.method_code,
+                method_version=calculation.method_version,
+                measured_at=calculation.measured_at,
+                calculated_at=calculation.calculated_at,
+                result_value=calculation.result.value,
+                result_unit=calculation.result.unit,
+                result_scale=calculation.result.scale,
+                status=calculation.status.value,
+                disclaimer_key=calculation.disclaimer_key,
+                version=calculation.version,
+                data_fingerprint=calculation.data.fingerprint,
+            )
+        )
+        self.session.add_all(
+            TrainingMetricInputRow(
+                calculation_id=calculation.calculation_id,
+                code=item.code,
+                position=position,
+                value=item.value,
+                unit=item.unit,
+            )
+            for position, item in enumerate(calculation.inputs)
+        )
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            conflict = _METRIC_CONFLICTS.get(_violated_constraint(error))
             if conflict is not None:
                 raise conflict() from None
             raise

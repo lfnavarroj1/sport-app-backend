@@ -180,7 +180,7 @@ class MigrationTest(unittest.TestCase):
             downgrade(HISTORY, url, "0001_baseline")
             self.assertEqual(current_revision(url), "0001_baseline")
             upgrade(HISTORY, url)
-            self.assertEqual(current_revision(url), "0002_service_offer")
+            self.assertEqual(current_revision(url), "0003_service_publication")
 
 
 if __name__ == "__main__":

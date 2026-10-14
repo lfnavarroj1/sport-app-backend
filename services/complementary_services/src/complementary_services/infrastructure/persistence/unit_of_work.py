@@ -1,19 +1,31 @@
-"""Unidad de trabajo SQLAlchemy de la creación de servicios (HU015)."""
+"""Unidades de trabajo SQLAlchemy de la base única de servicios (HU015, HU019)."""
 
+from collections.abc import Iterable
+from datetime import UTC
 from types import TracebackType
 from typing import Self
 from uuid import UUID
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from complementary_services.application.errors import IdempotencyKeyConflict
-from complementary_services.application.ports import IdempotencyRecord
-from complementary_services.domain.catalog.offer import ServiceOffer
+from complementary_services.application.ports import IdempotencyRecord, OutboxMessage
+from complementary_services.domain.availability.intervals import AvailabilityInterval
+from complementary_services.domain.catalog.offer import (
+    BillingUnit,
+    Category,
+    Currency,
+    Modality,
+    Price,
+    ServiceOffer,
+    ServiceStatus,
+)
 from complementary_services.infrastructure.persistence.models import (
     IDEMPOTENCY_PRIMARY_KEY,
     IdempotencyKeyRow,
+    OutboxEventRow,
     ServiceAvailabilityRow,
     ServiceRow,
 )
@@ -24,7 +36,40 @@ def _violated_constraint(error: IntegrityError) -> str | None:
     return getattr(diagnostics, "constraint_name", None)
 
 
-class SqlAlchemyCreationUnitOfWork:
+def service_offer(row: ServiceRow, intervals: Iterable[ServiceAvailabilityRow]) -> ServiceOffer:
+    """Agregado a partir de sus filas; los instantes se devuelven siempre en UTC."""
+    return ServiceOffer(
+        service_id=row.service_id,
+        provider_id=row.provider_id,
+        name=row.name,
+        description=row.description,
+        category=Category(row.category),
+        modality=Modality(row.modality),
+        price=Price(
+            amount=row.price_amount,
+            currency=Currency(row.currency),
+            billing_unit=BillingUnit(row.billing_unit),
+        ),
+        availability=tuple(
+            AvailabilityInterval(
+                starts_at=interval.starts_at.astimezone(UTC),
+                ends_at=interval.ends_at.astimezone(UTC),
+                time_zone=interval.time_zone,
+                capacity=interval.capacity,
+            )
+            for interval in sorted(intervals, key=lambda item: item.position)
+        ),
+        status=ServiceStatus(row.status),
+        version=row.version,
+        created_at=row.created_at.astimezone(UTC),
+        updated_at=row.updated_at.astimezone(UTC),
+        published_at=row.published_at.astimezone(UTC) if row.published_at else None,
+    )
+
+
+class _UnitOfWork:
+    """Sesión e idempotencia por profesional comunes a los comandos."""
+
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
         self._session: Session | None = None
@@ -51,7 +96,9 @@ class SqlAlchemyCreationUnitOfWork:
         self._session = None
 
     def find_idempotency(self, provider_id: UUID, key: UUID) -> IdempotencyRecord | None:
-        row = self.session.get(IdempotencyKeyRow, (provider_id, key))
+        # Sin autoflush: los conflictos deben aflorar en `commit`, donde se traducen.
+        with self.session.no_autoflush:
+            row = self.session.get(IdempotencyKeyRow, (provider_id, key))
         if row is None:
             return None
         return IdempotencyRecord(
@@ -70,38 +117,6 @@ class SqlAlchemyCreationUnitOfWork:
             delete(IdempotencyKeyRow).where(
                 IdempotencyKeyRow.provider_id == provider_id, IdempotencyKeyRow.key == key
             )
-        )
-
-    def add_service(self, offer: ServiceOffer) -> None:
-        self.session.add(
-            ServiceRow(
-                service_id=offer.service_id,
-                provider_id=offer.provider_id,
-                name=offer.name,
-                description=offer.description,
-                category=offer.category.value,
-                modality=offer.modality.value,
-                price_amount=offer.price.amount,
-                currency=offer.price.currency.value,
-                billing_unit=offer.price.billing_unit.value,
-                status=offer.status.value,
-                version=offer.version,
-                created_at=offer.created_at,
-                updated_at=offer.updated_at,
-            )
-        )
-        # El servicio debe existir antes que sus intervalos (clave foránea local).
-        self.session.flush()
-        self.session.add_all(
-            ServiceAvailabilityRow(
-                service_id=offer.service_id,
-                position=position,
-                starts_at=interval.starts_at,
-                ends_at=interval.ends_at,
-                time_zone=interval.time_zone,
-                capacity=interval.capacity,
-            )
-            for position, interval in enumerate(offer.availability)
         )
 
     def add_idempotency(self, record: IdempotencyRecord) -> None:
@@ -126,3 +141,92 @@ class SqlAlchemyCreationUnitOfWork:
             if _violated_constraint(error) == IDEMPOTENCY_PRIMARY_KEY:
                 raise IdempotencyKeyConflict() from None
             raise
+
+
+class SqlAlchemyCreationUnitOfWork(_UnitOfWork):
+    """HU015: servicio en borrador, disponibilidad e idempotencia."""
+
+    def add_service(self, offer: ServiceOffer) -> None:
+        self.session.add(
+            ServiceRow(
+                service_id=offer.service_id,
+                provider_id=offer.provider_id,
+                name=offer.name,
+                description=offer.description,
+                category=offer.category.value,
+                modality=offer.modality.value,
+                price_amount=offer.price.amount,
+                currency=offer.price.currency.value,
+                billing_unit=offer.price.billing_unit.value,
+                status=offer.status.value,
+                version=offer.version,
+                created_at=offer.created_at,
+                updated_at=offer.updated_at,
+                published_at=offer.published_at,
+            )
+        )
+        # El servicio debe existir antes que sus intervalos (clave foránea local).
+        self.session.flush()
+        self.session.add_all(
+            ServiceAvailabilityRow(
+                service_id=offer.service_id,
+                position=position,
+                starts_at=interval.starts_at,
+                ends_at=interval.ends_at,
+                time_zone=interval.time_zone,
+                capacity=interval.capacity,
+            )
+            for position, interval in enumerate(offer.availability)
+        )
+
+
+class SqlAlchemyPublicationUnitOfWork(_UnitOfWork):
+    """HU019: servicio bloqueado, transición, `servicio.publicado.v1` e idempotencia."""
+
+    def lock_service(self, service_id: UUID) -> ServiceOffer | None:
+        row = self.session.scalar(
+            select(ServiceRow).where(ServiceRow.service_id == service_id).with_for_update()
+        )
+        if row is None:
+            return None
+        intervals = self.session.scalars(
+            select(ServiceAvailabilityRow).where(ServiceAvailabilityRow.service_id == service_id)
+        )
+        return service_offer(row, intervals)
+
+    def save_publication(self, offer: ServiceOffer) -> None:
+        # La fila está bloqueada; la versión anterior se exige igualmente como defensa.
+        result = self.session.execute(
+            update(ServiceRow)
+            .where(
+                ServiceRow.service_id == offer.service_id,
+                ServiceRow.version == offer.version - 1,
+            )
+            .values(
+                status=offer.status.value,
+                version=offer.version,
+                updated_at=offer.updated_at,
+                published_at=offer.published_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise RuntimeError("El servicio bloqueado cambió de versión.")
+
+    def add_outbox(self, message: OutboxMessage) -> None:
+        self.session.add(
+            OutboxEventRow(
+                event_id=message.event_id,
+                aggregate_type=message.aggregate_type,
+                aggregate_id=message.aggregate_id,
+                aggregate_version=message.aggregate_version,
+                event_type=message.event_type,
+                schema_version=message.schema_version,
+                occurred_at=message.occurred_at,
+                correlation_id=message.correlation_id,
+                causation_id=message.causation_id,
+                payload=message.payload,
+                attempts=0,
+                next_attempt_at=message.occurred_at,
+            )
+        )

@@ -6,12 +6,19 @@ import httpx
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
+from complementary_services.api.publication import build_publication_router
 from complementary_services.api.services import build_services_router
 from complementary_services.application.commands.create_service import CreateService
+from complementary_services.application.commands.publish_service import PublishService
+from complementary_services.application.queries.my_services import GetMyService, ListMyServices
 from complementary_services.infrastructure.authorization import ContractPermissionPolicy
 from complementary_services.infrastructure.clock import SystemClock
+from complementary_services.infrastructure.persistence.services_reader import (
+    SqlAlchemyServiceReader,
+)
 from complementary_services.infrastructure.persistence.unit_of_work import (
     SqlAlchemyCreationUnitOfWork,
+    SqlAlchemyPublicationUnitOfWork,
 )
 from complementary_services.settings import ComplementaryServicesSettings
 from sportapp_platform.app import create_service_app
@@ -21,7 +28,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "complementary-services"
-API_VERSION = "0.2.0"
+API_VERSION = "0.3.0"
 
 
 def create_app(
@@ -49,6 +56,8 @@ def create_app(
     verifier = CachedJwksVerifier(
         fetch_jwks, issuer=settings.jwt_issuer, audience=settings.jwt_audience
     )
+    clock = SystemClock()
+    reader = SqlAlchemyServiceReader(sessions)
     return create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - Servicios complementarios",
@@ -61,9 +70,19 @@ def create_app(
                 create_service=CreateService(
                     unit_of_work=lambda: SqlAlchemyCreationUnitOfWork(sessions),
                     permissions=permissions,
-                    clock=SystemClock(),
+                    clock=clock,
                 ),
-            )
+            ),
+            build_publication_router(
+                verify_token=verifier.verify,
+                publish_service=PublishService(
+                    unit_of_work=lambda: SqlAlchemyPublicationUnitOfWork(sessions),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                list_my_services=ListMyServices(reader=reader),
+                get_my_service=GetMyService(reader=reader),
+            ),
         ],
         shutdown_hooks=[engine.dispose, users_http.close],
     )

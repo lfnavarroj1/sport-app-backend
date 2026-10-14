@@ -1,9 +1,12 @@
-"""HU015 en el canal web: `POST /v1/services` (contrato de ADR-027).
+"""HU015 y HU019 en el canal web: crear, publicar y consultar servicios propios.
 
-El BFF autentica, aplica el filtro de borde por permiso (`services.create`) y reenvía
-el cuerpo y la clave de idempotencia sin reinterpretarlos: las reglas de la oferta y
-los errores `422 validation_error` con `details[{field, issue}]` los decide el
-servicio propietario y se entregan sin alterar. Los instantes llegan en UTC (`Z`); la
+Contratos de ADR-027 (`POST /v1/services` y `POST /v1/services/{service_id}/publish`) y
+de ADR-038 (`GET /v1/me/services` y `GET /v1/me/services/{service_id}`). El BFF
+autentica, aplica el filtro de borde (permisos `services.create` y `services.publish`,
+o actor `service_provider` en las consultas) y reenvía el cuerpo, la clave de
+idempotencia y los parámetros sin reinterpretarlos: las reglas de la oferta, la
+propiedad y los errores `422 validation_error` con `details[{field, issue}]` los decide
+el servicio propietario y se entregan sin alterar. Los instantes llegan en UTC (`Z`); la
 conversión a la zona del usuario corresponde al frontend.
 """
 
@@ -13,14 +16,16 @@ from http import HTTPStatus
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Header, Response
+from fastapi import APIRouter, Body, Header, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from bff_web.api.training import (
     _UNAUTHORIZED,
     _UPSTREAM,
+    SERVICE_PROVIDER,
     _passthrough,
     _permission_required,
+    _Session,
     _upstream_failure,
     authenticate_session,
 )
@@ -30,7 +35,9 @@ from sportapp_platform.authorization import ActorPermissions
 from sportapp_platform.errors import ErrorResponse
 from sportapp_platform.tokens import VerifiedAccessToken
 
+SOURCE = "complementary-services"
 CREATE_PERMISSION = "services.create"
+PUBLISH_PERMISSION = "services.publish"
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 REPLAYED_HEADER = "Idempotent-Replayed"
 
@@ -106,6 +113,43 @@ class ServiceResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    published_at: Annotated[
+        datetime | None, Field(description="UTC (`Z`); `null` mientras está en borrador.")
+    ]
+
+
+class PublishServiceResponse(BaseModel):
+    service_id: UUID
+    provider_id: UUID
+    status: Literal["PUBLISHED"]
+    version: int
+    published_at: datetime
+    updated_at: datetime
+
+
+class MyServicesResponse(BaseModel):
+    items: list[ServiceResponse]
+    next_cursor: str | None
+
+
+_REPLAYED_HEADER_DOC = {
+    REPLAYED_HEADER: {
+        "description": "`true` cuando se devuelve el resultado de un reintento.",
+        "schema": {"type": "string"},
+    }
+}
+_NOT_FOUND: dict[int | str, dict[str, Any]] = {
+    HTTPStatus.NOT_FOUND.value: {
+        "model": ErrorResponse,
+        "description": "`service_not_found`: no existe o es de otro profesional.",
+    }
+}
+_MINE_FORBIDDEN: dict[int | str, dict[str, Any]] = {
+    HTTPStatus.FORBIDDEN.value: {
+        "model": ErrorResponse,
+        "description": "`permission_required`: solo el actor `service_provider` consulta.",
+    }
+}
 
 
 def _request_schema() -> dict[str, Any]:
@@ -121,10 +165,31 @@ def build_services_router(
     services: ComplementaryServicesClient,
     channel: str,
 ) -> APIRouter:
-    router = APIRouter(prefix="/v1/services", tags=["services"])
+    router = APIRouter(tags=["services"])
+
+    def authorize(authorization: str | None, permission: str) -> _Session | Response:
+        session = authenticate_session(verify_token, authorization)
+        if isinstance(session, Response):
+            return session
+        actor = session.actor_type
+        if actor is None or permission not in permissions.for_actor(actor, channel):
+            return _permission_required()
+        return session
+
+    def own_services_session(authorization: str | None) -> _Session | Response:
+        session = authenticate_session(verify_token, authorization)
+        if isinstance(session, Response):
+            return session
+        if session.actor_type != SERVICE_PROVIDER:
+            return _permission_required()
+        return session
+
+    def private(response: Response) -> Response:
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @router.post(
-        "",
+        "/v1/services",
         status_code=HTTPStatus.CREATED,
         response_model=ServiceResponse,
         summary="Crear un servicio en borrador (HU015)",
@@ -165,12 +230,9 @@ def build_services_router(
         idempotency_key: Annotated[str | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
-        session = authenticate_session(verify_token, authorization)
+        session = authorize(authorization, CREATE_PERMISSION)
         if isinstance(session, Response):
             return session
-        actor = session.actor_type
-        if actor is None or CREATE_PERMISSION not in permissions.for_actor(actor, channel):
-            return _permission_required()
         try:
             upstream = services.create_service(session.token, body, idempotency_key)
         except (UpstreamTimeout, UpstreamUnavailable) as error:
@@ -184,6 +246,156 @@ def build_services_router(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
             },
             headers=("Location", REPLAYED_HEADER),
+            source=SOURCE,
+        )
+
+    @router.post(
+        "/v1/services/{service_id}/publish",
+        response_model=PublishServiceResponse,
+        summary="Publicar un servicio propio en borrador (HU019)",
+        responses={
+            **_UNAUTHORIZED,
+            **_UPSTREAM,
+            **_NOT_FOUND,
+            HTTPStatus.OK.value: {
+                "description": "Servicio publicado, o estado vigente si ya lo estaba.",
+                "headers": _REPLAYED_HEADER_DOC,
+            },
+            HTTPStatus.FORBIDDEN.value: {
+                "model": ErrorResponse,
+                "description": "`permission_required` (`services.publish`).",
+            },
+            HTTPStatus.CONFLICT.value: {
+                "model": ErrorResponse,
+                "description": "`idempotency_key_reused`.",
+            },
+            HTTPStatus.UNPROCESSABLE_ENTITY.value: {
+                "model": ErrorResponse,
+                "description": "`validation_error` con `details[{field, issue}]` (ADR-027): "
+                "clave de idempotencia ausente o inválida, u oferta que ya no cumple las "
+                "reglas (p. ej. `availability` `required` sin intervalos futuros).",
+            },
+        },
+    )
+    def publish(
+        service_id: UUID,
+        idempotency_key: Annotated[
+            str | None,
+            Header(
+                alias=IDEMPOTENCY_HEADER, description="UUID; obligatorio (lo valida el servicio)."
+            ),
+        ] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        session = authorize(authorization, PUBLISH_PERMISSION)
+        if isinstance(session, Response):
+            return session
+        try:
+            upstream = services.publish_service(session.token, service_id, idempotency_key)
+        except (UpstreamTimeout, UpstreamUnavailable) as error:
+            return _upstream_failure(error)
+        return _passthrough(
+            upstream,
+            {
+                HTTPStatus.OK,
+                HTTPStatus.UNAUTHORIZED,
+                HTTPStatus.FORBIDDEN,
+                HTTPStatus.NOT_FOUND,
+                HTTPStatus.CONFLICT,
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+            },
+            headers=(REPLAYED_HEADER,),
+            source=SOURCE,
+        )
+
+    @router.get(
+        "/v1/me/services",
+        response_model=MyServicesResponse,
+        summary="Mis servicios, del más reciente al más antiguo (HU019, ADR-038)",
+        responses={
+            **_UNAUTHORIZED,
+            **_UPSTREAM,
+            **_MINE_FORBIDDEN,
+            HTTPStatus.UNPROCESSABLE_ENTITY.value: {
+                "model": ErrorResponse,
+                "description": "`validation_error` en `query.status`, `query.limit` o "
+                "`query.cursor`.",
+            },
+        },
+    )
+    def list_mine(
+        *,
+        status: Annotated[
+            str | None, Query(description="`DRAFT` o `PUBLISHED`; sin filtro si se omite.")
+        ] = None,
+        limit: Annotated[
+            str | None, Query(description="Entero de 1 a 100; 20 por defecto.")
+        ] = None,
+        cursor: Annotated[
+            str | None, Query(description="`next_cursor` de la página anterior.")
+        ] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        session = own_services_session(authorization)
+        if isinstance(session, Response):
+            return session
+        # Solo los presentes y tal como llegan: el servicio valida y responde el `422`.
+        pairs = (("status", status), ("limit", limit), ("cursor", cursor))
+        params = {name: value for name, value in pairs if value is not None}
+        try:
+            upstream = services.list_my_services(session.token, params)
+        except (UpstreamTimeout, UpstreamUnavailable) as error:
+            return _upstream_failure(error)
+        return private(
+            _passthrough(
+                upstream,
+                {
+                    HTTPStatus.OK,
+                    HTTPStatus.UNAUTHORIZED,
+                    HTTPStatus.FORBIDDEN,
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                },
+                source=SOURCE,
+            )
+        )
+
+    @router.get(
+        "/v1/me/services/{service_id}",
+        response_model=ServiceResponse,
+        summary="Detalle de un servicio propio (HU019, ADR-038)",
+        responses={
+            **_UNAUTHORIZED,
+            **_UPSTREAM,
+            **_MINE_FORBIDDEN,
+            **_NOT_FOUND,
+            HTTPStatus.UNPROCESSABLE_ENTITY.value: {
+                "model": ErrorResponse,
+                "description": "`validation_error`: `path.service_id` no es un UUID.",
+            },
+        },
+    )
+    def get_mine(
+        service_id: UUID,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        session = own_services_session(authorization)
+        if isinstance(session, Response):
+            return session
+        try:
+            upstream = services.get_my_service(session.token, service_id)
+        except (UpstreamTimeout, UpstreamUnavailable) as error:
+            return _upstream_failure(error)
+        return private(
+            _passthrough(
+                upstream,
+                {
+                    HTTPStatus.OK,
+                    HTTPStatus.UNAUTHORIZED,
+                    HTTPStatus.FORBIDDEN,
+                    HTTPStatus.NOT_FOUND,
+                },
+                source=SOURCE,
+            )
         )
 
     return router

@@ -279,3 +279,44 @@ class ServiceReader(Protocol):
     def own_service(self, provider_id: UUID, service_id: UUID) -> ServiceOffer | None:
         """El servicio si existe y pertenece al profesional."""
         ...
+
+
+class CapabilityChecker(Protocol):
+    """HU020: capacidades vigentes del deportista según Afiliación (ADR-024, ADR-038).
+
+    Lanza `CapabilitiesUnavailable` si no puede evaluarlas.
+    """
+
+    def has_capability(self, user_id: UUID, capability: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class CatalogPosition:
+    """Posición keyset del catálogo de disponibilidad: `name` y `service_id`, ascendentes."""
+
+    name: str
+    service_id: UUID
+
+
+@dataclass(frozen=True)
+class AvailabilityQuery:
+    """Servicios `PUBLISHED` con los intervalos que empiezan en `[starts_from, starts_before)`
+    y después de `now`. `categories`/`modalities` en `None` no filtran."""
+
+    starts_from: datetime
+    starts_before: datetime
+    now: datetime
+    categories: frozenset[Category] | None
+    modalities: frozenset[Modality] | None
+    only_available: bool
+    after: CatalogPosition | None
+    limit: int
+
+
+class ServiceCatalogReader(Protocol):
+    """Catálogo de servicios publicados para el deportista (HU020) en la base única."""
+
+    def published_availability(self, query: AvailabilityQuery) -> list[ServiceOffer]:
+        """Servicios ordenados por `name` y `service_id`, estrictamente después de `after`,
+        hasta `limit`; cada oferta trae solo sus intervalos dentro del rango."""
+        ...

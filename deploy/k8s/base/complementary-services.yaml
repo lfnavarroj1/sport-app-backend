@@ -47,6 +47,9 @@ spec:
             - name: USERS_MANAGEMENT_BASE_URL
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
+            # HU020: capacidad `services.sports_medicine.access` en el contrato interno de Afiliación.
+            - name: AFFILIATION_MANAGEMENT_BASE_URL
+              value: http://affiliation-management
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

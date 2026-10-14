@@ -46,6 +46,64 @@
         "title": "BillingUnit",
         "type": "string"
       },
+      "CatalogService": {
+        "properties": {
+          "availability": {
+            "description": "Intervalos futuros que empiezan en el rango, en UTC con su zona.",
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityInterval"
+            },
+            "title": "Availability",
+            "type": "array"
+          },
+          "available": {
+            "description": "`false` solo con `availability=all` y sin intervalos.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "modality": {
+            "$ref": "#/components/schemas/Modality"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ServicePrice",
+            "description": "Tarifa informativa: no es un cobro."
+          },
+          "provider_id": {
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_id",
+          "provider_id",
+          "name",
+          "description",
+          "category",
+          "modality",
+          "price",
+          "availability",
+          "available"
+        ],
+        "title": "CatalogService",
+        "type": "object"
+      },
       "Category": {
         "enum": [
           "SPORTS_MEDICINE",
@@ -227,6 +285,44 @@
         "title": "PublicationResponse",
         "type": "object"
       },
+      "ServiceAvailabilityResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogService"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` al final.",
+            "title": "Next Cursor"
+          },
+          "restricted_categories": {
+            "description": "Categorías omitidas por falta de capacidad del plan (`[\"SPORTS_MEDICINE\"]` sin `services.sports_medicine.access`).",
+            "items": {
+              "$ref": "#/components/schemas/Category"
+            },
+            "title": "Restricted Categories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "restricted_categories"
+        ],
+        "title": "ServiceAvailabilityResponse",
+        "type": "object"
+      },
       "ServicePrice": {
         "additionalProperties": false,
         "description": "Precio público de referencia en COP, impuestos aplicables incluidos; no es un cobro.",
@@ -354,7 +450,7 @@
   },
   "info": {
     "title": "SportApp - Servicios complementarios",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -817,6 +913,218 @@
           }
         },
         "summary": "Crear un servicio en borrador (HU015)",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/v1/services/availability": {
+      "get": {
+        "description": "Ordenados por `name` y `service_id` con cursor keyset. Sin parámetro de zona horaria: los instantes van en UTC con la zona del intervalo.",
+        "operationId": "service_availability_v1_services_availability_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase; obligatorio.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase; obligatorio.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase, posterior a `from` y a no más de 31 días; obligatorio.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase, posterior a `from` y a no más de 31 días; obligatorio.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Repetible; sin valor, todas las permitidas.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Repetible; sin valor, todas las permitidas.",
+              "title": "Category"
+            }
+          },
+          {
+            "description": "Repetible.",
+            "in": "query",
+            "name": "modality",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Repetible.",
+              "title": "Modality"
+            }
+          },
+          {
+            "description": "`available` (por defecto) o `all`.",
+            "in": "query",
+            "name": "availability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`available` (por defecto) o `all`.",
+              "title": "Availability"
+            }
+          },
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `query.from`/`query.to` (`required`, `unknown_value`), `query.to` (`ends_before_starts`, `out_of_range` si el periodo supera 31 días), `query.category`, `query.modality`, `query.availability` y `query.cursor` (`unknown_value`), `query.limit` (`unknown_value`, `out_of_range`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la capacidad médica ante Afiliación (también por timeout)."
+          }
+        },
+        "summary": "Disponibilidad de los servicios publicados (HU020)",
         "tags": [
           "services"
         ]

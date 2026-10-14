@@ -148,11 +148,17 @@ def _permission_required() -> Response:
     )
 
 
-def _passthrough(upstream: Any, allowed: set[int], headers: tuple[str, ...] = ()) -> Response:
+def _passthrough(
+    upstream: Any,
+    allowed: set[int],
+    headers: tuple[str, ...] = (),
+    *,
+    source: str = "training-management",
+) -> Response:
     if upstream.status_code not in allowed:
         _logger.warning(
             "bff.upstream_unexpected_status",
-            extra={"fields": {"upstream": "training-management", "status": upstream.status_code}},
+            extra={"fields": {"upstream": source, "status": upstream.status_code}},
         )
         return _upstream_failure(UpstreamUnavailable())
     forwarded = {name: upstream.headers[name] for name in headers if name in upstream.headers}

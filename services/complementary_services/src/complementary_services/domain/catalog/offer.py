@@ -7,13 +7,16 @@
   es un precio público de referencia, no un cobro.
 - Disponibilidad inicial opcional por intervalos explícitos.
 - Nace en `DRAFT`, versión 1, asociada al profesional autenticado.
+- HU019: se publica (`DRAFT` → `PUBLISHED`) si la oferta almacenada sigue cumpliendo estas
+  reglas y tiene por lo menos un intervalo con inicio futuro; los vencidos se ignoran.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from complementary_services.domain.availability.intervals import (
     AvailabilityInterval,
@@ -203,6 +206,8 @@ class ServiceOffer:
     version: int
     created_at: datetime
     updated_at: datetime
+    # HU019: instante de la publicación; `None` mientras es borrador.
+    published_at: datetime | None = None
 
     @classmethod
     def draft(
@@ -222,3 +227,74 @@ class ServiceOffer:
             created_at=now,
             updated_at=now,
         )
+
+    def publish(self, now: datetime) -> "ServiceOffer":
+        """HU019: `DRAFT` → `PUBLISHED`; sube la versión una vez y fija `published_at`.
+
+        Solo desde `DRAFT`: un servicio ya publicado lo resuelve el caso de uso sin
+        transición. `InvalidServiceOffer` si la oferta no cumple las reglas de publicación.
+        """
+        if self.status is not ServiceStatus.DRAFT:
+            raise ValueError("Solo un servicio en borrador se puede publicar.")
+        ensure_publishable(self, now)
+        return replace(
+            self,
+            status=ServiceStatus.PUBLISHED,
+            version=self.version + 1,
+            published_at=now,
+            updated_at=now,
+        )
+
+
+def _declared_instant(instant: datetime, time_zone: str) -> str:
+    """Instante almacenado (UTC) expresado con el desfase de su zona declarada."""
+    try:
+        return instant.astimezone(ZoneInfo(time_zone)).isoformat()
+    except (ZoneInfoNotFoundError, ValueError):
+        # La zona ya no es válida: se conserva el instante y la regla de la zona lo informa.
+        return instant.isoformat()
+
+
+def _as_input(offer: ServiceOffer) -> OfferInput:
+    """La oferta almacenada como si llegara de nuevo, para revalidarla con las mismas reglas."""
+    return OfferInput(
+        name=offer.name,
+        description=offer.description,
+        category=offer.category.value,
+        modality=offer.modality.value,
+        price=PriceInput(
+            amount=str(offer.price.amount),
+            currency=offer.price.currency.value,
+            billing_unit=offer.price.billing_unit.value,
+        ),
+        availability=[
+            IntervalInput(
+                starts_at=_declared_instant(interval.starts_at, interval.time_zone),
+                ends_at=_declared_instant(interval.ends_at, interval.time_zone),
+                time_zone=interval.time_zone,
+                capacity=interval.capacity,
+            )
+            for interval in offer.availability
+        ],
+    )
+
+
+def ensure_publishable(offer: ServiceOffer, now: datetime) -> None:
+    """Reglas de publicación de ADR-027 (HU019 CA1, CA2), informando todas a la vez.
+
+    Revalida la oferta almacenada con las mismas reglas de la creación. Los intervalos
+    vencidos (inicio no futuro) se ignoran, pero hace falta por lo menos uno futuro; sin
+    ninguno, `{field: "availability", issue: "required"}`.
+    """
+    violations: list[Violation] = []
+    try:
+        validate_offer(_as_input(offer), now)
+    except InvalidServiceOffer as error:
+        # `not_in_future` solo lo produce el inicio de un intervalo: vencido, se ignora.
+        violations.extend(
+            item for item in error.violations if item.issue is not Issue.NOT_IN_FUTURE
+        )
+    if not any(interval.starts_at > now for interval in offer.availability):
+        violations.append(Violation("availability", Issue.REQUIRED))
+    if violations:
+        raise InvalidServiceOffer(violations)

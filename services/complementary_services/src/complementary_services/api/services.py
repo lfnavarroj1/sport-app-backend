@@ -123,6 +123,10 @@ class ServiceResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    published_at: Annotated[
+        datetime | None,
+        Field(description="HU019: instante de la publicación en UTC; `null` en borrador."),
+    ]
 
     @classmethod
     def from_view(cls, view: ServiceView) -> "ServiceResponse":
@@ -136,7 +140,7 @@ def _request_schema() -> dict[str, Any]:
     return schema
 
 
-def _invalid(violations: list[Violation] | tuple[Violation, ...]) -> Response:
+def validation_failure(violations: list[Violation] | tuple[Violation, ...]) -> Response:
     return error_response(
         HTTPStatus.UNPROCESSABLE_ENTITY,
         InvalidServiceOffer.code,
@@ -145,7 +149,7 @@ def _invalid(violations: list[Violation] | tuple[Violation, ...]) -> Response:
     )
 
 
-def _idempotency_key(raw: str | None) -> tuple[UUID | None, Violation | None]:
+def parse_idempotency_key(raw: str | None) -> tuple[UUID | None, Violation | None]:
     if raw is None or not raw.strip():
         return None, Violation(IDEMPOTENCY_HEADER, Issue.REQUIRED)
     try:
@@ -201,7 +205,7 @@ def build_services_router(
         if isinstance(caller, Response):
             return caller
         offer = parse_offer(body)
-        key, key_problem = _idempotency_key(idempotency_key)
+        key, key_problem = parse_idempotency_key(idempotency_key)
         try:
             if key is None:
                 # La clave es inválida: se informan también las reglas de la oferta.
@@ -210,7 +214,7 @@ def build_services_router(
                     create_service.validate(caller, offer)
                 except InvalidServiceOffer as error:
                     problems.extend(error.violations)
-                return _invalid(problems)
+                return validation_failure(problems)
             result = create_service(
                 caller,
                 CreateServiceCommand(
@@ -220,7 +224,7 @@ def build_services_router(
         except PermissionRequired as error:
             return forbidden(error)
         except InvalidServiceOffer as error:
-            return _invalid(error.violations)
+            return validation_failure(error.violations)
         except IdempotencyKeyReused as error:
             return error_response(
                 HTTPStatus.CONFLICT,

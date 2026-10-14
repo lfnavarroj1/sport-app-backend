@@ -1,7 +1,7 @@
 """Puertos que la aplicación necesita; la infraestructura los implementa."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import TracebackType
 from typing import Any, Protocol, Self
@@ -17,6 +17,7 @@ from complementary_services.domain.catalog.offer import (
     ServiceOffer,
     ServiceStatus,
 )
+from complementary_services.domain.catalog.publication import utc_instant
 
 
 class Clock(Protocol):
@@ -38,12 +39,20 @@ class PermissionPolicy(Protocol):
 
 
 def _instant(value: datetime) -> str:
-    return value.isoformat()
+    return value.astimezone(UTC).isoformat()
+
+
+def _optional_instant(value: Any) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None
 
 
 @dataclass(frozen=True)
 class ServiceView:
-    """Servicio tal como se responde; instantes siempre en UTC."""
+    """Servicio tal como se responde; instantes siempre en UTC.
+
+    HU019 añade `published_at` (`None` en borrador); los documentos guardados por HU015
+    antes de ese campo se leen como borradores sin publicación.
+    """
 
     offer: ServiceOffer
 
@@ -74,6 +83,7 @@ class ServiceView:
             "version": offer.version,
             "created_at": _instant(offer.created_at),
             "updated_at": _instant(offer.updated_at),
+            "published_at": _instant(offer.published_at) if offer.published_at else None,
         }
 
     @classmethod
@@ -105,7 +115,54 @@ class ServiceView:
                 version=int(document["version"]),
                 created_at=datetime.fromisoformat(document["created_at"]),
                 updated_at=datetime.fromisoformat(document["updated_at"]),
+                published_at=_optional_instant(document.get("published_at")),
             )
+        )
+
+
+@dataclass(frozen=True)
+class PublicationView:
+    """Respuesta de HU019 (ADR-027): estado de publicación vigente, instantes en UTC `Z`."""
+
+    service_id: UUID
+    provider_id: UUID
+    status: ServiceStatus
+    version: int
+    published_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def of(cls, offer: ServiceOffer) -> "PublicationView":
+        if offer.published_at is None:
+            raise ValueError("El servicio no está publicado.")
+        return cls(
+            service_id=offer.service_id,
+            provider_id=offer.provider_id,
+            status=offer.status,
+            version=offer.version,
+            published_at=offer.published_at,
+            updated_at=offer.updated_at,
+        )
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "service_id": str(self.service_id),
+            "provider_id": str(self.provider_id),
+            "status": self.status.value,
+            "version": self.version,
+            "published_at": utc_instant(self.published_at),
+            "updated_at": utc_instant(self.updated_at),
+        }
+
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> "PublicationView":
+        return cls(
+            service_id=UUID(document["service_id"]),
+            provider_id=UUID(document["provider_id"]),
+            status=ServiceStatus(document["status"]),
+            version=int(document["version"]),
+            published_at=datetime.fromisoformat(document["published_at"]),
+            updated_at=datetime.fromisoformat(document["updated_at"]),
         )
 
 
@@ -119,6 +176,22 @@ class IdempotencyRecord:
     response: dict[str, Any]
     created_at: datetime
     expires_at: datetime
+
+
+@dataclass(frozen=True)
+class OutboxMessage:
+    """Evento pendiente de publicar; se confirma en la misma transacción del agregado."""
+
+    event_id: UUID
+    event_type: str
+    schema_version: int
+    aggregate_type: str
+    aggregate_id: UUID
+    aggregate_version: int
+    occurred_at: datetime
+    correlation_id: UUID | None
+    causation_id: str | None
+    payload: dict[str, Any]
 
 
 class CreationUnitOfWork(Protocol):
@@ -143,4 +216,66 @@ class CreationUnitOfWork(Protocol):
 
     def commit(self) -> None:
         """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+class PublicationUnitOfWork(Protocol):
+    """Transacción local de HU019: servicio bloqueado, outbox e idempotencia juntos."""
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None: ...
+
+    def find_idempotency(self, provider_id: UUID, key: UUID) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, provider_id: UUID, key: UUID) -> None: ...
+
+    def lock_service(self, service_id: UUID) -> ServiceOffer | None:
+        """El servicio con su disponibilidad, bloqueado hasta el final de la transacción."""
+        ...
+
+    def save_publication(self, offer: ServiceOffer) -> None:
+        """Estado, versión e instantes de la publicación del servicio bloqueado."""
+        ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class ServicePosition:
+    """Posición keyset de «mis servicios»: `updated_at` y `service_id`, descendentes."""
+
+    updated_at: datetime
+    service_id: UUID
+
+
+@dataclass(frozen=True)
+class OwnServicesQuery:
+    provider_id: UUID
+    status: ServiceStatus | None
+    after: ServicePosition | None
+    limit: int
+
+
+class ServiceReader(Protocol):
+    """Consultas de los servicios propios del profesional (ADR-038) en la base única."""
+
+    def list_own(self, query: OwnServicesQuery) -> list[ServiceOffer]:
+        """Servicios del profesional ordenados por `updated_at` y `service_id` descendentes,
+        estrictamente después de `after`, hasta `limit`."""
+        ...
+
+    def own_service(self, provider_id: UUID, service_id: UUID) -> ServiceOffer | None:
+        """El servicio si existe y pertenece al profesional."""
         ...

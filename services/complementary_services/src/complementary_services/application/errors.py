@@ -7,6 +7,12 @@ class PermissionRequired(Exception):
     code = "permission_required"
 
 
+class ServiceNotFound(Exception):
+    """El servicio no existe o pertenece a otro profesional (no se distingue, HU019 CA3)."""
+
+    code = "service_not_found"
+
+
 class IdempotencyKeyReused(Exception):
     """La misma clave del profesional se usó con otra solicitud."""
 

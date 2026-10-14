@@ -12,6 +12,7 @@ Cada esquema se ubica en `<dominio>/<tipo>.vN.schema.json` y debe incluir el sob
 | [`entrenamiento.iniciado.v1`](entrenamientos/entrenamiento.iniciado.v1.schema.json) | `sportapp.entrenamientos.v1` | `aggregate_id` (= `session_id`) | `training_management` (`entrenamientos-outbox-publisher`; versión 1 del agregado) | Aprobado 2026-10-12 (ADR-029, HU032) |
 | [`evento.creado.v1`](eventos/evento.creado.v1.schema.json) | `sportapp.eventos.v1` | `aggregate_id` (= `event_id`) | `events_management` (`eventos-outbox-publisher`) | Aprobado 2026-10-12 (ADR-028, CMP-004, HU021); estado completo del borrador, instantes en UTC (`Z`) |
 | [`usuario.inscrito.v1`](eventos/usuario.inscrito.v1.schema.json) | `sportapp.eventos.v1` | `aggregate_id` (= `registration_id`) | `events_management` (`eventos-outbox-publisher`; versión 1 del agregado `event_registration`) | Aprobado 2026-10-12 (ADR-032, HU041); sin datos del evento ni de pago; `applied_fee` informativa o `null` |
+| [`servicio.publicado.v1`](servicios/servicio.publicado.v1.schema.json) | `sportapp.servicios.v1` | `aggregate_id` (= `service_id`) | `complementary_services` (`servicios-outbox-publisher`; versión resultante de la publicación) | Aprobado 2026-10-12 (ADR-027, HU019); payload mínimo `service_id`, `provider_id`, `status`, `published_at` (sin nombre, tarifa ni disponibilidad); publicados retenidos 7 días |
 
 Consumidores aprobados:
 
@@ -22,5 +23,7 @@ Consumidores aprobados:
 | eventos de `sportapp.eventos.v1` (hoy proyecta `evento.creado.v1` en `event_read` y `usuario.inscrito.v1` en `event_registration_read`; otros tipos se confirman sin efectos) | `events_management` (`eventos-read-projector`) | `proyector-eventos-v1` (con orden) | `sportapp.eventos.proyeccion.dlq` (+ `…dlq.ops`) | Aprobado en ADR-028: 10 intentos; backoff de 10 a 600 s; deduplicación por `event_id` del sobre; ACK después del COMMIT |
 
 `suscripcion.activada.v1` todavía no tiene consumidores aprobados: no se crea suscripción ni DLQ para él (ADR-024).
+
+`servicio.publicado.v1` tampoco tiene consumidores aprobados (ADR-027): en el emulador solo se crea el tópico `sportapp.servicios.v1`, sin suscripción, proyector ni DLQ; cada consumidor futuro necesita contrato propio.
 
 Los atributos del mensaje Pub/Sub repiten `event_id`, `event_type`, `schema_version` y `correlation_id` para filtrar sin leer el cuerpo.

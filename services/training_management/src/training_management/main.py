@@ -15,10 +15,14 @@ from training_management.api.authorizations import build_authorizations_router
 from training_management.api.history import build_history_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
+from training_management.api.training_metrics import build_training_metrics_router
 from training_management.api.training_sessions import build_training_sessions_router
 from training_management.application.commands.authorizations import (
     GrantAuthorization,
     RevokeAuthorization,
+)
+from training_management.application.commands.calculate_training_metric import (
+    CalculateTrainingMetric,
 )
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
 from training_management.application.commands.training_sessions import (
@@ -29,6 +33,11 @@ from training_management.application.queries.active_session import GetActiveTrai
 from training_management.application.queries.get_training_plan import GetTrainingPlan
 from training_management.application.queries.planned_sessions import GetPlannedSessions
 from training_management.application.queries.training_history import GetTrainingHistory
+from training_management.application.queries.training_metrics import (
+    GetMetricCatalog,
+    ListTrainingMetricResults,
+)
+from training_management.domain.metrics.catalog import TRAINING_METRICS_CATALOG
 from training_management.infrastructure.authorization import ContractPermissionPolicy
 from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.integrations.affiliation import (
@@ -40,16 +49,20 @@ from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyHistoryReader,
     SqlAlchemyPlannedSessionReader,
 )
+from training_management.infrastructure.persistence_read.metrics import (
+    SqlAlchemyMetricResultReader,
+)
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
+    SqlAlchemyMetricUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemySessionUnitOfWork,
 )
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.5.0"
+API_VERSION = "0.6.0"
 
 
 def create_app(
@@ -142,6 +155,23 @@ def create_app(
             build_planned_sessions_router(
                 verify_token=verifier.verify,
                 get_sessions=GetPlannedSessions(reader=SqlAlchemyPlannedSessionReader(reads)),
+            ),
+            build_training_metrics_router(
+                verify_token=verifier.verify,
+                get_catalog=GetMetricCatalog(
+                    capabilities=capabilities, catalog=TRAINING_METRICS_CATALOG
+                ),
+                calculate=CalculateTrainingMetric(
+                    unit_of_work=lambda: SqlAlchemyMetricUnitOfWork(writes),
+                    capabilities=capabilities,
+                    catalog=TRAINING_METRICS_CATALOG,
+                    clock=clock,
+                ),
+                list_results=ListTrainingMetricResults(
+                    reader=SqlAlchemyMetricResultReader(reads),
+                    capabilities=capabilities,
+                    catalog=TRAINING_METRICS_CATALOG,
+                ),
             ),
         ],
         shutdown_hooks=[

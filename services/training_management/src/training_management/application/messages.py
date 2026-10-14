@@ -2,14 +2,16 @@
 
 Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
-(HU011), y `entrenamiento.iniciado.v1` (HU032). Cada uno se valida campo a campo; un
-mensaje que no cumple el contrato es un `InvalidEvent`: no se confirma y, agotados los
-reintentos, termina en la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este
-proyector todavía no lo proyecta y se confirma sin efectos.
+(HU011), `entrenamiento.iniciado.v1` (HU032) e `indicador.calculado.v1` (HU034). Cada
+uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
+no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
+tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
+efectos.
 """
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -29,6 +31,16 @@ from training_management.domain.authorizations.events import (
     SCHEMA_VERSION as AUTHORIZATION_SCHEMA,
 )
 from training_management.domain.authorizations.model import AuthorizationStatus
+from training_management.domain.metrics.catalog import MAX_RESULT_SCALE, quantum
+from training_management.domain.metrics.events import EVENT_TYPE as METRIC_CALCULATED
+from training_management.domain.metrics.events import SCHEMA_VERSION as METRIC_SCHEMA
+from training_management.domain.metrics.model import (
+    CALCULATED_VERSION,
+    CalculationStatus,
+    MetricInput,
+    MetricResult,
+    TrainingMetricCalculation,
+)
 from training_management.domain.plans.events import EVENT_TYPE as PLAN_CREATED
 from training_management.domain.plans.events import SCHEMA_VERSION as PLAN_CREATED_SCHEMA
 from training_management.domain.plans.model import (
@@ -92,8 +104,19 @@ class SessionStartedEvent:
     session: ActiveSessionView
 
 
+@dataclass(frozen=True)
+class MetricCalculatedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    calculation: TrainingMetricCalculation
+
+
 TrainingEvent = (
-    PlanCreatedEvent | AuthorizationChangedEvent | SessionFinishedEvent | SessionStartedEvent
+    PlanCreatedEvent
+    | AuthorizationChangedEvent
+    | SessionFinishedEvent
+    | SessionStartedEvent
+    | MetricCalculatedEvent
 )
 
 
@@ -310,6 +333,89 @@ def _session_started(envelope: dict[str, Any]) -> SessionStartedEvent:
     )
 
 
+def _text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise InvalidEvent(f"{field}_invalid")
+    return value
+
+
+def _metric_input(item: object) -> MetricInput:
+    if not isinstance(item, dict):
+        raise InvalidEvent("inputs_invalid")
+    value = item.get("value")
+    # Las entradas del catálogo son enteras escalares (ADR-030).
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise InvalidEvent("inputs_invalid")
+    return MetricInput(
+        code=_text(item.get("code"), "inputs"),
+        value=Decimal(value),
+        unit=_text(item.get("unit"), "inputs"),
+    )
+
+
+def _metric_result(raw: object) -> MetricResult:
+    if not isinstance(raw, dict):
+        raise InvalidEvent("result_invalid")
+    value, scale = raw.get("value"), raw.get("scale")
+    if (
+        not isinstance(value, int | float)
+        or isinstance(value, bool)
+        or not isinstance(scale, int)
+        or isinstance(scale, bool)
+        or not 0 <= scale <= MAX_RESULT_SCALE
+    ):
+        raise InvalidEvent("result_invalid")
+    try:
+        decimal = Decimal(str(value))
+        exact = decimal.is_finite() and decimal == decimal.quantize(quantum(scale))
+    except InvalidOperation:
+        exact = False
+    if not exact:
+        raise InvalidEvent("result_invalid")
+    return MetricResult(value=decimal, unit=_text(raw.get("unit"), "result"), scale=scale)
+
+
+def _metric_calculated(envelope: dict[str, Any]) -> MetricCalculatedEvent:
+    payload = _payload(envelope, METRIC_SCHEMA)
+    # El cálculo es inmutable: cualquier otra versión no cumple el contrato (→ DLQ).
+    if _envelope_version(envelope) != CALCULATED_VERSION:
+        raise InvalidEvent("aggregate_version_invalid")
+    calculation_id = _uuid(payload.get("calculation_id"), "calculation_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != calculation_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if payload.get("status") != CalculationStatus.CONFIRMED.value:
+        raise InvalidEvent("unknown_status")
+    method_version = payload.get("method_version")
+    if (
+        not isinstance(method_version, int)
+        or isinstance(method_version, bool)
+        or method_version < 1
+    ):
+        raise InvalidEvent("method_version_invalid")
+    raw_inputs = payload.get("inputs")
+    if not isinstance(raw_inputs, list) or not raw_inputs:
+        raise InvalidEvent("inputs_invalid")
+    inputs = tuple(_metric_input(item) for item in raw_inputs)
+    if len({item.code for item in inputs}) != len(inputs):
+        raise InvalidEvent("inputs_invalid")
+    return MetricCalculatedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        calculation=TrainingMetricCalculation(
+            calculation_id=calculation_id,
+            athlete_id=_uuid(payload.get("athlete_id"), "athlete_id"),
+            metric_code=_text(payload.get("metric_code"), "metric_code"),
+            method_code=_text(payload.get("method_code"), "method_code"),
+            method_version=method_version,
+            measured_at=_datetime(payload.get("measured_at"), "measured_at"),
+            calculated_at=_datetime(payload.get("calculated_at"), "calculated_at"),
+            inputs=inputs,
+            result=_metric_result(payload.get("result")),
+            disclaimer_key=_text(payload.get("disclaimer_key"), "disclaimer_key"),
+        ),
+    )
+
+
 def parse_training_event(envelope: object) -> TrainingEvent:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -324,4 +430,6 @@ def parse_training_event(envelope: object) -> TrainingEvent:
         return _session_finished(envelope)
     if event_type == SESSION_STARTED:
         return _session_started(envelope)
+    if event_type == METRIC_CALCULATED:
+        return _metric_calculated(envelope)
     raise UnsupportedEvent(event_type)

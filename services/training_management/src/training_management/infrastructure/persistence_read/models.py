@@ -4,10 +4,21 @@ Nunca se exponen como respuestas públicas.
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Date, DateTime, Index, Integer, SmallInteger, String
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -17,6 +28,7 @@ PROCESSED_EVENT_PRIMARY_KEY = "pk_processed_event"
 PLAN_VIEW_PRIMARY_KEY = "pk_training_plan_view"
 AUTHORIZATION_VIEW_PRIMARY_KEY = "pk_training_authorization_view"
 SESSION_HISTORY_PRIMARY_KEY = "pk_training_session_history"
+METRIC_RESULT_ORDER_INDEX = "ix_training_metric_result_athlete_order"
 
 
 class ReadBase(DeclarativeBase):
@@ -116,6 +128,37 @@ class ActiveTrainingSessionRow(ReadBase):
     plan_id: Mapped[UUID | None]
     sport: Mapped[str] = mapped_column(String(16))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingMetricResultRow(ReadBase):
+    """Resultado de un indicador (HU034) a partir de `indicador.calculado.v1`; reconstruible."""
+
+    __tablename__ = "training_metric_result"
+    __table_args__ = (
+        # Orden estable del historial y del cursor: `measured_at` desc, `calculation_id` desc.
+        Index(
+            METRIC_RESULT_ORDER_INDEX,
+            "athlete_id",
+            text("measured_at DESC"),
+            text("calculation_id DESC"),
+        ),
+    )
+
+    calculation_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID]
+    metric_code: Mapped[str] = mapped_column(String(64))
+    method_code: Mapped[str] = mapped_column(String(64))
+    method_version: Mapped[int] = mapped_column(Integer)
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    inputs: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    result_value: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    result_unit: Mapped[str] = mapped_column(String(32))
+    result_scale: Mapped[int] = mapped_column(SmallInteger)
+    status: Mapped[str] = mapped_column(String(16))
+    disclaimer_key: Mapped[str] = mapped_column(String(64))
     version: Mapped[int] = mapped_column(BigInteger)
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

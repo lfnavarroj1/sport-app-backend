@@ -34,6 +34,9 @@ from training_management.workers.outbox_publisher import OutboxRelay, build_enve
 from training_management.workers.pubsub_setup import ensure_resources
 from training_management.workers.read_projector import ProjectionMessageHandler
 
+# Tipo del tópico que este proyector no proyecta (HU034 ya proyecta `indicador.calculado.v1`).
+UNSUPPORTED_TYPE = "entrenamiento.pausado.v1"
+
 
 def a_plan() -> TrainingPlan:
     return TrainingPlan.create(
@@ -98,7 +101,7 @@ class ParseTrainingEventTest(unittest.TestCase):
 
     def test_other_event_types_are_unsupported(self) -> None:
         with self.assertRaises(UnsupportedEvent):
-            parse_training_event(envelope(event_type="indicador.calculado.v1"))
+            parse_training_event(envelope(event_type=UNSUPPORTED_TYPE))
 
     def test_contract_violations(self) -> None:
         plan = a_plan()
@@ -167,7 +170,7 @@ class ProjectionMessageHandlerTest(unittest.TestCase):
                 self.assertEqual((message.acked, message.nacked), (False, True))
 
     def test_unsupported_types_are_acked_without_effects(self) -> None:
-        message = Message(envelope(event_type="indicador.calculado.v1"))
+        message = Message(envelope(event_type=UNSUPPORTED_TYPE))
 
         self.handler(message)
 

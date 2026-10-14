@@ -231,6 +231,190 @@
         "title": "HistoryFiltersResponse",
         "type": "object"
       },
+      "MetricCatalogResponse": {
+        "properties": {
+          "catalog_version": {
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "methods": {
+            "items": {
+              "$ref": "#/components/schemas/MetricMethod"
+            },
+            "title": "Methods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "catalog_version",
+          "methods"
+        ],
+        "title": "MetricCatalogResponse",
+        "type": "object"
+      },
+      "MetricInputDefinition": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "label_key": {
+            "title": "Label Key",
+            "type": "string"
+          },
+          "maximum": {
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "scale": {
+            "title": "Scale",
+            "type": "integer"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value_type": {
+            "const": "INTEGER",
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label_key",
+          "value_type",
+          "unit",
+          "minimum",
+          "maximum",
+          "scale",
+          "required"
+        ],
+        "title": "MetricInputDefinition",
+        "type": "object"
+      },
+      "MetricInputValue": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Código de la entrada del método en el catálogo.",
+            "title": "Code",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Unidad exacta del catálogo.",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "description": "Entero dentro de `minimum`..`maximum`.",
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "value",
+          "unit"
+        ],
+        "title": "MetricInputValue",
+        "type": "object"
+      },
+      "MetricMethod": {
+        "properties": {
+          "disclaimer_key": {
+            "title": "Disclaimer Key",
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/MetricInputDefinition"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "label_key": {
+            "title": "Label Key",
+            "type": "string"
+          },
+          "method_code": {
+            "title": "Method Code",
+            "type": "string"
+          },
+          "method_label_key": {
+            "title": "Method Label Key",
+            "type": "string"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "integer"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "result_scale": {
+            "title": "Result Scale",
+            "type": "integer"
+          },
+          "result_unit": {
+            "title": "Result Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_code",
+          "label_key",
+          "result_unit",
+          "result_scale",
+          "method_code",
+          "method_version",
+          "method_label_key",
+          "disclaimer_key",
+          "inputs"
+        ],
+        "title": "MetricMethod",
+        "type": "object"
+      },
+      "MetricResultValue": {
+        "properties": {
+          "scale": {
+            "title": "Scale",
+            "type": "integer"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Entero con escala 0; con `scale` decimales en otro caso.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "scale"
+        ],
+        "title": "MetricResultValue",
+        "type": "object"
+      },
       "PlannedSessionItem": {
         "properties": {
           "duration_minutes": {
@@ -493,6 +677,111 @@
         "title": "TrainingHistoryResponse",
         "type": "object"
       },
+      "TrainingMetricCalculationResponse": {
+        "description": "Estimación confirmada; nunca es un diagnóstico (`estimated_not_diagnostic`).",
+        "properties": {
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "calculated_at": {
+            "format": "date-time",
+            "title": "Calculated At",
+            "type": "string"
+          },
+          "calculation_id": {
+            "format": "uuid",
+            "title": "Calculation Id",
+            "type": "string"
+          },
+          "disclaimer_key": {
+            "title": "Disclaimer Key",
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/MetricInputValue"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "method_code": {
+            "title": "Method Code",
+            "type": "string"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "integer"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MetricResultValue"
+          },
+          "status": {
+            "const": "CONFIRMED",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calculation_id",
+          "athlete_id",
+          "metric_code",
+          "method_code",
+          "method_version",
+          "measured_at",
+          "inputs",
+          "result",
+          "status",
+          "calculated_at",
+          "disclaimer_key",
+          "version"
+        ],
+        "title": "TrainingMetricCalculationResponse",
+        "type": "object"
+      },
+      "TrainingMetricCalculationsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingMetricCalculationResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "TrainingMetricCalculationsResponse",
+        "type": "object"
+      },
       "TrainingPlanResponse": {
         "properties": {
           "athlete_id": {
@@ -709,7 +998,7 @@
   },
   "info": {
     "title": "SportApp - Entrenamientos",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1399,6 +1688,462 @@
         "summary": "Mi historial de entrenamiento (HU011)",
         "tags": [
           "training-history"
+        ]
+      }
+    },
+    "/v1/training-metrics/calculations": {
+      "get": {
+        "operationId": "calculations_v1_training_metrics_calculations_get",
+        "parameters": [
+          {
+            "description": "Código del catálogo.",
+            "in": "query",
+            "name": "metric_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Código del catálogo.",
+              "title": "Metric Code"
+            }
+          },
+          {
+            "description": "Entero de 1 a 100; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 100; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingMetricCalculationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.metrics.ftp_vo2max`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.metric_code` (`unknown_metric`), `query.limit` (`out_of_range`, también si no es un entero) o `query.cursor` (`invalid_cursor`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: Afiliación no respondió a tiempo."
+          }
+        },
+        "summary": "Mis resultados de indicadores (HU034, lectura CQRS)",
+        "tags": [
+          "training-metrics"
+        ]
+      },
+      "post": {
+        "operationId": "calculate_metric_v1_training_metrics_calculations_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cálculo; la validación la hace el dominio (ADR-030).",
+                "properties": {
+                  "calculation_id": {
+                    "description": "UUID v4 generado por el móvil.",
+                    "format": "uuid",
+                    "title": "Calculation Id",
+                    "type": "string"
+                  },
+                  "inputs": {
+                    "items": {
+                      "$ref": "#/components/schemas/MetricInputValue"
+                    },
+                    "title": "Inputs",
+                    "type": "array"
+                  },
+                  "measured_at": {
+                    "description": "Instante UTC con sufijo `Z` y precisión de segundos (`YYYY-MM-DDTHH:MM:SSZ`).",
+                    "examples": [
+                      "2026-10-12T15:30:00Z"
+                    ],
+                    "format": "date-time",
+                    "title": "Measured At",
+                    "type": "string"
+                  },
+                  "method_code": {
+                    "examples": [
+                      "FTP_20_MIN_95_V1"
+                    ],
+                    "title": "Method Code",
+                    "type": "string"
+                  },
+                  "method_version": {
+                    "examples": [
+                      1
+                    ],
+                    "title": "Method Version",
+                    "type": "integer"
+                  },
+                  "metric_code": {
+                    "examples": [
+                      "FTP_ESTIMATED"
+                    ],
+                    "title": "Metric Code",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "calculation_id",
+                  "metric_code",
+                  "method_code",
+                  "method_version",
+                  "measured_at",
+                  "inputs"
+                ],
+                "title": "CalculateTrainingMetricRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingMetricCalculationResponse"
+                }
+              }
+            },
+            "description": "El `calculation_id` ya existe con los mismos datos (otra clave): se devuelve sin otro evento."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingMetricCalculationResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado original de la misma clave.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.metrics.ftp_vo2max`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused` o `calculation_id_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` y las causas de ADR-030 (`required`, `field_not_allowed`, `unknown_metric`, `unsupported_method_version`, `unknown_input`, `duplicate_input`, `invalid_unit`, `out_of_range`, `invalid_datetime`, `too_far_in_future`, `too_old`) más `invalid_uuid` para `calculation_id` e `Idempotency-Key`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: Afiliación no respondió a tiempo."
+          }
+        },
+        "summary": "Calcular un indicador estimado (HU034)",
+        "tags": [
+          "training-metrics"
+        ]
+      }
+    },
+    "/v1/training-metrics/catalog": {
+      "get": {
+        "operationId": "catalog_v1_training_metrics_catalog_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "`\"<catalog_version>\"`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "`If-None-Match` coincide con el `ETag` vigente; sin cuerpo."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.metrics.ftp_vo2max`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: Afiliación no respondió a tiempo."
+          }
+        },
+        "summary": "Catálogo de métodos de indicadores (HU034)",
+        "tags": [
+          "training-metrics"
         ]
       }
     },

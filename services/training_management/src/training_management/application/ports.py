@@ -7,6 +7,7 @@ from typing import Any, Protocol, Self
 from uuid import UUID
 
 from training_management.domain.authorizations.model import TrainingAuthorization
+from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.plans.model import Sport, TrainingPlan
 from training_management.domain.sessions.model import TrainingSession
 
@@ -281,7 +282,7 @@ class AuthorizationReader(Protocol):
 
 @dataclass(frozen=True)
 class CommandRecord:
-    """Resultado de un comando de HU032, con clave aislada por deportista y operación."""
+    """Resultado de un comando de HU032 o HU034, con clave aislada por deportista y operación."""
 
     actor_id: UUID
     operation: str
@@ -379,6 +380,53 @@ class PlannedSessionReader(Protocol):
         ...
 
 
+class MetricUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU034: cálculo, entradas, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_calculation(self, calculation_id: UUID) -> TrainingMetricCalculation | None: ...
+
+    def add_calculation(self, calculation: TrainingMetricCalculation) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el `calculation_id`
+        duplicado a `CalculationIdConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class MetricResultPosition:
+    """Posición del cursor: último resultado entregado en el orden `measured_at`,
+    `calculation_id` (ambos descendentes)."""
+
+    measured_at: datetime
+    calculation_id: UUID
+
+
+@dataclass(frozen=True)
+class MetricResultQuery:
+    athlete_id: UUID
+    metric_code: str | None
+    after: MetricResultPosition | None
+    limit: int
+
+
+class MetricResultReader(Protocol):
+    """Proyección `training_metric_result` (HU034, lectura CQRS)."""
+
+    def list(self, query: MetricResultQuery) -> list[TrainingMetricCalculation]:
+        """Hasta `limit` resultados del deportista, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`measured_at`, `calculation_id`) desc."""
+        ...
+
+
 class DuplicateDelivery(Exception):
     """Otra entrega del mismo evento confirmó primero su registro en `processed_event`."""
 
@@ -417,6 +465,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     def save_active_session(self, view: ActiveSessionView, projected_at: datetime) -> None: ...
 
     def delete_active_session(self, session_id: UUID) -> None: ...
+
+    def metric_result(self, calculation_id: UUID) -> TrainingMetricCalculation | None:
+        """HU034: resultado proyectado del cálculo; bloquea la fila."""
+        ...
+
+    def add_metric_result(
+        self, calculation: TrainingMetricCalculation, projected_at: datetime
+    ) -> None: ...
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

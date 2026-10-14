@@ -23,6 +23,7 @@ from training_management.application.ports import (
     SessionHistoryEntry,
 )
 from training_management.domain.authorizations.model import TrainingAuthorization
+from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.plans.model import TrainingPlan
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
@@ -186,6 +187,7 @@ class InMemoryReadStore:
     sessions: dict[UUID, SessionHistoryEntry] = field(default_factory=dict)
     active: dict[UUID, ActiveSessionView] = field(default_factory=dict)
     planned: dict[UUID, PlanView] = field(default_factory=dict)
+    metric_results: dict[UUID, TrainingMetricCalculation] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -239,6 +241,7 @@ class InMemoryProjectionUnitOfWork:
         self._active: list[ActiveSessionView] = []
         self._removed: list[UUID] = []
         self._planned: list[PlanView] = []
+        self._metrics: list[TrainingMetricCalculation] = []
 
     def __enter__(self) -> Self:
         return self
@@ -250,7 +253,7 @@ class InMemoryProjectionUnitOfWork:
         traceback: TracebackType | None,
     ) -> None:
         self._views, self._processed, self._authorizations, self._sessions = [], [], [], []
-        self._active, self._removed, self._planned = [], [], []
+        self._active, self._removed, self._planned, self._metrics = [], [], [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -289,6 +292,14 @@ class InMemoryProjectionUnitOfWork:
     def delete_active_session(self, session_id: UUID) -> None:
         self._removed.append(session_id)
 
+    def metric_result(self, calculation_id: UUID) -> TrainingMetricCalculation | None:
+        return self.store.metric_results.get(calculation_id)
+
+    def add_metric_result(
+        self, calculation: TrainingMetricCalculation, projected_at: datetime
+    ) -> None:
+        self._metrics.append(calculation)
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -313,6 +324,8 @@ class InMemoryProjectionUnitOfWork:
             self.store.planned[planned.plan_id] = planned
         for session_id in self._removed:
             self.store.active.pop(session_id, None)
+        for calculation in self._metrics:
+            self.store.metric_results[calculation.calculation_id] = calculation
         for event_id, event_type, aggregate_id in self._processed:
             self.store.processed[event_id] = (event_type, aggregate_id)
 

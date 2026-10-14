@@ -77,3 +77,13 @@ class TrainingSessionAlreadyFinished(Exception):
 
 class SessionIdConflict(Exception):
     """Otra solicitud concurrente insertó primero el mismo `session_id`."""
+
+
+class CalculationIdReused(Exception):
+    """HU034: el `calculation_id` ya existe con otros datos o pertenece a otra persona."""
+
+    code = "calculation_id_reused"
+
+
+class CalculationIdConflict(Exception):
+    """Otra solicitud concurrente insertó primero el mismo `calculation_id`."""

@@ -5,6 +5,7 @@ identificadores de Usuarios: no hay claves foráneas hacia otra base.
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     SmallInteger,
     String,
     text,
@@ -30,6 +32,7 @@ COMMAND_IDEMPOTENCY_PRIMARY_KEY = "pk_command_idempotency"
 TRAINING_SESSION_PRIMARY_KEY = "pk_training_session"
 ACTIVE_SESSION_INDEX = "uq_training_session_athlete_active"
 AUTHORIZATION_PRIMARY_KEY = "pk_training_authorization"
+METRIC_CALCULATION_PRIMARY_KEY = "pk_training_metric_calculation"
 
 
 class WriteBase(DeclarativeBase):
@@ -179,7 +182,7 @@ class TrainingSessionRow(WriteBase):
 
 
 class CommandIdempotencyRow(WriteBase):
-    """Resultado de un comando de HU032 por deportista y operación, vigente 30 días."""
+    """Resultado de un comando de HU032 o HU034 por deportista y operación, vigente 30 días."""
 
     __tablename__ = "command_idempotency"
 
@@ -191,3 +194,50 @@ class CommandIdempotencyRow(WriteBase):
     response: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class TrainingMetricCalculationRow(WriteBase):
+    """Cálculo inmutable de un indicador de HU034 (ADR-030); valores con escala explícita."""
+
+    __tablename__ = "training_metric_calculation"
+    __table_args__ = (
+        CheckConstraint("status IN ('CONFIRMED')", name="status"),
+        CheckConstraint("version = 1", name="version"),
+        CheckConstraint("method_version >= 1", name="method_version"),
+        CheckConstraint("result_scale BETWEEN 0 AND 4", name="result_scale"),
+    )
+
+    calculation_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    metric_code: Mapped[str] = mapped_column(String(64))
+    method_code: Mapped[str] = mapped_column(String(64))
+    method_version: Mapped[int] = mapped_column(Integer)
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    result_value: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    result_unit: Mapped[str] = mapped_column(String(32))
+    result_scale: Mapped[int] = mapped_column(SmallInteger)
+    status: Mapped[str] = mapped_column(String(16))
+    disclaimer_key: Mapped[str] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(BigInteger)
+    data_fingerprint: Mapped[str] = mapped_column(String(64))
+
+
+class TrainingMetricInputRow(WriteBase):
+    """Entrada normalizada de un cálculo de HU034, en el orden del catálogo."""
+
+    __tablename__ = "training_metric_input"
+
+    calculation_id: Mapped[UUID] = mapped_column(
+        # Nombre explícito: el de la convención supera los 63 caracteres de PostgreSQL.
+        ForeignKey(
+            "training_metric_calculation.calculation_id",
+            ondelete="CASCADE",
+            name="fk_training_metric_input_calculation",
+        ),
+        primary_key=True,
+    )
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    position: Mapped[int] = mapped_column(SmallInteger)
+    value: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    unit: Mapped[str] = mapped_column(String(32))

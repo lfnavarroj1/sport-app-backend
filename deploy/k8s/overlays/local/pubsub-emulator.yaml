@@ -47,7 +47,9 @@ spec:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
 ---
-# Crea de forma idempotente el tópico de usuarios en el emulador.
+# Crea de forma idempotente en el emulador el tópico de usuarios y, desde HU005, los recursos
+# de `usuarios-read-projector` (CMP-001): suscripción ordenada `proyector-usuarios-v1`, DLQ
+# `sportapp.usuarios.proyeccion.dlq` (5 entregas, espera de 10 a 600 s) y su suscripción `.ops`.
 apiVersion: batch/v1
 kind: Job
 metadata:

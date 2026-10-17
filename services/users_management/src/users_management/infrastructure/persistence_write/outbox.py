@@ -30,7 +30,8 @@ _CLAIM_BATCH = text(
         lease_until = now() + make_interval(secs => :lease_seconds)
     FROM candidates
     WHERE event.event_id = candidates.event_id
-    RETURNING event.event_id, event.event_type, event.schema_version, event.aggregate_id,
+    RETURNING event.event_id, event.event_type, event.schema_version, event.aggregate_type,
+              event.aggregate_id,
               event.aggregate_version, event.occurred_at, event.correlation_id,
               event.causation_id, event.payload, event.attempts
     """
@@ -62,6 +63,7 @@ class ClaimedEvent:
     event_id: UUID
     event_type: str
     schema_version: int
+    aggregate_type: str
     aggregate_id: UUID
     aggregate_version: int
     occurred_at: datetime

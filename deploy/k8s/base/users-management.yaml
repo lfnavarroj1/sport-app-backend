@@ -48,6 +48,10 @@ spec:
             - name: REGISTRATION_POLICIES_VERSION
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: REGISTRATION_POLICIES_VERSION}
+            # Obligatoria (HU005, ADR-034): versión vigente del consentimiento de datos de salud.
+            - name: HEALTH_DATA_CONSENT_VERSION
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: HEALTH_DATA_CONSENT_VERSION}
             # Obligatoria (HU003): sin clave de firma válida el servicio no arranca.
             - name: JWT_PRIVATE_KEY
               valueFrom:
@@ -246,6 +250,69 @@ spec:
                 secretKeyRef: {name: sportapp-database, key: USUARIOS_DB_PASSWORD}
             - name: DATABASE_WRITE_URL
               value: "postgresql+psycopg://usuarios:$(DB_PASSWORD)@$(DATABASE_HOST):5432/usuarios_write"
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+# usuarios-read-projector (CMP-001, HU001 refactor y HU005): consume proyector-usuarios-v1 y
+# mantiene user_directory y athlete_profile_view en la base de lectura. Solo accede a la base
+# de lectura. El tópico, la suscripción y la DLQ los crea la plataforma (en local, el Job
+# `users-management-pubsub-setup` del overlay). En GKE, mínimo 2 réplicas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-management-read-projector
+  labels:
+    app.kubernetes.io/name: users-management-read-projector
+    app.kubernetes.io/component: read-projector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: users-management-read-projector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: users-management-read-projector
+        app.kubernetes.io/component: read-projector
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: projector
+          image: sportapp/users-management
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, users_management.workers.read_projector]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            - name: PUBSUB_PROJECT_ID
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_PROJECT_ID}
+            - name: PUBSUB_EMULATOR_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_EMULATOR_HOST, optional: true}
+            - name: DATABASE_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: DATABASE_HOST}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: sportapp-database, key: USUARIOS_DB_PASSWORD}
+            - name: DATABASE_READ_URL
+              value: "postgresql+psycopg://usuarios:$(DB_PASSWORD)@$(DATABASE_HOST):5432/usuarios_read"
           resources:
             requests: {cpu: 50m, memory: 128Mi}
             limits: {cpu: 500m, memory: 256Mi}

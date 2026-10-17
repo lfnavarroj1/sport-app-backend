@@ -17,6 +17,7 @@ from affiliation_management.settings import (
     AFFILIATION_TOPIC,
     FREE_PLAN_DLQ_OPS_SUBSCRIPTION,
     FREE_PLAN_DLQ_TOPIC,
+    FREE_PLAN_FILTER,
     FREE_PLAN_SUBSCRIPTION,
     MAX_DELIVERY_ATTEMPTS,
     RETRY_MAX_BACKOFF_SECONDS,
@@ -47,6 +48,9 @@ def ensure_resources(project_id: str) -> list[str]:
                 name=subscriber.subscription_path(project_id, FREE_PLAN_SUBSCRIPTION),
                 topic=topics[USERS_TOPIC],
                 enable_message_ordering=True,
+                # R-19 (ADR-034): el alta gratuita solo recibe el registro; otros tipos del
+                # tópico (p. ej. `perfil.*`) no se entregan a esta suscripción.
+                filter=FREE_PLAN_FILTER,
                 dead_letter_policy=types.DeadLetterPolicy(
                     dead_letter_topic=topics[FREE_PLAN_DLQ_TOPIC],
                     max_delivery_attempts=MAX_DELIVERY_ATTEMPTS,

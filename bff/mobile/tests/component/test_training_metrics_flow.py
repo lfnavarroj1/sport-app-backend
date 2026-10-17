@@ -123,6 +123,7 @@ class TrainingMetricsFlowTest(unittest.TestCase):
                         database_write_url=self.urls["users_w"],  # type: ignore[arg-type]
                         database_read_url=self.urls["users_r"],  # type: ignore[arg-type]
                         registration_policies_version=POLICIES,
+                        health_data_consent_version="health-test.v1",
                         jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
                     )
                 ),

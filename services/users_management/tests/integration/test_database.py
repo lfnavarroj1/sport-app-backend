@@ -19,7 +19,10 @@ READ_HISTORY = "users_management.infrastructure.persistence_read:migrations"
 
 class DatabaseIntegrationTest(unittest.TestCase):
     def test_each_history_migrates_from_empty_database_to_head(self) -> None:
-        expected = {WRITE_HISTORY: "0003_authenticate_user", READ_HISTORY: "0002_user_directory"}
+        expected = {
+            WRITE_HISTORY: "0004_athlete_profile",
+            READ_HISTORY: "0003_athlete_profile_view",
+        }
         for script_location, revision in expected.items():
             with (
                 self.subTest(history=script_location),
@@ -70,6 +73,7 @@ class DatabaseIntegrationTest(unittest.TestCase):
                 database_write_url=url,
                 database_read_url=url,
                 registration_policies_version="2026-10",
+                health_data_consent_version="health-test.v1",
                 jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
             )
             with TestClient(create_app(settings)) as client:

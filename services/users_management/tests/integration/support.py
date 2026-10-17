@@ -19,7 +19,13 @@ from users_management.application.commands.register_user import (
     RegisterUserCommand,
 )
 from users_management.application.commands.revoke_session import RevokeSession
-from users_management.application.ports import RegistrationUnitOfWork
+from users_management.application.commands.update_demographic_profile import (
+    UpdateDemographicProfile,
+)
+from users_management.application.commands.update_physiological_profile import (
+    UpdatePhysiologicalProfile,
+)
+from users_management.application.ports import Clock, RegistrationUnitOfWork
 from users_management.domain.account.model import AccountStatus, ActorType
 from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
@@ -27,11 +33,14 @@ from users_management.infrastructure.persistence_write.authentication import (
     SqlAlchemyAuthenticationUnitOfWork,
 )
 from users_management.infrastructure.persistence_write.models import (
+    DemographicProfileRow,
     IdempotencyKeyRow,
     OutboxEventRow,
+    PhysiologicalProfileRow,
     RefreshTokenRow,
     UserAccountRow,
 )
+from users_management.infrastructure.persistence_write.profile import SqlAlchemyProfileUnitOfWork
 from users_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyRegistrationUnitOfWork,
 )
@@ -40,6 +49,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 
 WRITE_HISTORY = "users_management.infrastructure.persistence_write:migrations"
 POLICIES = "2026-10"
+HEALTH_CONSENT = "health-test.v1"
 THROTTLE = LoginThrottlePolicy(max_failures=5, window=timedelta(minutes=15))
 PASSWORDS = Argon2idPasswordHasher()
 TOKENS = Ed25519AccessTokenIssuer(
@@ -100,9 +110,33 @@ class WriteDatabase:
             )
             session.commit()
 
+    def profile(self) -> SqlAlchemyProfileUnitOfWork:
+        return SqlAlchemyProfileUnitOfWork(self.sessions)
+
+    def update_demographic(self, clock: Clock | None = None) -> UpdateDemographicProfile:
+        return UpdateDemographicProfile(unit_of_work=self.profile, clock=clock or SystemClock())
+
+    def update_physiological(self, clock: Clock | None = None) -> UpdatePhysiologicalProfile:
+        return UpdatePhysiologicalProfile(
+            unit_of_work=self.profile,
+            clock=clock or SystemClock(),
+            current_consent_version=HEALTH_CONSENT,
+        )
+
+    def athlete(self) -> UUID:
+        """Cuenta `athlete` real: las secciones del perfil tienen FK a `user_account`."""
+        return self.register_user()(registration()).user_id
+
     def count(
         self,
-        model: type[UserAccountRow | OutboxEventRow | IdempotencyKeyRow | RefreshTokenRow],
+        model: type[
+            UserAccountRow
+            | OutboxEventRow
+            | IdempotencyKeyRow
+            | RefreshTokenRow
+            | DemographicProfileRow
+            | PhysiologicalProfileRow
+        ],
     ) -> int:
         with self.sessions() as session:
             return session.scalar(select(func.count()).select_from(model)) or 0

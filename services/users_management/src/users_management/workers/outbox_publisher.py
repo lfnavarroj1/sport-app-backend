@@ -4,6 +4,8 @@ Ejecución: `python -m users_management.workers.outbox_publisher`.
 
 - Reclama lotes con arrendamiento y `SKIP LOCKED`; publica sin transacción abierta.
 - Usa `aggregate_id` como `ordering_key`.
+- Repite `event_type` y `aggregate_type` como atributos del mensaje para que las
+  suscripciones de otros dominios filtren por tipo sin leer el cuerpo (R-19, ADR-034).
 - Marca `published_at` solo después de la confirmación de Pub/Sub.
 - Un fallo incrementa `attempts` y reprograma con backoff exponencial y jitter.
 """
@@ -47,7 +49,7 @@ class OutboxStore(Protocol):
 
 
 class EventPublisher(Protocol):
-    def publish(self, envelope: dict[str, Any], ordering_key: str) -> None: ...
+    def publish(self, envelope: dict[str, Any], ordering_key: str, aggregate_type: str) -> None: ...
 
 
 def build_envelope(event: ClaimedEvent) -> dict[str, Any]:
@@ -105,7 +107,11 @@ class OutboxRelay:
             "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         }
         try:
-            self._publisher.publish(build_envelope(event), ordering_key=str(event.aggregate_id))
+            self._publisher.publish(
+                build_envelope(event),
+                ordering_key=str(event.aggregate_id),
+                aggregate_type=event.aggregate_type,
+            )
         except Exception as error:
             delay = retry_delay_seconds(event.attempts + 1)
             self._store.mark_failed(

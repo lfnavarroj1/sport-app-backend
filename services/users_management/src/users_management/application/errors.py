@@ -9,3 +9,13 @@ class IdempotencyKeyReused(Exception):
 
 class IdempotencyKeyConflict(Exception):
     """Otra solicitud concurrente confirmó primero la misma clave."""
+
+
+class SectionAlreadyExists(Exception):
+    """Otra solicitud concurrente creó primero la misma sección del perfil (HU005)."""
+
+
+class ReadModelUnavailable(Exception):
+    """La base de lectura no respondió; la consulta se degrada a `503`."""
+
+    code = "upstream_unavailable"

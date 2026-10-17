@@ -1306,7 +1306,7 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
 - GCP: proyectos, Workload Identity Provider, Artifact Registry, destino GKE/Cloud Run y Terraform (ADR-017).
 - Manifiesto de release, workflows de staging/producción, SBOM y escaneo de imágenes.
 - Contrato compartido de errores, sobre de eventos y primeros esquemas. Tópicos, suscripciones y DLQ.
-- Proyector de lectura de usuarios (`usuarios-read-projector`): implementado en HU005 (`VERIFICADO_LOCALMENTE`); falta desplegarlo en la composición de la plataforma y en GCP (suscripción `proyector-usuarios-v1`, DLQ, IAM) y ratificar su SLA de frescura. Los workers CQRS de eventos existen desde HU021 (CMP-004).
+- Proyector de lectura de usuarios (`usuarios-read-projector`): integrado en `develop` con HU005 (PR #21, `VERIFICADO_EN_CI`); falta desplegarlo en la composición de la plataforma y en GCP (suscripción `proyector-usuarios-v1`, DLQ, IAM) y ratificar su SLA de frescura. Los workers CQRS de eventos existen desde HU021 (CMP-004).
 - HU001:
   - prueba de carga HA003 en un ambiente representativo (escenario listo en `load/locust/registration.py`);
   - protección contra abuso y enumeración en el registro (el `409 email_already_registered` revela qué correos existen);
@@ -1365,7 +1365,7 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - `T-HU011-WEB` (línea de tiempo con filtros y paginación) y la opción del historial en el menú del deportista, que la navegación vigente solo asigna al profesional;
   - ratificar el SLA de frescura de la proyección (una revocación se aplica con el retraso del proyector).
 - HU010:
-  - desplegar `usuarios-read-projector` (implementado en HU005): sin él en la composición, `POST /v1/users/lookup` no resuelve a nadie y el flujo web no puede autorizar ni asignar;
+  - desplegar `usuarios-read-projector` (implementado en HU005): sin él en la composición, `POST /v1/users/lookup` no resuelve a nadie y el flujo web no puede autorizar ni asignar. El recorrido completo por Pub/Sub ya está verificado en `bff/web/tests/component/test_training_plan_vertical_flow.py` (2026-10-17). En la composición local siguen faltando, a cargo de la plataforma: recrear los recursos del emulador después de cada reinicio (guarda todo en memoria), alinear sus nombres con `contracts/events/README.md` (`proyector-usuarios-v1`, `proyector-entrenamientos-v1`, `sportapp.<dominio>.proyeccion.dlq`, `sportapp.afiliacion.alta-gratuita.v1` con filtro) y `HEALTH_DATA_CONSENT_VERSION` en el ConfigMap. Si falta su suscripción, los proyectores de Usuarios y Entrenamientos y el consumidor `FREE` registran `*.subscription_failed` (`error_type`, p. ej. `NotFound`) y salen con código 1;
   - `T-HU010-WEB`: pantallas de autorización (deportista) y de creación/asignación (profesional) contra `bff-web` 0.6.0, y E2E vertical;
   - `T-HU010-PLAT`: tópico `sportapp.entrenamientos.v1`, suscripción `proyector-entrenamientos-v1` con orden, DLQ, reintentos, IAM, métricas y alerta en la composición local de la plataforma y en GCP (aquí solo existe la creación en el emulador);
   - ratificar los reintentos del proyector (10 intentos, backoff 10–600 s), el SLA de frescura de la vista y el tamaño de lote/pool del perfil de entrenamientos (CMP-003);

@@ -47,7 +47,7 @@ from users_management.settings import (
     USERS_TOPIC,
 )
 from users_management.workers.pubsub_setup import ensure_resources
-from users_management.workers.read_projector import ProjectionMessageHandler
+from users_management.workers.read_projector import ProjectionMessageHandler, await_subscription
 
 
 def wait_until(condition: Callable[[], bool], timeout: float = 30.0) -> bool:
@@ -95,6 +95,20 @@ class ReadProjectorMessagingTest(unittest.TestCase):
             streaming.cancel()
             with contextlib.suppress(Exception):
                 streaming.result(timeout=10)
+
+    def test_missing_subscription_is_reported_as_a_failure(self) -> None:
+        """Cierre de HU010: si el emulador perdió la suscripción (p. ej. tras reiniciarse),
+        el worker lo registra en `ERROR` y sale con `1`, en lugar de parar «en limpio»."""
+        missing = self.subscriber.subscription_path(self.project, f"falta-{uuid.uuid4().hex[:6]}")
+        streaming = self.subscriber.subscribe(missing, callback=lambda message: message.ack())
+
+        with self.assertLogs("sportapp.projector", level="ERROR") as logs:
+            code = await_subscription(streaming, threading.Event())
+
+        self.assertEqual(code, 1)
+        [record] = logs.records
+        self.assertEqual(record.getMessage(), "projector.subscription_failed")
+        self.assertEqual(record.fields["error_type"], "NotFound")  # type: ignore[attr-defined]
 
     def test_setup_creates_ordered_subscription_with_dlq(self) -> None:
         names = {path.rsplit("/", 1)[-1] for path in self.created}

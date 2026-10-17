@@ -3,6 +3,7 @@ capacidades de Afiliación y política de permisos."""
 
 import json
 import os
+import threading
 import unittest
 import uuid
 from dataclasses import dataclass, field
@@ -32,7 +33,7 @@ from training_management.infrastructure.persistence_write.outbox import ClaimedE
 from training_management.settings import OutboxPublisherSettings
 from training_management.workers.outbox_publisher import OutboxRelay, build_envelope
 from training_management.workers.pubsub_setup import ensure_resources
-from training_management.workers.read_projector import ProjectionMessageHandler
+from training_management.workers.read_projector import ProjectionMessageHandler, await_subscription
 
 # Tipo del tópico que este proyector no proyecta (HU034 ya proyecta `indicador.calculado.v1`).
 UNSUPPORTED_TYPE = "entrenamiento.pausado.v1"
@@ -323,6 +324,47 @@ class PubSubSetupTest(unittest.TestCase):
     def test_refuses_to_run_outside_the_emulator(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(ConfigurationError):
             ensure_resources("sportapp-local")
+
+
+class _Streaming:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+
+    def result(self) -> object:
+        if self.error is not None:
+            raise self.error
+        return None
+
+
+class AwaitSubscriptionTest(unittest.TestCase):
+    """HU010 (cierre E2E): un fin inesperado de la suscripción no se oculta como parada."""
+
+    def test_signal_stop_exits_with_zero(self) -> None:
+        stop = threading.Event()
+        stop.set()
+
+        with self.assertLogs("sportapp.projector", level="INFO") as logs:
+            code = await_subscription(_Streaming(RuntimeError("cancelada")), stop)
+
+        self.assertEqual(code, 0)
+        self.assertEqual([r.getMessage() for r in logs.records], ["projector.stopping"])
+
+    def test_subscription_failure_is_logged_as_error_and_exits_with_one(self) -> None:
+        class NotFound(Exception):
+            pass
+
+        for streaming, error_type in (
+            (_Streaming(NotFound("sin suscripción")), "NotFound"),
+            (_Streaming(), None),
+        ):
+            with self.subTest(error_type=error_type):
+                with self.assertLogs("sportapp.projector", level="ERROR") as logs:
+                    code = await_subscription(streaming, threading.Event())
+
+                self.assertEqual(code, 1)
+                [record] = logs.records
+                self.assertEqual(record.getMessage(), "projector.subscription_failed")
+                self.assertEqual(record.fields["error_type"], error_type)  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

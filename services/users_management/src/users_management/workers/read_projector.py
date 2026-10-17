@@ -15,6 +15,8 @@ Ejecución: `python -m users_management.workers.read_projector`.
 import json
 import logging
 import signal
+import sys
+import threading
 from collections.abc import Callable
 from typing import Protocol
 
@@ -107,6 +109,34 @@ class ProjectionMessageHandler:
         message.nack()
 
 
+class StreamingPull(Protocol):
+    def result(self) -> object: ...
+
+
+def await_subscription(streaming: StreamingPull, stop_requested: threading.Event) -> int:
+    """Espera la suscripción y devuelve el código de salida del proceso.
+
+    `0` si se detuvo por una señal. `1` si la suscripción terminó por sí sola (p. ej.
+    `NotFound` porque el emulador perdió sus recursos): se registra en `ERROR` para que
+    la causa sea visible y Kubernetes lo trate como fallo, en lugar de ocultarlo.
+    """
+    try:
+        streaming.result()
+    except Exception as error:
+        if stop_requested.is_set():
+            _logger.info("projector.stopping")
+            return 0
+        _logger.error(
+            "projector.subscription_failed",
+            extra={"fields": {"error_type": type(error).__name__}},
+        )
+        return 1
+    if stop_requested.is_set():
+        return 0
+    _logger.error("projector.subscription_failed", extra={"fields": {"error_type": None}})
+    return 1
+
+
 def main() -> None:
     settings = load_settings(ReadProjectorSettings)
     configure_logging(
@@ -129,17 +159,22 @@ def main() -> None:
         callback=ProjectionMessageHandler(project),
         flow_control=pubsub_v1.types.FlowControl(max_messages=settings.consumer_max_messages),
     )
-    signal.signal(signal.SIGTERM, lambda *_: streaming.cancel())
-    signal.signal(signal.SIGINT, lambda *_: streaming.cancel())
+    stop_requested = threading.Event()
+
+    def stop(*_: object) -> None:
+        stop_requested.set()
+        streaming.cancel()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     _logger.info("projector.started", extra={"fields": {"subscription": subscription}})
     try:
-        streaming.result()
-    except Exception:
-        _logger.info("projector.stopping")
+        exit_code = await_subscription(streaming, stop_requested)
     finally:
         subscriber.close()
         engine.dispose()
         _logger.info("projector.stopped")
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -5,8 +5,11 @@ requiere `TEST_DATABASE_URL`. Dos piezas se ejecutan con su caso de uso en lugar
 su worker, porque su transporte ya se prueba en la integración de cada servicio:
 - el alta `FREE` de Afiliación (HU001) y la publicación/proyección de Entrenamientos
   (Pub/Sub con emulador en `training_management/tests/integration`);
-- el directorio de Usuarios se siembra en su base de lectura tal como lo dejará
-  `usuarios-read-projector`, que es un refactor pendiente de HU001.
+- el directorio de Usuarios se siembra en su base de lectura tal como lo deja
+  `usuarios-read-projector` (implementado en HU005).
+
+El recorrido con los workers reales sobre Pub/Sub está en
+`test_training_plan_vertical_flow.py`.
 """
 
 import unittest
@@ -186,7 +189,7 @@ class TrainingPlanFlowTest(unittest.TestCase):
         )
         self.assertEqual(registered.status_code, 201, registered.text)
         user_id = registered.json()["user_id"]
-        # Lo que dejaría `usuarios-read-projector` al proyectar `usuario.registrado.v1`.
+        # Lo que deja `usuarios-read-projector` al proyectar `usuario.registrado.v1`.
         with sessionmaker(self.engines["users_r"])() as session, session.begin():
             session.add(
                 UserDirectoryRow(

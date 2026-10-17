@@ -42,7 +42,7 @@ USERS = "users_management.infrastructure.persistence_write:migrations"
 SERVICES = "complementary_services.infrastructure.persistence:migrations"
 AFFILIATION = "affiliation_management.infrastructure.persistence:migrations"
 POLICIES = "2026-10"
-CATALOG = "plans-2026-10-11.v1"
+CATALOG = "plans-2026-10-13.v1"
 PASSWORD = "contraseña-muy-secreta"
 ORIGIN = "http://localhost:4200"
 DAY = datetime.now(UTC) + timedelta(days=10)

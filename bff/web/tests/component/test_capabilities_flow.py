@@ -36,7 +36,7 @@ from users_management.settings import UsersManagementSettings
 USERS_HISTORY = "users_management.infrastructure.persistence_write:migrations"
 AFFILIATION_HISTORY = "affiliation_management.infrastructure.persistence:migrations"
 POLICIES = "2026-10"
-CATALOG = "plans-2026-10-11.v1"
+CATALOG = "plans-2026-10-13.v1"
 PASSWORD = "contraseña-muy-secreta"
 ORIGIN = "http://localhost:4200"
 

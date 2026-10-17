@@ -58,7 +58,7 @@ HISTORIES = {
     "events_r": "events_management.infrastructure.persistence_read:migrations",
 }
 POLICIES = "2026-10"
-CATALOG = "plans-2026-10-11.v1"
+CATALOG = "plans-2026-10-13.v1"
 PASSWORD = "contraseña-muy-secreta"
 PERIOD = "from=2026-11-01T00:00:00-05:00&to=2026-11-30T23:59:59-05:00"
 

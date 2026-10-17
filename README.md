@@ -62,10 +62,16 @@ Detalles de HU001:
 - **Correo:** se normaliza (minúsculas, sin espacios exteriores) y es único.
 - **Contraseña:** 12–128 caracteres, sin reglas de composición; se guarda solo como hash Argon2id (m=19 MiB, t=2, p=1).
 - **`actor_type`:** `athlete`, `organizer` o `service_provider`.
-- **Políticas:** `accepted_policies_version` debe coincidir con `REGISTRATION_POLICIES_VERSION`.
+- **Políticas:** `accepted_policies_version` debe coincidir con `REGISTRATION_POLICIES_VERSION`; si no, `422 policies_version_mismatch`. La versión compartida aprobada el 2026-10-17 es `sportapp-c108-c108plus.v1`: los Convenios 108 y 108+ del Consejo de Europa son el marco de referencia de protección de datos. SportApp no declara estar certificada, y el tratado no sustituye su aviso de privacidad propio. La cuenta conserva solo la versión aceptada y su instante, nunca el texto de la política.
 - **Idempotencia:** un reintento con la misma clave y el mismo cuerpo, durante 24 h, devuelve el mismo `201` con `Idempotent-Replayed: true`.
 - **Alta gratuita (ADR-024, criterios 6-9):** Afiliación consume `usuario.registrado.v1` (suscripción `sportapp.afiliacion.alta-gratuita.v1`) y, solo para `athlete`, crea una suscripción `FREE` activa con origen `AUTO_REGISTRATION`. `organizer` y `service_provider` no reciben suscripción. Cada evento queda en `inbox_event`; una entrega repetida no crea otra suscripción y un índice único parcial impide dos suscripciones activas por usuario. Inbox, suscripción y outbox se confirman juntos y el mensaje se confirma (ACK) después del COMMIT; un mensaje inválido no se confirma y, tras 10 intentos, va a la DLQ `sportapp.afiliacion.alta-gratuita.dlq`. La activación publica `suscripcion.activada.v1` en `sportapp.afiliacion.v1` con `user_id` como clave de orden.
-- **Catálogo:** la migración `0002_free_plan_catalog` precarga `plans-2026-10-11.v1`: `FREE` (11 capacidades), `INTERMEDIATE` (14) y `PREMIUM` (16). Los planes pagos quedan definidos pero no seleccionables, sin precio hasta que se aprueben los datos comerciales. Afiliación no queda lista (`/health/ready` 503) si falta esa versión, un plan o una capacidad.
+- **Catálogo:** la migración `0002_free_plan_catalog` precargó `plans-2026-10-11.v1`: `FREE` (11 capacidades), `INTERMEDIATE` (14) y `PREMIUM` (16), con los planes pagos sin precio. La migración `0003_plan_price_offers` (ADR-036) instala `plans-2026-10-13.v1` sin tocar la anterior:
+  - versión 2 de los tres planes, con las mismas capacidades; las versiones 1 no cambian, los deportistas existentes las conservan y los nuevos reciben `FREE` v2;
+  - `INTERMEDIATE` y `PREMIUM` activos y seleccionables;
+  - tabla `plan_offer` con siete ofertas en COP, precios de referencia antes de impuestos: `FREE` `NONE` 0; `INTERMEDIATE` 2.400 / 7.200 / 28.800 y `PREMIUM` 4.800 / 14.400 / 57.600 (mensual, trimestral, anual);
+  - `catalog_metadata.migration_revision` para auditar qué migración instaló cada catálogo.
+
+  La precarga es idempotente y corre en el Job de migración antes de habilitar las réplicas. No existe ninguna API ni pantalla para administrar planes. Afiliación no queda lista (`/health/ready` 503) si falta la versión esperada, un plan, una capacidad o una oferta (`plan_offers_mismatch:<plan>`); por eso un despliegue que siga esperando `plans-2026-10-11.v1` tampoco queda listo.
 - **Capacidades (interno):** `GET /v1/subscriptions/by-user/{user_id}/capabilities` devuelve `ACTIVE` con plan, versión, catálogo y capacidades, o `NONE` sin capacidades: nunca concede `FREE` por suposición. Lo consumen los BFF para componer `GET /v1/me/capabilities` (HU003).
 - **Errores:**
 
@@ -374,7 +380,7 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC` | publicador de usuarios | Proyecto y tópico (por defecto `sportapp.usuarios.v1`). |
 | `PUBSUB_EMULATOR_HOST` | publicador de usuarios | Solo local/CI: dirige el cliente al emulador. |
 | `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicadores de usuarios y afiliación | Lote (100), arrendamiento (30 s) e identidad de la réplica (valores iniciales de CMP-001). |
-| `AFFILIATION_EXPECTED_CATALOG_VERSION` | affiliation | Versión de catálogo que debe estar instalada para quedar listo (obligatoria; hoy `plans-2026-10-11.v1`). Cambia en el mismo release que una migración de catálogo nueva. |
+| `AFFILIATION_EXPECTED_CATALOG_VERSION` | affiliation | Versión de catálogo que debe estar instalada para quedar listo (obligatoria; hoy `plans-2026-10-13.v1`, desde `0003_plan_price_offers`). Cambia en el mismo release que una migración de catálogo nueva. |
 | `PUBSUB_PROJECT_ID`, `FREE_PLAN_SUBSCRIPTION`, `CONSUMER_MAX_MESSAGES` | consumidor del alta gratuita | Proyecto, suscripción (por defecto `sportapp.afiliacion.alta-gratuita.v1`) y mensajes simultáneos por réplica (10). |
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC` | publicador de afiliación | Proyecto y tópico (por defecto `sportapp.afiliacion.v1`). |
 | `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | bff-web, bff-mobile | URL del servicio de usuarios (obligatoria) y timeout (5 s). |
@@ -1112,7 +1118,7 @@ uv run python scripts/task.py smoke --base-url http://127.0.0.1:8000
   "email": "ana@example.com",
   "password": "una-clave-de-prueba",
   "actor_type": "athlete",
-  "accepted_policies_version": "local-dev"
+  "accepted_policies_version": "sportapp-c108-c108plus.v1"
 }
 ```
 
@@ -1129,7 +1135,7 @@ Pruebe también los demás criterios de aceptación:
 | Datos inválidos (CA3) | Clave nueva y `"password": "corta"` | **422** `validation_error`, con el campo indicado |
 | Políticas no vigentes | Clave nueva y `"accepted_policies_version": "2020-01"` | **422** `policies_version_mismatch` |
 
-> `accepted_policies_version` debe ser `local-dev`, que es el valor configurado para el entorno local. La versión real de las políticas aún no está publicada.
+> `accepted_policies_version` debe ser `sportapp-c108-c108plus.v1`, la versión compartida aprobada (y la configurada en el overlay local). La composición de la plataforma debe configurar ese mismo valor en `REGISTRATION_POLICIES_VERSION`.
 
 #### 12.4 Ver que el evento se publicó (CA4)
 

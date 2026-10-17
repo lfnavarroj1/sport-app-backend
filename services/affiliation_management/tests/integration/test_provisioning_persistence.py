@@ -60,7 +60,8 @@ class ProvisioningPersistenceTest(unittest.TestCase):
             inbox = session.get_one(InboxEventRow, event.event_id)
         self.assertEqual(
             (subscription.user_id, subscription.plan_code, subscription.plan_version),
-            (event.user_id, "FREE", 1),
+            # Deportista nuevo: versión 2 de `FREE`, la vigente en `plans-2026-10-13.v1`.
+            (event.user_id, "FREE", 2),
         )
         self.assertEqual(
             (subscription.status, subscription.origin), ("ACTIVE", "AUTO_REGISTRATION")
@@ -78,7 +79,7 @@ class ProvisioningPersistenceTest(unittest.TestCase):
 
         assert snapshot is not None
         self.assertEqual(snapshot.plan.plan_code, "FREE")
-        self.assertEqual(snapshot.plan.catalog_version, "plans-2026-10-11.v1")
+        self.assertEqual(snapshot.plan.catalog_version, "plans-2026-10-13.v1")
         self.assertEqual(set(snapshot.capabilities), set(FREE_CAPABILITIES))
 
     def test_non_athletes_only_leave_an_inbox_record(self) -> None:

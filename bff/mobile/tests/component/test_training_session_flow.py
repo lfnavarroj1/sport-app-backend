@@ -68,7 +68,7 @@ HISTORIES = {
     "training_r": "training_management.infrastructure.persistence_read:migrations",
 }
 POLICIES = "2026-10"
-CATALOG = "plans-2026-10-11.v1"
+CATALOG = "plans-2026-10-13.v1"
 PASSWORD = "contraseña-muy-secreta"
 
 

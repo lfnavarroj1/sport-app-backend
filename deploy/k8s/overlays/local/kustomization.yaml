@@ -15,8 +15,8 @@ configMapGenerator:
       - APP_ENV=local
       - LOG_LEVEL=INFO
       - DATABASE_HOST=postgres
-      # Valor solo local: la versión real de las políticas aún no está publicada.
-      - REGISTRATION_POLICIES_VERSION=local-dev
+      # Versión compartida de las políticas (HU001, 2026-10-17; marco: Convenios 108 y 108+).
+      - REGISTRATION_POLICIES_VERSION=sportapp-c108-c108plus.v1
       # HU005 (ADR-034): consentimiento de datos de salud; valor solo local, como el anterior.
       - HEALTH_DATA_CONSENT_VERSION=local-dev
       - USERS_MANAGEMENT_BASE_URL=http://users-management

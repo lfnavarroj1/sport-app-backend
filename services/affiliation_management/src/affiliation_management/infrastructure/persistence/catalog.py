@@ -8,11 +8,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from affiliation_management.application.ports import CapabilitySnapshot
-from affiliation_management.domain.catalog import CAPABILITIES_BY_PLAN
+from affiliation_management.domain.catalog import (
+    CAPABILITIES_BY_PLAN,
+    OFFER_PERIODICITIES_BY_PLAN,
+)
 from affiliation_management.domain.subscriptions.model import PlanVersionRef, SubscriptionStatus
 from affiliation_management.infrastructure.persistence.models import (
     CapabilityRow,
     CatalogMetadataRow,
+    PlanOfferRow,
     PlanRow,
     PlanVersionCapabilityRow,
     PlanVersionRow,
@@ -65,7 +69,8 @@ class CatalogReadinessCheck:
     """Afiliación no queda lista con un catálogo ausente, parcial o de otra versión (ADR-024).
 
     Exige la versión esperada en `catalog_metadata`, los tres planes y, para esa
-    versión, exactamente las capacidades materializadas de cada plan.
+    versión, exactamente las capacidades materializadas de cada plan y sus ofertas
+    completas (ADR-036).
     """
 
     name = "catalog"
@@ -112,10 +117,25 @@ class CatalogReadinessCheck:
                 )
                 .where(PlanVersionRow.catalog_version == self._expected_version)
             ).all()
+            offered = connection.execute(
+                select(PlanOfferRow.plan_code, PlanOfferRow.periodicity)
+                .join(
+                    PlanVersionRow,
+                    (PlanVersionRow.plan_code == PlanOfferRow.plan_code)
+                    & (PlanVersionRow.version == PlanOfferRow.plan_version),
+                )
+                .where(PlanVersionRow.catalog_version == self._expected_version)
+            ).all()
         found: dict[str, set[str]] = {}
         for plan_code, capability_code in materialized:
             found.setdefault(plan_code, set()).add(capability_code)
         for plan_code, codes in CAPABILITIES_BY_PLAN.items():
             if found.get(plan_code) != set(codes):
                 return f"plan_capabilities_mismatch:{plan_code}"
+        offers: dict[str, set[str]] = {}
+        for plan_code, periodicity in offered:
+            offers.setdefault(plan_code, set()).add(periodicity)
+        for plan_code, periodicities in OFFER_PERIODICITIES_BY_PLAN.items():
+            if offers.get(plan_code) != set(periodicities):
+                return f"plan_offers_mismatch:{plan_code}"
         return None

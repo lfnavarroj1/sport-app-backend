@@ -44,8 +44,9 @@ spec:
             - name: DATABASE_URL
               value: "postgresql+psycopg://afiliacion:$(DB_PASSWORD)@$(DATABASE_HOST):5432/afiliacion"
             # ADR-024: viaja con el release que trae la migración del catálogo. Sin ella, no-ready.
+            # Catálogo de ADR-036 (migración 0003_plan_price_offers): mismo release que la migración.
             - name: AFFILIATION_EXPECTED_CATALOG_VERSION
-              value: plans-2026-10-11.v1
+              value: plans-2026-10-13.v1
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

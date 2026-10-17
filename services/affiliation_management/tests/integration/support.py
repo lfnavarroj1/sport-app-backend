@@ -21,7 +21,8 @@ from sportapp_platform.migrations import upgrade
 from sportapp_platform.testing.postgres import temporary_database
 
 HISTORY = "affiliation_management.infrastructure.persistence:migrations"
-CATALOG = "plans-2026-10-11.v1"
+# Catálogo vigente desde `0003_plan_price_offers` (ADR-036).
+CATALOG = "plans-2026-10-13.v1"
 
 
 @dataclass

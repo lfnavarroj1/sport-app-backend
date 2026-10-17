@@ -1,5 +1,5 @@
 """Componente HU034 en móvil: BFF → Usuarios (sesión y JWKS) → Afiliación (capacidad
-`training.metrics.ftp_vo2max`, incluida en el plan `FREE` del catálogo `plans-2026-10-11.v1`)
+`training.metrics.ftp_vo2max`, incluida en el plan `FREE` del catálogo `plans-2026-10-13.v1`)
 → Entrenamientos → outbox → Pub/Sub → `entrenamientos-read-projector` → historial propio.
 
 Servicios reales con PostgreSQL migrado (requiere `TEST_DATABASE_URL`). El plan `FREE` se
@@ -66,7 +66,7 @@ HISTORIES = {
     "training_r": "training_management.infrastructure.persistence_read:migrations",
 }
 POLICIES = "2026-10"
-CATALOG = "plans-2026-10-11.v1"
+CATALOG = "plans-2026-10-13.v1"
 PASSWORD = "contraseña-muy-secreta"
 CATALOG_PATH = "/v1/training-metrics/catalog"
 CALCULATIONS = "/v1/training-metrics/calculations"

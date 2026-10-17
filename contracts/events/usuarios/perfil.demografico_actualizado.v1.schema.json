@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/usuarios/perfil.demografico_actualizado.v1.schema.json",
+  "title": "perfil.demografico_actualizado.v1",
+  "description": "Publicado en sportapp.usuarios.v1 con ordering_key = user_id cuando el deportista registra o reemplaza su sección demográfica (HU005, ADR-034). Estado completo de la sección; sin raza/etnia ni religión.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "perfil.demografico_actualizado.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "gestion-usuarios"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "user_id del deportista; también ordering_key. aggregate_type = demographic_profile (atributo del mensaje)."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Versión de la sección; igual a payload.version."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Idempotency-Key del comando que originó el evento."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "version",
+        "birth_date",
+        "gender",
+        "country_code",
+        "city",
+        "marital_status",
+        "occupation",
+        "income_range",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "birth_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "gender": {
+          "enum": [
+            "FEMALE",
+            "MALE",
+            "NON_BINARY",
+            "PREFER_NOT_TO_SAY"
+          ]
+        },
+        "country_code": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "ISO 3166-1 alfa-2 (catálogo de ADR-028)."
+        },
+        "city": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "marital_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "SINGLE",
+                "MARRIED",
+                "DOMESTIC_PARTNERSHIP",
+                "DIVORCED",
+                "WIDOWED",
+                "PREFER_NOT_TO_SAY"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "occupation": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 80
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "income_range": {
+          "anyOf": [
+            {
+              "enum": [
+                "LT_1_SMMLV",
+                "1_2_SMMLV",
+                "2_4_SMMLV",
+                "GT_4_SMMLV",
+                "PREFER_NOT_TO_SAY"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+          "description": "Instante en UTC con sufijo Z."
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+          "description": "Instante en UTC con sufijo Z."
+        }
+      }
+    }
+  }
+}

@@ -18,8 +18,12 @@ class PubSubEventPublisher:
         )
         self._topic_path = self._client.topic_path(project_id, topic)
 
-    def publish(self, envelope: dict[str, Any], ordering_key: str) -> None:
-        """Retorna solo cuando Pub/Sub confirma la publicación."""
+    def publish(self, envelope: dict[str, Any], ordering_key: str, aggregate_type: str) -> None:
+        """Retorna solo cuando Pub/Sub confirma la publicación.
+
+        Los atributos permiten a las suscripciones filtrar por tipo (R-19, ADR-034); el
+        cuerpo no cambia.
+        """
         data = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         future = self._client.publish(
             self._topic_path,
@@ -27,6 +31,7 @@ class PubSubEventPublisher:
             ordering_key=ordering_key,
             event_id=envelope["event_id"],
             event_type=envelope["event_type"],
+            aggregate_type=aggregate_type,
             schema_version=str(envelope["schema_version"]),
             correlation_id=envelope.get("correlation_id") or "",
         )

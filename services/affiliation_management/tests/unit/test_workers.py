@@ -63,6 +63,20 @@ class FreePlanMessageHandlerTest(unittest.TestCase):
         self.assertTrue(all(m.acked for m in (first, repeated, organizer)))
         self.assertEqual(len(self.store.subscriptions), 1)
 
+    def test_other_event_types_of_the_topic_are_acked_without_effects(self) -> None:
+        """R-19 (ADR-034): defensa adicional al filtro de la suscripción."""
+        message = FakeMessage(
+            json.dumps(user_registered(event_type="perfil.fisiologico_actualizado.v1")).encode()
+        )
+
+        with self.assertLogs("sportapp.consumer", level="INFO") as logs:
+            self.handler(message)
+
+        self.assertTrue(message.acked)
+        self.assertFalse(message.nacked)
+        self.assertEqual(self.store.subscriptions, {})
+        self.assertEqual(logs.records[0].getMessage(), "consumer.ignored_event")
+
     def test_invalid_messages_are_not_acked_so_they_reach_the_dlq(self) -> None:
         for data in (b"{no-json", json.dumps(user_registered(schema_version=9)).encode()):
             with self.subTest(data=data[:12]):

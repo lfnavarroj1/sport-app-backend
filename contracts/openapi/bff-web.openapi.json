@@ -36,6 +36,30 @@
         "title": "AvailabilityInterval",
         "type": "object"
       },
+      "BloodPressure": {
+        "additionalProperties": false,
+        "description": "Presión arterial en mmHg; la sistólica debe ser mayor que la diastólica.",
+        "properties": {
+          "diastolic_mmhg": {
+            "maximum": 150.0,
+            "minimum": 30.0,
+            "title": "Diastolic Mmhg",
+            "type": "integer"
+          },
+          "systolic_mmhg": {
+            "maximum": 250.0,
+            "minimum": 60.0,
+            "title": "Systolic Mmhg",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "systolic_mmhg",
+          "diastolic_mmhg"
+        ],
+        "title": "BloodPressure",
+        "type": "object"
+      },
       "CapabilitiesResponse": {
         "properties": {
           "actor_type": {
@@ -254,6 +278,224 @@
           "sessions"
         ],
         "title": "CreateTrainingPlanRequest",
+        "type": "object"
+      },
+      "DemographicProfileResponse": {
+        "description": "Respuesta del comando: la sección con el `user_id` del token.",
+        "properties": {
+          "birth_date": {
+            "format": "date",
+            "title": "Birth Date",
+            "type": "string"
+          },
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "gender": {
+            "enum": [
+              "FEMALE",
+              "MALE",
+              "NON_BINARY",
+              "PREFER_NOT_TO_SAY"
+            ],
+            "title": "Gender",
+            "type": "string"
+          },
+          "income_range": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LT_1_SMMLV",
+                  "1_2_SMMLV",
+                  "2_4_SMMLV",
+                  "GT_4_SMMLV",
+                  "PREFER_NOT_TO_SAY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Income Range"
+          },
+          "marital_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SINGLE",
+                  "MARRIED",
+                  "DOMESTIC_PARTNERSHIP",
+                  "DIVORCED",
+                  "WIDOWED",
+                  "PREFER_NOT_TO_SAY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marital Status"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "updated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "version",
+          "birth_date",
+          "gender",
+          "country_code",
+          "city",
+          "marital_status",
+          "occupation",
+          "income_range",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DemographicProfileResponse",
+        "type": "object"
+      },
+      "DemographicProfileSection": {
+        "description": "Sección demográfica normalizada (sin raza/etnia ni religión).",
+        "properties": {
+          "birth_date": {
+            "format": "date",
+            "title": "Birth Date",
+            "type": "string"
+          },
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "gender": {
+            "enum": [
+              "FEMALE",
+              "MALE",
+              "NON_BINARY",
+              "PREFER_NOT_TO_SAY"
+            ],
+            "title": "Gender",
+            "type": "string"
+          },
+          "income_range": {
+            "anyOf": [
+              {
+                "enum": [
+                  "LT_1_SMMLV",
+                  "1_2_SMMLV",
+                  "2_4_SMMLV",
+                  "GT_4_SMMLV",
+                  "PREFER_NOT_TO_SAY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Income Range"
+          },
+          "marital_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SINGLE",
+                  "MARRIED",
+                  "DOMESTIC_PARTNERSHIP",
+                  "DIVORCED",
+                  "WIDOWED",
+                  "PREFER_NOT_TO_SAY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marital Status"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "updated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "birth_date",
+          "gender",
+          "country_code",
+          "city",
+          "marital_status",
+          "occupation",
+          "income_range",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DemographicProfileSection",
         "type": "object"
       },
       "ErrorDetail": {
@@ -480,6 +722,26 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HealthConsent": {
+        "properties": {
+          "accepted_at": {
+            "description": "Instante del registro del consentimiento, en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Accepted At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "accepted_at"
+        ],
+        "title": "HealthConsent",
+        "type": "object"
+      },
       "HealthStatus": {
         "properties": {
           "checks": {
@@ -584,6 +846,220 @@
         "title": "MyServicesResponse",
         "type": "object"
       },
+      "PhysiologicalProfileResponse": {
+        "description": "Respuesta del comando: la sección con el `user_id` del token.",
+        "properties": {
+          "blood_pressure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BloodPressure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bmi": {
+            "description": "Calculado por el backend: peso / altura², un decimal, `ROUND_HALF_UP`.",
+            "examples": [
+              "23.2"
+            ],
+            "pattern": "^\\d{1,3}\\.\\d$",
+            "title": "Bmi",
+            "type": "string"
+          },
+          "body_temperature_c": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{1,3}\\.\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Un decimal.",
+            "examples": [
+              "36.6"
+            ],
+            "title": "Body Temperature C"
+          },
+          "consent": {
+            "$ref": "#/components/schemas/HealthConsent"
+          },
+          "created_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "height_cm": {
+            "title": "Height Cm",
+            "type": "integer"
+          },
+          "measured_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "resting_heart_rate_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resting Heart Rate Bpm"
+          },
+          "updated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "weight_kg": {
+            "description": "Un decimal.",
+            "examples": [
+              "68.5"
+            ],
+            "pattern": "^\\d{1,3}\\.\\d$",
+            "title": "Weight Kg",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "version",
+          "consent",
+          "measured_at",
+          "weight_kg",
+          "height_cm",
+          "bmi",
+          "resting_heart_rate_bpm",
+          "blood_pressure",
+          "body_temperature_c",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PhysiologicalProfileResponse",
+        "type": "object"
+      },
+      "PhysiologicalProfileSection": {
+        "description": "Sección fisiológica normalizada; sin rangos clínicos ni etiquetas de riesgo.",
+        "properties": {
+          "blood_pressure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BloodPressure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bmi": {
+            "description": "Calculado por el backend: peso / altura², un decimal, `ROUND_HALF_UP`.",
+            "examples": [
+              "23.2"
+            ],
+            "pattern": "^\\d{1,3}\\.\\d$",
+            "title": "Bmi",
+            "type": "string"
+          },
+          "body_temperature_c": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{1,3}\\.\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Un decimal.",
+            "examples": [
+              "36.6"
+            ],
+            "title": "Body Temperature C"
+          },
+          "consent": {
+            "$ref": "#/components/schemas/HealthConsent"
+          },
+          "created_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "height_cm": {
+            "title": "Height Cm",
+            "type": "integer"
+          },
+          "measured_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "resting_heart_rate_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resting Heart Rate Bpm"
+          },
+          "updated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "weight_kg": {
+            "description": "Un decimal.",
+            "examples": [
+              "68.5"
+            ],
+            "pattern": "^\\d{1,3}\\.\\d$",
+            "title": "Weight Kg",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "consent",
+          "measured_at",
+          "weight_kg",
+          "height_cm",
+          "bmi",
+          "resting_heart_rate_bpm",
+          "blood_pressure",
+          "body_temperature_c",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PhysiologicalProfileSection",
+        "type": "object"
+      },
       "PlannedSession": {
         "additionalProperties": false,
         "properties": {
@@ -624,6 +1100,119 @@
           "intensity_rpe"
         ],
         "title": "PlannedSession",
+        "type": "object"
+      },
+      "ProfileResponse": {
+        "description": "Perfil proyectado (consistencia eventual): `null` en las secciones aún sin datos.",
+        "properties": {
+          "demographic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DemographicProfileSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "physiological": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PhysiologicalProfileSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "projected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Última proyección aplicada, en UTC (`Z`).",
+            "title": "Projected At"
+          },
+          "sport_habits": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HU006; siempre `null` en esta versión.",
+            "title": "Sport Habits"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/ProfileVersions"
+          }
+        },
+        "required": [
+          "user_id",
+          "demographic",
+          "physiological",
+          "sport_habits",
+          "versions",
+          "projected_at"
+        ],
+        "title": "ProfileResponse",
+        "type": "object"
+      },
+      "ProfileVersions": {
+        "properties": {
+          "demographic": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Demographic"
+          },
+          "physiological": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Physiological"
+          },
+          "sport_habits": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sport Habits"
+          }
+        },
+        "required": [
+          "demographic",
+          "physiological",
+          "sport_habits"
+        ],
+        "title": "ProfileVersions",
         "type": "object"
       },
       "PublishServiceResponse": {
@@ -1264,7 +1853,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.12.0"
+    "version": "0.13.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1787,6 +2376,668 @@
         "summary": "Identidad, permisos por actor y capacidades vigentes (HU003)",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/v1/me/demographic-profile": {
+      "put": {
+        "operationId": "put_demographic_v1_me_demographic_profile_put",
+        "parameters": [
+          {
+            "description": "UUID; obligatorio (lo valida el servicio).",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "UUID; obligatorio (lo valida el servicio).",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el servicio (ADR-034).\n\nNo admite `user_id` ni otros campos (`field_not_allowed`).",
+                "properties": {
+                  "birth_date": {
+                    "description": "Fecha ISO; edad entre 13 y 120 años en la fecha del comando.",
+                    "format": "date",
+                    "title": "Birth Date",
+                    "type": "string"
+                  },
+                  "city": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 80,
+                    "minLength": 2,
+                    "title": "City",
+                    "type": "string"
+                  },
+                  "country_code": {
+                    "description": "ISO 3166-1 alfa-2 en mayúsculas (catálogo de ADR-028).",
+                    "examples": [
+                      "CO"
+                    ],
+                    "pattern": "^[A-Z]{2}$",
+                    "title": "Country Code",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Se omite (o `null`) al crear; obligatorio e igual a la versión vigente al reemplazar.",
+                    "title": "Expected Version"
+                  },
+                  "gender": {
+                    "enum": [
+                      "FEMALE",
+                      "MALE",
+                      "NON_BINARY",
+                      "PREFER_NOT_TO_SAY"
+                    ],
+                    "title": "Gender",
+                    "type": "string"
+                  },
+                  "income_range": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "LT_1_SMMLV",
+                          "1_2_SMMLV",
+                          "2_4_SMMLV",
+                          "GT_4_SMMLV",
+                          "PREFER_NOT_TO_SAY"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Income Range"
+                  },
+                  "marital_status": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "SINGLE",
+                          "MARRIED",
+                          "DOMESTIC_PARTNERSHIP",
+                          "DIVORCED",
+                          "WIDOWED",
+                          "PREFER_NOT_TO_SAY"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Marital Status"
+                  },
+                  "occupation": {
+                    "anyOf": [
+                      {
+                        "description": "Se recortan los espacios exteriores.",
+                        "maxLength": 80,
+                        "minLength": 2,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Occupation"
+                  }
+                },
+                "required": [
+                  "birth_date",
+                  "gender",
+                  "country_code",
+                  "city"
+                ],
+                "title": "DemographicProfileRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemographicProfileResponse"
+                }
+              }
+            },
+            "description": "Sección reemplazada (o reintento de un reemplazo).",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemographicProfileResponse"
+                }
+              }
+            },
+            "description": "Sección creada (o reintento de la creación).",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` con `details=[{field: \"expected_version\", issue: \"<versión vigente>\"}]` (`\"0\"` si la sección no existe), o `idempotency_key_reused` (la clave ya se usó con otro cuerpo o por otro deportista)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (catálogo de ADR-034); incluye `Idempotency-Key` ausente (`required`) o que no es un UUID (`unknown_value`). Todo o nada: no se guarda ningún dato parcial."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Registrar o reemplazar mi perfil demográfico (HU005, ADR-034)",
+        "tags": [
+          "profile"
+        ]
+      }
+    },
+    "/v1/me/physiological-profile": {
+      "put": {
+        "description": "Exige el consentimiento vigente de datos de salud; sin él no se guarda nada. El perfil no clasifica ni diagnostica.",
+        "operationId": "put_physiological_v1_me_physiological_profile_put",
+        "parameters": [
+          {
+            "description": "UUID; obligatorio (lo valida el servicio).",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "UUID; obligatorio (lo valida el servicio).",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el servicio (ADR-034).\n\nNo admite `user_id`, `bmi` (lo calcula el backend) ni otros campos (`field_not_allowed`).\nLos decimales viajan como cadena; un número JSON en su lugar → `unknown_value`.",
+                "properties": {
+                  "blood_pressure": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Presión arterial en mmHg; la sistólica debe ser mayor que la diastólica.",
+                        "properties": {
+                          "diastolic_mmhg": {
+                            "maximum": 150,
+                            "minimum": 30,
+                            "title": "Diastolic Mmhg",
+                            "type": "integer"
+                          },
+                          "systolic_mmhg": {
+                            "maximum": 250,
+                            "minimum": 60,
+                            "title": "Systolic Mmhg",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "systolic_mmhg",
+                          "diastolic_mmhg"
+                        ],
+                        "title": "BloodPressure",
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "body_temperature_c": {
+                    "anyOf": [
+                      {
+                        "pattern": "^\\d{1,3}(\\.\\d)?$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Cadena decimal con hasta un decimal, de 34.0 a 42.0.",
+                    "examples": [
+                      "36.6"
+                    ],
+                    "title": "Body Temperature C"
+                  },
+                  "consent": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "version": {
+                        "description": "Versión vigente del consentimiento de datos de salud (`HEALTH_DATA_CONSENT_VERSION`); otra → `unsupported_consent_version`.",
+                        "examples": [
+                          "health-2026-10-12.v1"
+                        ],
+                        "title": "Version",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "version"
+                    ],
+                    "title": "HealthConsentRequest",
+                    "type": "object"
+                  },
+                  "expected_version": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Se omite (o `null`) al crear; obligatorio e igual a la versión vigente al reemplazar.",
+                    "title": "Expected Version"
+                  },
+                  "height_cm": {
+                    "maximum": 250,
+                    "minimum": 100,
+                    "title": "Height Cm",
+                    "type": "integer"
+                  },
+                  "measured_at": {
+                    "description": "UTC con sufijo `Z` y precisión de segundos; hasta 5 minutos en el futuro y 365 días en el pasado.",
+                    "examples": [
+                      "2026-10-12T13:00:00Z"
+                    ],
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+                    "title": "Measured At",
+                    "type": "string"
+                  },
+                  "resting_heart_rate_bpm": {
+                    "anyOf": [
+                      {
+                        "maximum": 220,
+                        "minimum": 30,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Resting Heart Rate Bpm"
+                  },
+                  "weight_kg": {
+                    "description": "Cadena decimal con hasta un decimal, de 20.0 a 300.0.",
+                    "examples": [
+                      "68.5"
+                    ],
+                    "pattern": "^\\d{1,3}(\\.\\d)?$",
+                    "title": "Weight Kg",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "consent",
+                  "measured_at",
+                  "weight_kg",
+                  "height_cm"
+                ],
+                "title": "PhysiologicalProfileRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhysiologicalProfileResponse"
+                }
+              }
+            },
+            "description": "Sección reemplazada (o reintento de un reemplazo).",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhysiologicalProfileResponse"
+                }
+              }
+            },
+            "description": "Sección creada (o reintento de la creación).",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` con `details=[{field: \"expected_version\", issue: \"<versión vigente>\"}]` (`\"0\"` si la sección no existe), o `idempotency_key_reused` (la clave ya se usó con otro cuerpo o por otro deportista)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (catálogo de ADR-034); incluye `Idempotency-Key` ausente (`required`) o que no es un UUID (`unknown_value`). Todo o nada: no se guarda ningún dato parcial."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Registrar o reemplazar mi perfil fisiológico (HU005, ADR-034)",
+        "tags": [
+          "profile"
+        ]
+      }
+    },
+    "/v1/me/profile": {
+      "get": {
+        "description": "Consulta la proyección: es eventual. Tras un comando, si la versión proyectada es menor que la confirmada, el cliente conserva la respuesta del comando y reintenta la consulta.",
+        "operationId": "get_profile_v1_me_profile_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: el servicio o su base de lectura no están disponibles."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mi perfil de deportista (HU005, ADR-034)",
+        "tags": [
+          "profile"
         ]
       }
     },

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from bff_web.api.capabilities import build_capabilities_router
 from bff_web.api.events import build_events_router
+from bff_web.api.profile import build_profile_router
 from bff_web.api.registration import (
     IDEMPOTENCY_HEADER,
     REPLAYED_HEADER,
@@ -28,11 +29,11 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.12.0"
+API_VERSION = "0.13.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
-CORS_ALLOWED_METHODS = ("GET", "POST", "DELETE")
+CORS_ALLOWED_METHODS = ("GET", "POST", "PUT", "DELETE")
 CORS_ALLOWED_HEADERS = (
     "Authorization",
     "Content-Type",
@@ -100,6 +101,7 @@ def create_app(
                 athlete_snapshot=affiliation.user_capabilities,
                 channel=CHANNEL,
             ),
+            build_profile_router(verify_token=verifier.verify, users=users),
             build_training_router(
                 verify_token=verifier.verify,
                 permissions=permissions,

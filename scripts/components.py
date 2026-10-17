@@ -60,7 +60,11 @@ def new_signing_key_pem() -> str:
     )
 
 
-_USERS = {**_CQRS, "REGISTRATION_POLICIES_VERSION": "contract"}
+_USERS = {
+    **_CQRS,
+    "REGISTRATION_POLICIES_VERSION": "contract",
+    "HEALTH_DATA_CONSENT_VERSION": "contract",
+}
 _AFFILIATION = {**_SINGLE, "AFFILIATION_EXPECTED_CATALOG_VERSION": "contract"}
 _BFF = {
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",

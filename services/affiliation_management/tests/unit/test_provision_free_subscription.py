@@ -48,7 +48,7 @@ class ParseUserRegisteredTest(unittest.TestCase):
 
     def test_rejects_events_outside_the_contract(self) -> None:
         cases = {
-            "unexpected_event_type": user_registered(event_type="usuario.actualizado.v1"),
+            "unexpected_event_type": user_registered(event_type=None),
             "unsupported_schema_version": user_registered(schema_version=2),
             "aggregate_id_mismatch": user_registered(aggregate_id=str(uuid.uuid4())),
             "event_id_not_uuid": user_registered(event_id="no-es-uuid"),

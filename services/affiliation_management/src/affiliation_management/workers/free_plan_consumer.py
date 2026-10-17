@@ -6,6 +6,8 @@ Ejecución: `python -m affiliation_management.workers.free_plan_consumer`.
 - Confirma (ACK) el mensaje solo después del COMMIT de inbox, suscripción y outbox.
 - Un mensaje inválido o un fallo de procesamiento no se confirma: Pub/Sub lo
   reintenta con el backoff de la suscripción y, tras 10 intentos, lo envía a la DLQ.
+- Otro tipo de evento del tópico (p. ej. `perfil.*`) se confirma sin efectos: la
+  suscripción ya filtra por `event_type` y esto es la defensa adicional de R-19 (ADR-034).
 """
 
 import json
@@ -24,6 +26,7 @@ from affiliation_management.application.commands.provision_free_subscription imp
 from affiliation_management.application.messages import (
     InvalidEvent,
     RegisteredUser,
+    UnsupportedEvent,
     parse_user_registered,
 )
 from affiliation_management.infrastructure.clock import SystemClock
@@ -64,6 +67,13 @@ class FreePlanMessageHandler:
         }
         try:
             event = parse_user_registered(json.loads(message.data))
+        except UnsupportedEvent as unsupported:
+            message.ack()
+            _logger.info(
+                "consumer.ignored_event",
+                extra={"fields": {**fields, "event_type": unsupported.event_type}},
+            )
+            return
         except InvalidEvent as error:
             self._reject(message, {**fields, "reason": error.reason})
             return

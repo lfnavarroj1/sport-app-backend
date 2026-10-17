@@ -23,6 +23,7 @@ from affiliation_management.infrastructure.persistence.models import Subscriptio
 from affiliation_management.infrastructure.persistence.outbox import SqlAlchemyOutboxStore
 from affiliation_management.settings import (
     AFFILIATION_TOPIC,
+    FREE_PLAN_FILTER,
     FREE_PLAN_SUBSCRIPTION,
     MAX_DELIVERY_ATTEMPTS,
     USERS_TOPIC,
@@ -66,11 +67,14 @@ class FreePlanMessagingTest(unittest.TestCase):
         self.addCleanup(self.subscriber.close)
 
     def publish_user_registered(self, envelope: dict[str, object]) -> None:
+        """Con los atributos que pone `usuarios-outbox-publisher` (R-19, ADR-034)."""
         topic = self.publisher.topic_path(self.project, USERS_TOPIC)
         self.publisher.publish(
             topic,
             json.dumps(envelope).encode(),
             ordering_key=str(envelope["aggregate_id"]),
+            event_type=str(envelope["event_type"]),
+            aggregate_type=str(envelope.get("aggregate_type", "user_account")),
         ).result(timeout=30)
 
     def consume(self, until: Callable[[], bool]) -> bool:
@@ -103,6 +107,7 @@ class FreePlanMessagingTest(unittest.TestCase):
             },
         )
         self.assertTrue(subscription.enable_message_ordering)
+        self.assertEqual(subscription.filter, FREE_PLAN_FILTER)
         self.assertEqual(
             subscription.dead_letter_policy.max_delivery_attempts, MAX_DELIVERY_ATTEMPTS
         )
@@ -112,6 +117,32 @@ class FreePlanMessagingTest(unittest.TestCase):
             )
         )
         self.assertEqual(ensure_resources(self.project), self.created, "repetirlo es inofensivo")
+
+    def test_profile_events_never_reach_the_free_plan_subscription(self) -> None:
+        """R-19 (ADR-034, HU005 CA7): el filtro deja fuera los `perfil.*` del tópico."""
+        registered = user_registered()
+        profile = {
+            **user_registered(),
+            "event_type": "perfil.demografico_actualizado.v1",
+            "aggregate_type": "demographic_profile",
+        }
+
+        self.publish_user_registered(profile)
+        self.publish_user_registered(registered)
+        received = self.subscriber.pull(
+            request={
+                "subscription": self.subscriber.subscription_path(
+                    self.project, FREE_PLAN_SUBSCRIPTION
+                ),
+                "max_messages": 10,
+            },
+            timeout=30,
+        ).received_messages
+
+        self.assertEqual(
+            [json.loads(item.message.data)["event_id"] for item in received],
+            [registered["event_id"]],
+        )
 
     def test_setup_refuses_to_run_outside_the_emulator(self) -> None:
         emulator = os.environ.pop("PUBSUB_EMULATOR_HOST")

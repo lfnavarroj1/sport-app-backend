@@ -14,6 +14,14 @@ from users_management.infrastructure.security.access_tokens import (
 )
 
 USERS_TOPIC = "sportapp.usuarios.v1"
+# `usuarios-read-projector` (CMP-001, HU001 refactor y HU005): reintentos y entregas de
+# CMP-001, no copiados de otros dominios.
+PROJECTOR_SUBSCRIPTION = "proyector-usuarios-v1"
+PROJECTOR_DLQ_TOPIC = "sportapp.usuarios.proyeccion.dlq"
+PROJECTOR_DLQ_OPS_SUBSCRIPTION = "sportapp.usuarios.proyeccion.dlq.ops"
+MAX_DELIVERY_ATTEMPTS = 5
+RETRY_MIN_BACKOFF_SECONDS = 10
+RETRY_MAX_BACKOFF_SECONDS = 600
 
 
 def _require_ed25519_private_key(value: SecretStr) -> SecretStr:
@@ -29,6 +37,9 @@ class UsersManagementSettings(ServiceSettings, DatabasePoolSettings):
     database_read_url: PostgresUrl
     # Versión vigente de las políticas que el usuario debe aceptar al registrarse.
     registration_policies_version: Annotated[str, Field(min_length=1, max_length=32)]
+    # HU005 (ADR-034): versión vigente del consentimiento de datos de salud; sin ella la
+    # aplicación no arranca.
+    health_data_consent_version: Annotated[str, Field(min_length=1, max_length=64)]
     # HU003 (aprobado el 2026-10-10): access JWT EdDSA y refresh token rotativo.
     jwt_private_key: SigningKeyPem
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
@@ -66,3 +77,13 @@ class OutboxPublisherSettings(ServiceSettings, DatabasePoolSettings):
     outbox_busy_poll_seconds: float = Field(default=0.25, gt=0, le=5)
     outbox_idle_poll_max_seconds: float = Field(default=2.0, gt=0, le=30)
     worker_id: str = Field(default_factory=socket.gethostname, min_length=1, max_length=128)
+
+
+class ReadProjectorSettings(ServiceSettings, DatabasePoolSettings):
+    """`usuarios-read-projector`: consume `proyector-usuarios-v1` (CMP-001)."""
+
+    database_read_url: PostgresUrl
+    pubsub_project_id: Annotated[str, Field(min_length=1)]
+    projector_subscription: str = PROJECTOR_SUBSCRIPTION
+    # Mensajes en proceso simultáneo por réplica; acota conexiones a PostgreSQL (CMP-001: 5).
+    consumer_max_messages: int = Field(default=5, ge=1, le=100)

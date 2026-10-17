@@ -27,6 +27,7 @@ def claimed(attempts: int = 0) -> ClaimedEvent:
         event_id=uuid4(),
         event_type="usuario.registrado.v1",
         schema_version=1,
+        aggregate_type="user_account",
         aggregate_id=uuid4(),
         aggregate_version=1,
         occurred_at=datetime(2026, 10, 7, 12, 0, tzinfo=UTC),
@@ -61,11 +62,13 @@ class FakePublisher:
     def __init__(self, fail_for: set[UUID] | None = None) -> None:
         self.fail_for = fail_for or set()
         self.sent: list[tuple[dict[str, Any], str]] = []
+        self.aggregate_types: list[str] = []
 
-    def publish(self, envelope: dict[str, Any], ordering_key: str) -> None:
+    def publish(self, envelope: dict[str, Any], ordering_key: str, aggregate_type: str) -> None:
         if UUID(envelope["event_id"]) in self.fail_for:
             raise TimeoutError("pubsub no respondió")
         self.sent.append((envelope, ordering_key))
+        self.aggregate_types.append(aggregate_type)
 
 
 class EnvelopeTest(unittest.TestCase):
@@ -109,6 +112,7 @@ class OutboxRelayTest(unittest.TestCase):
         self.assertEqual(processed, 1)
         self.assertEqual(ordering_key, str(event.aggregate_id))
         self.assertEqual(envelope["event_id"], str(event.event_id))
+        self.assertEqual(publisher.aggregate_types, ["user_account"])
         self.assertEqual(store.published, [event.event_id])
 
     def test_failed_publication_is_rescheduled_and_not_marked(self) -> None:

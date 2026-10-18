@@ -1351,8 +1351,9 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - `T-HU034-MOB`: catálogo, formulario por metadatos, resultado con aviso localizado e historial con caché Room cifrada (`STALE` a las 24 h) y cola `PENDING_SYNC` contra `bff-mobile` 0.8.0 (CA6, CA8 y CA9), y su E2E;
   - HA014: corrida completa (10 min, 30 rps, p95 < 3 s y error < 1 %) **BLOQUEADA** hasta un ambiente representativo; la evidencia debe registrar revisión, dataset, recursos, p50/p95/p99 y error (`load/locust/training_metrics.py`);
   - plataforma: tópico `sportapp.entrenamientos.v1`, `proyector-entrenamientos-v1`, DLQ, IAM, métricas y alertas fuera del emulador, como en HU032; desplegar el proyector compatible antes que el productor de `indicador.calculado.v1` (ADR-030);
-  - consumidor `FREE` operativo en la composición local para la capacidad;
+  - ratificar en ADR-030 las causas `invalid_uuid` e `invalid_cursor`, que no están en su catálogo;
   - purga de `command_idempotency` vencida (30 días), como las demás claves.
+  - Verificado el 2026-10-18 en `sportapp-local`: el consumidor `FREE` activa la capacidad y el recorrido por `bff-mobile` 0.8.0 pasa de punta a punta (CA1–CA5) con el publicador y el proyector de Entrenamientos.
 - HU041:
   - `T-HU041-MOB`: detalle, botón de inscripción con clave conservada en reintentos y «mis inscripciones» con caché Room cifrada (`STALE` 24 h) contra `bff-mobile` 0.7.0, y su E2E;
   - el E2E vertical queda **BLOQUEADO** hasta HU024 (publicación de eventos);

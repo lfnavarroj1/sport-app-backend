@@ -281,6 +281,38 @@ class AuthorizationReader(Protocol):
 
 
 @dataclass(frozen=True)
+class AuthorizedAthleteEntry:
+    """Deportista con autorización vigente hacia el profesional (HU011, CA5). Solo
+    identificadores: el nombre y el correo los agrega el BFF desde Usuarios."""
+
+    athlete_id: UUID
+    authorized_at: datetime
+
+
+@dataclass(frozen=True)
+class AuthorizedAthletePosition:
+    """Posición del cursor: último deportista entregado en el orden `authorized_at`,
+    `athlete_id` descendentes."""
+
+    authorized_at: datetime
+    athlete_id: UUID
+
+
+@dataclass(frozen=True)
+class AuthorizedAthletesQuery:
+    professional_id: UUID
+    after: AuthorizedAthletePosition | None
+    limit: int
+
+
+class AuthorizedAthleteReader(Protocol):
+    def list(self, query: AuthorizedAthletesQuery) -> list[AuthorizedAthleteEntry]:
+        """Hasta `limit` autorizaciones vigentes (`ACTIVE`) del profesional, de la más reciente
+        a la más antigua, estrictamente después de `after`."""
+        ...
+
+
+@dataclass(frozen=True)
 class CommandRecord:
     """Resultado de un comando de HU032 o HU034, con clave aislada por deportista y operación."""
 

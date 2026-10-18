@@ -87,3 +87,10 @@ class ReadProjectorSettings(ServiceSettings, DatabasePoolSettings):
     projector_subscription: str = PROJECTOR_SUBSCRIPTION
     # Mensajes en proceso simultáneo por réplica; acota conexiones a PostgreSQL (CMP-001: 5).
     consumer_max_messages: int = Field(default=5, ge=1, le=100)
+
+
+class DirectoryBackfillSettings(ServiceSettings, DatabasePoolSettings):
+    """`workers.directory_backfill` (HU011): lee nombres de la escritura y completa la lectura."""
+
+    database_write_url: PostgresUrl
+    database_read_url: PostgresUrl

@@ -12,6 +12,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.database import DatabaseReadinessCheck, create_database_engine
 from sportapp_platform.tokens import CachedJwksVerifier
 from training_management.api.authorizations import build_authorizations_router
+from training_management.api.authorized_athletes import build_authorized_athletes_router
 from training_management.api.history import build_history_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
@@ -30,6 +31,7 @@ from training_management.application.commands.training_sessions import (
     StartTrainingSession,
 )
 from training_management.application.queries.active_session import GetActiveTrainingSession
+from training_management.application.queries.authorized_athletes import GetAuthorizedAthletes
 from training_management.application.queries.get_training_plan import GetTrainingPlan
 from training_management.application.queries.planned_sessions import GetPlannedSessions
 from training_management.application.queries.training_history import GetTrainingHistory
@@ -46,6 +48,7 @@ from training_management.infrastructure.integrations.affiliation import (
 from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyActiveSessionReader,
     SqlAlchemyAuthorizationReader,
+    SqlAlchemyAuthorizedAthleteReader,
     SqlAlchemyHistoryReader,
     SqlAlchemyPlannedSessionReader,
 )
@@ -62,7 +65,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.7.0"
+API_VERSION = "0.8.0"
 
 
 def create_app(
@@ -138,6 +141,12 @@ def create_app(
                     reader=SqlAlchemyHistoryReader(reads),
                     authorizations=SqlAlchemyAuthorizationReader(reads),
                     permissions=permissions,
+                ),
+            ),
+            build_authorized_athletes_router(
+                verify_token=verifier.verify,
+                get_authorized_athletes=GetAuthorizedAthletes(
+                    reader=SqlAlchemyAuthorizedAthleteReader(reads), permissions=permissions
                 ),
             ),
             build_training_sessions_router(

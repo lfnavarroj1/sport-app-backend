@@ -19,7 +19,7 @@ HISTORIES = {
     ),
     "read": (
         "training_management.infrastructure.persistence_read:migrations",
-        "0006_training_metric_results",
+        "0007_authorized_athletes_index",
     ),
 }
 

@@ -58,6 +58,16 @@ class TrainingAuthorizationViewRow(ReadBase):
     """Autorización deportista → profesional proyectada (HU011, CA3)."""
 
     __tablename__ = "training_authorization_view"
+    __table_args__ = (
+        # CA5: deportistas vigentes de un profesional en orden `granted_at`, `athlete_id` desc.
+        Index(
+            "ix_training_authorization_view_professional_order",
+            "professional_id",
+            "status",
+            "granted_at",
+            "athlete_id",
+        ),
+    )
 
     athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
     professional_id: Mapped[UUID] = mapped_column(primary_key=True)

@@ -23,6 +23,7 @@ from users_management.application.commands.update_physiological_profile import (
 )
 from users_management.application.queries.get_profile import GetAthleteProfile
 from users_management.application.queries.lookup_user import LookupUserByEmail
+from users_management.application.queries.lookup_users_batch import LookupUsersByIds
 from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
 from users_management.infrastructure.persistence_read.directory import SqlAlchemyUserDirectory
@@ -39,7 +40,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.6.0"
+API_VERSION = "0.7.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -49,7 +50,9 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
     # Consultas (HU010) desde la base de lectura; el motor es perezoso y no afecta readiness.
     read_engine = create_database_engine(settings.database_read_url, settings)
     read_sessions = sessionmaker(read_engine)
-    lookup_user = LookupUserByEmail(SqlAlchemyUserDirectory(read_sessions))
+    directory = SqlAlchemyUserDirectory(read_sessions)
+    lookup_user = LookupUserByEmail(directory)
+    lookup_batch = LookupUsersByIds(directory)
     clock = SystemClock()
     passwords = Argon2idPasswordHasher()
     register_user = RegisterUser(
@@ -114,7 +117,7 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
                 ),
             ),
             build_jwks_router(token_issuer.jwks()),
-            build_lookup_router(lookup_user),
+            build_lookup_router(lookup_user, lookup_batch),
             profile_router,
         ],
         shutdown_hooks=[engine.dispose, read_engine.dispose],

@@ -159,6 +159,25 @@ class UserDirectory(Protocol):
 
 
 @dataclass(frozen=True)
+class UserDisplay:
+    """Nombre y correo de una cuenta activa (HU011, CA5). Datos personales: solo los recibe el
+    BFF para el profesional autorizado; nunca se registran."""
+
+    user_id: UUID
+    full_name: str
+    email: str
+
+    def __repr__(self) -> str:
+        return f"UserDisplay(user_id={self.user_id})"
+
+
+class UserDisplayDirectory(Protocol):
+    def find_active_by_ids(self, user_ids: tuple[UUID, ...]) -> list[UserDisplay]:
+        """Cuentas activas con nombre proyectado entre `user_ids`; las demás se omiten."""
+        ...
+
+
+@dataclass(frozen=True)
 class StoredProfileSection:
     """Sección vigente del perfil (HU005). `document` es el cuerpo de la respuesta del
     comando, incluido `user_id`; es también el payload del evento de la sección."""

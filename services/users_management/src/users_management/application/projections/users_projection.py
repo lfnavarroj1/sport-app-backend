@@ -54,9 +54,10 @@ class ProjectionGap(Exception):
 
 @dataclass(frozen=True)
 class DirectoryEntry:
-    """Fila de `user_directory`: identidad mínima, sin nombre ni credenciales."""
+    """Fila de `user_directory`: identidad mínima y nombre visible (HU011), sin credenciales."""
 
     user_id: UUID
+    full_name: str
     email: str
     actor_type: str
     status: str
@@ -148,6 +149,7 @@ class UsersProjector:
                 inserted = unit_of_work.add_directory_entry(
                     DirectoryEntry(
                         user_id=event.user_id,
+                        full_name=event.full_name,
                         email=event.email,
                         actor_type=event.actor_type,
                         status=event.status,

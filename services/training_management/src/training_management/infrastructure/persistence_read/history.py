@@ -1,5 +1,6 @@
-"""Consultas de lectura de HU011 (historial paginado y autorizaciones proyectadas), HU032
-(sesión activa) y HU035 (sesiones planificadas del calendario)."""
+"""Consultas de lectura de HU011 (historial paginado, autorizaciones proyectadas y deportistas
+vigentes del profesional), HU032 (sesión activa) y HU035 (sesiones planificadas del
+calendario)."""
 
 from uuid import UUID
 
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from training_management.application.ports import (
     ActiveSessionView,
     AuthorizationView,
+    AuthorizedAthleteEntry,
+    AuthorizedAthletesQuery,
     HistoryQuery,
     PlannedSessionEntry,
     PlannedSessionQuery,
@@ -77,6 +80,33 @@ class SqlAlchemyAuthorizationReader:
                 granted_at=row.granted_at,
                 revoked_at=row.revoked_at,
             )
+
+
+class SqlAlchemyAuthorizedAthleteReader:
+    """HU011 (CA5): autorizaciones vigentes del profesional, paginadas por keyset."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def list(self, query: AuthorizedAthletesQuery) -> list[AuthorizedAthleteEntry]:
+        row = TrainingAuthorizationViewRow
+        statement = select(row.athlete_id, row.granted_at).where(
+            row.professional_id == query.professional_id, row.status == "ACTIVE"
+        )
+        if query.after is not None:
+            # Keyset: estrictamente después del último entregado en el orden descendente.
+            statement = statement.where(
+                tuple_(row.granted_at, row.athlete_id)
+                < tuple_(query.after.authorized_at, query.after.athlete_id)
+            )
+        statement = statement.order_by(row.granted_at.desc(), row.athlete_id.desc()).limit(
+            query.limit
+        )
+        with self._session_factory() as session:
+            return [
+                AuthorizedAthleteEntry(athlete_id=athlete_id, authorized_at=granted_at)
+                for athlete_id, granted_at in session.execute(statement)
+            ]
 
 
 class SqlAlchemyActiveSessionReader:

@@ -41,6 +41,18 @@ REPLAYED_HEADER = "Idempotent-Replayed"
 PERMISSION_REQUIRED = "permission_required"
 PROFESSIONAL_NOT_FOUND = "professional_not_found"
 ATHLETE_AUTHORIZATION_REQUIRED = "athlete_authorization_required"
+# Motivos estables de `details[].issue` en `training_plan_invalid`, iguales a los que publica
+# `training-management` 0.7.0 (solicitud de coordinación 1 de HU010). El BFF no los valida:
+# reenvía el `422` del servicio; la lista solo documenta el contrato para la web.
+TRAINING_PLAN_RULE_ISSUES = (
+    "invalid_length",
+    "invalid_count",
+    "end_date_before_start_date",
+    "period_too_long",
+    "outside_plan_period",
+    "out_of_range",
+    "too_many_sessions_per_day",
+)
 
 _logger = logging.getLogger("sportapp.bff")
 
@@ -321,8 +333,11 @@ def build_training_router(
             },
             HTTPStatus.UNPROCESSABLE_ENTITY.value: {
                 "model": ErrorResponse,
-                "description": "`validation_error` o `training_plan_invalid` (reglas en "
-                "`details`).",
+                "description": "`validation_error` (forma del cuerpo) o `training_plan_invalid` "
+                "(reglas de coherencia de CA3) con `details[{field, issue}]`. Motivos estables de "
+                "`issue` en `training_plan_invalid`: "
+                + ", ".join(f"`{issue}`" for issue in TRAINING_PLAN_RULE_ISSUES)
+                + ".",
             },
         },
     )

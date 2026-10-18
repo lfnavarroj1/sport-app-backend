@@ -15,6 +15,7 @@ from training_management.domain.authorizations.model import (
 from training_management.domain.plans.errors import InvalidTrainingPlan, Violation
 from training_management.domain.plans.events import plan_created_payload
 from training_management.domain.plans.model import (
+    PLAN_RULE_ISSUES,
     PlannedSession,
     PlanStatus,
     Sport,
@@ -55,6 +56,31 @@ def violations(**overrides: Any) -> set[Violation]:
     with unittest.TestCase().assertRaises(InvalidTrainingPlan) as raised:
         create(**overrides)
     return set(raised.exception.violations)
+
+
+class PublishedRuleIssuesTest(unittest.TestCase):
+    """Solicitud de coordinación 1 de HU010: los motivos de `training_plan_invalid` que produce
+    el dominio son exactamente los publicados en el OpenAPI (`PLAN_RULE_ISSUES`)."""
+
+    def test_every_rule_produces_a_published_issue(self) -> None:
+        cases: dict[str, dict[str, Any]] = {
+            "invalid_length": {"title": "x" * 121},
+            "invalid_count": {"objectives": []},
+            "end_date_before_start_date": {"end_date": START - timedelta(days=1)},
+            "period_too_long": {"end_date": START + timedelta(weeks=52)},
+            "outside_plan_period": {"sessions": [planned(40)]},
+            "out_of_range": {"sessions": [planned(0, intensity_rpe=11)]},
+            "too_many_sessions_per_day": {"sessions": [planned(0), planned(0), planned(0)]},
+        }
+        produced: set[str] = set()
+        for issue, overrides in cases.items():
+            with self.subTest(issue=issue):
+                issues = {violation.issue for violation in violations(**overrides)}
+                self.assertIn(issue, issues)
+                produced |= issues
+
+        self.assertEqual(produced, set(PLAN_RULE_ISSUES))
+        self.assertEqual(len(PLAN_RULE_ISSUES), len(set(PLAN_RULE_ISSUES)))
 
 
 class TrainingPlanTest(unittest.TestCase):

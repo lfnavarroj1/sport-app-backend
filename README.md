@@ -32,7 +32,7 @@ La arquitectura y las decisiones viven en la documentación central (`documentac
   - [14. Detener, reiniciar y limpiar](#14-detener-reiniciar-y-limpiar)
   - [15. Glosario](#15-glosario)
   - [Estado de verificación de esta guía](#estado-de-verificación-de-esta-guía)
-- [Integración continua](#integración-continua)
+- [Integración continua, release y despliegue](#integración-continua-release-y-despliegue)
 - [Documentación relacionada](#documentación-relacionada)
 - [Pendiente de decisión (no implementado)](#pendiente-de-decisión-no-implementado)
 
@@ -145,7 +145,10 @@ deploy/docker/Dockerfile       imagen única parametrizada por componente, usuar
 deploy/k8s/base, overlays/local  Kustomize: Deployments, Services, Jobs de migración, PostgreSQL local
 load/                          k6 y Locust
 scripts/task.py                comandos estables (local y CI)
-.github/workflows/             ci.yml y deliver-development.yml
+scripts/release.py             release: verify, k8s-check, images, push, manifest
+.github/workflows/             ci.yml y release-validation.yml (sin acceso a GCP)
+cloudbuild.release.yaml        construcción y publicación en Cloud Build (iniciada desde GCP)
+deploy/cloudbuild/             uv fijado por hash para Cloud Build
 .githooks/pre-commit           validación rápida local
 ```
 
@@ -1302,18 +1305,126 @@ Luego vuelva al paso 11.1.
 | Manifiestos del paso 11 | Validados sin aplicarlos: 34 recursos válidos contra el esquema de Kubernetes 1.33 (kubeconform estricto). |
 | Pasos 11 a 14 en el clúster | **Pendiente de la primera ejecución.** Si un resultado difiere de lo descrito, comparta el diagnóstico de la sección 13 para corregir la guía. |
 
-## Integración continua
+## Integración continua, release y despliegue
+
+Cuatro responsables, sin solaparse:
+
+| Quién | Qué hace | Credenciales de GCP |
+| --- | --- | --- |
+| **GitHub Actions** (`ci.yml`, `release-validation.yml`) | Valida: formato, lint, tipos, secretos, seguridad, pruebas y construcción local de imágenes. Nunca publica ni despliega. | **Ninguna**: sin `google-github-actions/auth`, sin `id-token: write`, sin secretos ni variables de GCP. No ejecuta `gcloud`, `kubectl`, Terraform ni OpenTofu. |
+| **Cloud Build** (`cloudbuild.release.yaml`) | Iniciado desde GCP por un trigger de tag SemVer: valida, prueba, construye una vez, publica en Artifact Registry y escribe `backend-release.json`. | Las de su propia cuenta de construcción, administrada en GCP. Este repositorio no aporta ninguna. |
+| **`sport-app-platform` / Cloud Deploy** | Promueve los digests de `backend-release.json` a producción, con aprobación obligatoria. | Las suyas; fuera de este repositorio. |
+| **Terraform** (en `sport-app-platform`) | Infraestructura, aplicada manualmente por el propietario. | Nunca se ejecuta desde este repositorio. |
+
+### GitHub Actions (sin GCP)
 
 `.github/workflows/ci.yml`:
 
 | Evento | Checks |
 | --- | --- |
-| push a `feature/**`, `fix/**`, `chore/**`, `release/**`, `hotfix/**` | `quality`, `unit`, `secrets` |
-| pull request a `develop` o `main` | los anteriores más `integration-coverage` (PostgreSQL real, emulador de Pub/Sub, suites de integración, contrato y componente, umbral 80 %), `security` e `image (<componente>)` |
+| push a `feature/**`, `fix/**`, `chore/**`, `release/**`, `hotfix/**` | `quality` (incluye el render de `deploy/k8s` con kustomize fijado por digest, sin `kubectl`), `unit`, `secrets` |
+| pull request a `develop` o `main` | los anteriores más `integration-coverage` (PostgreSQL real, emulador de Pub/Sub, suites de integración, contrato y componente, umbral 80 %), `security` e `image (<componente>)` (construye sin publicar) |
 
-`.github/workflows/deliver-development.yml` (merge a `develop`) está **bloqueado** hasta ratificar GCP y Workload Identity Federation. Sin las variables del Environment `development` informa el bloqueo y no publica nada. El job `deploy` falla de forma explícita hasta definir el destino.
+`.github/workflows/release-validation.yml` (`release: types: [published]`): comprueba que el tag sea `vX.Y.Z` o `vX.Y.Z-pre` y que su commit pertenezca a `main`, repite calidad, seguridad, secretos y las cuatro suites con el umbral de cobertura, construye y prueba las ocho imágenes en el runner **sin publicarlas** y deja el artefacto `backend-validation-<tag>` (`backend-validation.json`: versión, commit, contratos, componentes con su `imageId` local y resultado de pruebas).
 
-Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves JSON. Ningún workflow fusiona ramas.
+Un push o un merge a `develop` o `main` no publica ni despliega. `deliver-development.yml` se retiró el 2026-10-18: GCP no es un ambiente automático de desarrollo.
+
+Las acciones están fijadas a SHA completo, con permisos mínimos (`contents: read`). Ningún workflow fusiona ramas.
+
+### Cloud Build: construir y publicar (`cloudbuild.release.yaml`)
+
+Pasos, en orden; cualquier fallo detiene el build:
+
+1. `verify`: sustituciones obligatorias presentes, tag SemVer, tag → commit y commit dentro de `main`, contra una copia temporal sin archivos del repositorio (`scripts/release.py verify`).
+2. `secrets`: Gitleaks sobre el árbol fuente.
+3. `test-services`: PostgreSQL y el emulador de Pub/Sub en la red `cloudbuild`, con imágenes fijadas por digest.
+4. `install`: `uv` 0.12.23 instalado con `--require-hashes` (`deploy/cloudbuild/uv-requirements.txt`) y el entorno desde `uv.lock`.
+5. `quality`: `lock-check`, `format-check`, `lint`, `typecheck` y `security`.
+6. `tests`: suites `unit`, `integration`, `contract` y `component`, más `coverage` con el umbral de `pyproject.toml` (80 %).
+7. `k8s-render` y 8. `k8s-check`: render de `deploy/k8s/base` y del overlay local con kustomize, sin `kubectl` ni clúster; cada componente aparece y ninguna imagen es mutable.
+9. `images`: cada componente se construye **una sola vez**, se prueba (importa su aplicación dentro de la imagen, sin red) y recibe las etiquetas `<tag>` y `<commit>`.
+10. `push`: publica exactamente esas imágenes. Si una etiqueta ya existe en el registro, falla en vez de sobrescribirla. Resuelve el digest `sha256` de cada una.
+11. `manifest`: escribe `dist/backend-release.json`. Cloud Build lo sube a `gs://<_RELEASE_BUCKET>/sport-app-backend/<tag>/` solo si todos los pasos terminaron bien.
+
+`cloudbuild.release.yaml` **no** ejecuta Terraform, `gcloud run deploy/update`, `kubectl` ni credenciales de GKE; no crea releases ni rollouts de Cloud Deploy y no cambia IAM, APIs ni infraestructura. Las imágenes de todos los pasos están fijadas por digest y no se usa `latest`.
+
+Sustituciones:
+
+| Sustitución | Obligatoria | Valor |
+| --- | --- | --- |
+| `_RELEASE_TAG` | sí (por defecto `${TAG_NAME}` del trigger) | `vX.Y.Z` o `vX.Y.Z-pre` |
+| `_RELEASE_COMMIT` | sí (por defecto `${COMMIT_SHA}`) | SHA completo del commit etiquetado |
+| `_AR_LOCATION` | sí | región del repositorio de Artifact Registry (p. ej., `us-central1`) |
+| `_AR_PROJECT` | no (por defecto `${PROJECT_ID}`) | proyecto del repositorio de Artifact Registry |
+| `_AR_REPOSITORY` | sí | repositorio Docker de Artifact Registry |
+| `_RELEASE_BUCKET` | sí | bucket de salida del manifiesto, aprovisionado previamente |
+| `_SOURCE_REPOSITORY_URL` | no (por defecto el repositorio público) | URL desde la que `verify` comprueba tag y `main` |
+
+Las imágenes quedan como `<_AR_LOCATION>-docker.pkg.dev/<_AR_PROJECT>/<_AR_REPOSITORY>/<componente>`. El build usa `options.logging: CLOUD_LOGGING_ONLY` (necesario con una cuenta de servicio propia) y `substitutionOption: MUST_MATCH`.
+
+### `backend-release.json`
+
+Estructura (los valores entre `<>` son ilustrativos):
+
+```text
+{
+  "schemaVersion": 1,
+  "kind": "backend-release",
+  "repository": "https://github.com/lfnavarroj1/sport-app-backend",
+  "version": "<X.Y.Z>",
+  "tag": "<vX.Y.Z>",
+  "commit": "<sha de 40 caracteres>",
+  "contractVersion": "<info.version de bff-web>",
+  "contracts": {"bff-web": "<versión>", "bff-mobile": "<versión>", "...": "los ocho componentes"},
+  "builtAt": "<AAAA-MM-DDTHH:MM:SSZ>",
+  "build": {"system": "cloud-build", "id": "<BUILD_ID>"},
+  "images": {
+    "users-management": "us-central1-docker.pkg.dev/<proyecto>/<repositorio>/users-management@sha256:<64 hex>",
+    "...": "una URI por digest para cada uno de los ocho componentes"
+  },
+  "testResults": {
+    "status": "passed",
+    "suites": {"unit": {"status": "passed", "tests": <n>, "skipped": <n>}, "...": "..."},
+    "coverage": {"line": <porcentaje>, "branch": <porcentaje>, "threshold": 80.0}
+  }
+}
+```
+
+- `contractVersion` es la versión del OpenAPI de `bff-web`, la que el frontend compara con su `expectedBffContract` (decisión del responsable, 2026-10-18); `contracts` trae la de los ocho componentes.
+- `images` solo admite URI por digest: el manifiesto se rechaza si falta un componente o si una URI lleva una etiqueta. Las claves y el formato coinciden con `backendArtifacts` de `schemas/release-manifest.schema.json` de la plataforma.
+- No contiene secretos ni etiquetas mutables.
+
+### Lo que debe crear `sport-app-platform` (manual, fuera de este repositorio)
+
+1. **Trigger de Cloud Build** sobre este repositorio, por tag con la expresión `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`, archivo `cloudbuild.release.yaml` y las sustituciones de la tabla.
+2. **Cuenta de construcción exclusiva del backend**, asignada al trigger, con solo:
+   - `roles/artifactregistry.writer` sobre **el** repositorio de Artifact Registry del backend (a nivel de repositorio, no de proyecto);
+   - `roles/storage.objectCreator` sobre el bucket de salida, condicionado al prefijo `sport-app-backend/` (o un bucket dedicado);
+   - `roles/logging.logWriter` para los registros del build.
+3. **Bucket de salida** del manifiesto, con versionado o retención para que un `backend-release.json` publicado no se reemplace.
+4. **Proceso de promoción** (Cloud Deploy) que lea `backend-release.json`, valide el esquema y los digests y despliegue esos mismos digests: Cloud Run para `bff-web` y `bff-mobile`, GKE para el resto. Sin recompilar.
+5. **Aprobación obligatoria** antes de producción (`requireApproval` en el destino de Cloud Deploy).
+6. Recomendado: etiquetas inmutables en el repositorio de Artifact Registry, para que ni un reintento manual pueda mover `<tag>` o `<commit>`.
+
+La cuenta de construcción **no** debe tener Owner ni Editor, permisos de IAM, de red, de Cloud SQL ni para crear infraestructura. Tampoco debe poder impersonar `tf-apply-production` ni desplegar directamente en GKE o Cloud Run.
+
+### Publicar una release
+
+1. Integrar en `main` (PR de `release/**` o `hotfix/**`).
+2. Crear la release en GitHub con un tag SemVer sobre ese commit, por ejemplo `gh release create v1.2.0 --target main --title v1.2.0`.
+3. GitHub ejecuta `release-validation.yml`; su artefacto `backend-validation-v1.2.0` es la evidencia de GitHub.
+4. El trigger de Cloud Build (creado por la plataforma) se activa con el mismo tag, publica las imágenes y escribe `backend-release.json`.
+5. `sport-app-platform` promueve con aprobación. Este repositorio no despliega.
+
+Validación local de los mismos pasos, sin GCP:
+
+```powershell
+py -3.13 -m uv run python scripts/task.py k8s-render --use-example --engine docker
+py -3.13 scripts/release.py k8s-check reports/k8s/base.yaml
+py -3.13 scripts/release.py images --tag v0.0.0-local --commit (git rev-parse HEAD) --plan dist/images-plan.json
+```
+
+`release.py images` sin `--registry` solo construye y prueba en local, y `release.py push` rechaza un plan sin registro.
 
 ## Documentación relacionada
 
@@ -1323,8 +1434,8 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
 ## Pendiente de decisión (no implementado)
 
 - Ratificar ADR-019. Configurar los rulesets de `develop`/`main`, `CODEOWNERS` y aprobadores. Hoy solo existe la rama `master`.
-- GCP: proyectos, Workload Identity Provider, Artifact Registry, destino GKE/Cloud Run y Terraform (ADR-017).
-- Manifiesto de release, workflows de staging/producción, SBOM y escaneo de imágenes.
+- GCP (en `sport-app-platform`, aplicado manualmente): trigger y cuenta de Cloud Build del backend, repositorio de Artifact Registry, bucket del manifiesto y promoción con Cloud Deploy. GitHub no recibe credenciales de GCP (decisión del 2026-10-18).
+- Promoción con Cloud Deploy, trigger y cuenta de Cloud Build, bucket de salida (todo en `sport-app-platform`); SBOM, procedencia y escaneo de imágenes antes de publicar.
 - Contrato compartido de errores, sobre de eventos y primeros esquemas. Tópicos, suscripciones y DLQ.
 - Proyector de lectura de usuarios (`usuarios-read-projector`): integrado en `develop` con HU005 (PR #21, `VERIFICADO_EN_CI`); falta desplegarlo en la composición de la plataforma y en GCP (suscripción `proyector-usuarios-v1`, DLQ, IAM) y ratificar su SLA de frescura. Los workers CQRS de eventos existen desde HU021 (CMP-004).
 - HU001:

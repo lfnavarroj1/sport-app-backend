@@ -16,7 +16,13 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from components import COMPONENTS, TEST_PACKAGES, by_name, new_signing_key_pem
+from components import (
+    COMPONENTS,
+    TEST_PACKAGES,
+    build_command,
+    by_name,
+    new_signing_key_pem,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
@@ -45,6 +51,12 @@ PUBSUB_IMAGE = (
 POSTGRES_IMAGE = (
     "postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
 )
+# kustomize sin kubectl ni clúster (workflows de GitHub y Cloud Build).
+KUSTOMIZE_IMAGE = (
+    "registry.k8s.io/kustomize/kustomize@sha256:"
+    "937e7832dc0b09288b1398399dadb97382a27bbc35bee8fdcac47c7de4fff14d"
+)
+BASE_MANIFESTS = ROOT / "deploy" / "k8s" / "base"
 GITLEAKS_IMAGE = (
     "ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:"
     "c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
@@ -215,27 +227,13 @@ def build(arguments: argparse.Namespace) -> None:
     revision = arguments.revision or "local"
     for component in selected:
         run(
-            [
-                "docker",
-                "build",
-                "--file",
-                str(DOCKERFILE),
-                "--build-arg",
-                f"PACKAGE={component.name}",
-                "--build-arg",
-                f"APP_FACTORY={component.factory}",
-                "--build-arg",
-                f"SERVICE_VERSION={arguments.version}",
-                "--label",
-                f"org.opencontainers.image.revision={revision}",
-                "--label",
-                f"org.opencontainers.image.version={arguments.version}",
-                "--label",
-                f"org.opencontainers.image.title={component.name}",
-                "--tag",
-                f"{component.image}:{arguments.tag}",
-                ".",
-            ]
+            build_command(
+                component,
+                dockerfile=str(DOCKERFILE),
+                references=(f"{component.image}:{arguments.tag}",),
+                version=arguments.version,
+                revision=revision,
+            )
         )
 
 
@@ -398,8 +396,33 @@ def k8s_secrets(_: argparse.Namespace) -> None:
         )
 
 
+def _kustomize(source: Path, output: Path, engine: str) -> None:
+    if engine == "kubectl":
+        run(["kubectl", "kustomize", str(source), "--output", str(output)])
+        return
+    # `--engine docker`: el kustomize fijado por digest; nunca contacta un clúster.
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "-v",
+            f"{ROOT}:/workspace",
+            "-w",
+            "/workspace",
+            KUSTOMIZE_IMAGE,
+            "build",
+            source.relative_to(ROOT).as_posix(),
+            "-o",
+            output.relative_to(ROOT).as_posix(),
+        ]
+    )
+
+
 def k8s_render(arguments: argparse.Namespace) -> None:
-    """Renderiza el overlay local sin aplicarlo a ningún clúster."""
+    """Renderiza `deploy/k8s/base` y el overlay local sin aplicarlos a ningún clúster."""
     created_from_example: list[Path] = []
     try:
         for secret_file, example in LOCAL_SECRET_FILES:
@@ -414,7 +437,9 @@ def k8s_render(arguments: argparse.Namespace) -> None:
             created_from_example.append(secret_file)
         output = REPORTS / "k8s" / "local.yaml"
         output.parent.mkdir(parents=True, exist_ok=True)
-        run(["kubectl", "kustomize", str(LOCAL_OVERLAY), "--output", str(output)])
+        _kustomize(BASE_MANIFESTS, REPORTS / "k8s" / "base.yaml", arguments.engine)
+        _kustomize(LOCAL_OVERLAY, output, arguments.engine)
+        print(REPORTS / "k8s" / "base.yaml")
         print(output)
     finally:
         for secret_file in created_from_example:
@@ -486,8 +511,13 @@ def main() -> None:
     command(
         "k8s-secrets", k8s_secrets, "Genera contraseñas y clave de firma locales para Kubernetes"
     )
-    command("k8s-render", k8s_render, "Renderiza el overlay Kustomize local").add_argument(
-        "--use-example", action="store_true"
+    render_parser = command("k8s-render", k8s_render, "Renderiza base y el overlay local")
+    render_parser.add_argument("--use-example", action="store_true")
+    render_parser.add_argument(
+        "--engine",
+        choices=("kubectl", "docker"),
+        default="kubectl",
+        help="docker: kustomize fijado por digest (CI); kubectl: el instalado (local)",
     )
     command("ci-fast", ci_fast, "Calidad + unitarias (push / pre-commit)")
     command("ci-full", ci_full, "Puerta completa de pull request")

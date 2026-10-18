@@ -1,0 +1,212 @@
+# Release del backend en Cloud Build: construye y publica artefactos inmutables.
+#
+# Lo ejecuta un trigger por tag SemVer creado y administrado desde sport-app-platform, con
+# una cuenta de construcción exclusiva del backend. Este repositorio no aporta credenciales.
+# Alcance: validar, probar, construir una vez, publicar en Artifact Registry y escribir
+# dist/backend-release.json en el bucket de salida. NO despliega: no ejecuta Terraform,
+# gcloud run, kubectl ni Cloud Deploy, y no cambia IAM ni infraestructura. La promoción a
+# producción la hace sport-app-platform (Cloud Deploy) consumiendo backend-release.json.
+#
+# Todos los pasos invocan scripts/task.py o scripts/release.py; las imágenes de los pasos
+# están fijadas por digest.
+
+substitutions:
+  # Del trigger por tag (variables integradas de Cloud Build); se pueden sobrescribir.
+  _RELEASE_TAG: ${TAG_NAME}
+  _RELEASE_COMMIT: ${COMMIT_SHA}
+  # Obligatorias: las define el trigger de sport-app-platform.
+  _AR_LOCATION: ""
+  _AR_PROJECT: ${PROJECT_ID}
+  _AR_REPOSITORY: ""
+  _RELEASE_BUCKET: ""
+  _SOURCE_REPOSITORY_URL: https://github.com/lfnavarroj1/sport-app-backend
+
+options:
+  dynamicSubstitutions: true
+  substitutionOption: MUST_MATCH
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  env:
+    - UV_PROJECT_ENVIRONMENT=/tools/venv
+    - UV_CACHE_DIR=/tools/cache
+    - UV_PYTHON_DOWNLOADS=never
+    - UV_LINK_MODE=copy
+    - UV_FROZEN=1
+    - PYTHONIOENCODING=utf-8
+  # Herramientas fuera de /workspace: Ruff y Gitleaks no las analizan.
+  volumes:
+    - name: tools
+      path: /tools
+
+timeout: 7200s
+
+steps:
+  # 1. Sustituciones obligatorias, tag SemVer, tag → commit y commit dentro de main
+  #    (contra una copia temporal sin archivos del repositorio público).
+  - id: verify
+    name: gcr.io/cloud-builders/docker@sha256:f772ab459889c67835bd959c2b9e9351f2c0752c4f989710ecda20c229f0733e
+    entrypoint: bash
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        for name in _AR_LOCATION _AR_REPOSITORY _RELEASE_BUCKET _RELEASE_TAG _RELEASE_COMMIT; do
+          case "$$name" in
+            _AR_LOCATION) value="${_AR_LOCATION}" ;;
+            _AR_REPOSITORY) value="${_AR_REPOSITORY}" ;;
+            _RELEASE_BUCKET) value="${_RELEASE_BUCKET}" ;;
+            _RELEASE_TAG) value="${_RELEASE_TAG}" ;;
+            _RELEASE_COMMIT) value="${_RELEASE_COMMIT}" ;;
+          esac
+          if [ -z "$$value" ]; then echo "release: falta la sustitución $$name" >&2; exit 1; fi
+        done
+        python3 scripts/release.py verify --tag "${_RELEASE_TAG}" --commit "${_RELEASE_COMMIT}" \
+          --repository-url "${_SOURCE_REPOSITORY_URL}" --env-file dist/release.env
+
+  # 2. Secretos en el árbol fuente (antes de crear entornos o artefactos).
+  - id: secrets
+    name: ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+    args: [dir, /workspace, --config, /workspace/.gitleaks.toml, --redact, --no-banner]
+
+  # 3. Servicios de prueba en la red de Cloud Build y cliente docker para los pasos Python.
+  - id: test-services
+    name: gcr.io/cloud-builders/docker@sha256:f772ab459889c67835bd959c2b9e9351f2c0752c4f989710ecda20c229f0733e
+    entrypoint: bash
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        mkdir -p /tools/bin
+        cp "$$(command -v docker)" /tools/bin/docker
+        docker run --detach --rm --network cloudbuild --name sportapp-test-postgres \
+          --env POSTGRES_HOST_AUTH_METHOD=trust \
+          postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        docker run --detach --rm --network cloudbuild --name sportapp-pubsub-emulator \
+          gcr.io/google.com/cloudsdktool/google-cloud-cli:588.0.0-emulators@sha256:be2f0e582a94c9e06e7a384fe2b3b39d590eeb8da65a110eda991598c100fe80 \
+          gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
+
+  # 4. uv fijado por hash y entorno del proyecto desde uv.lock.
+  - id: install
+    name: python:3.13-slim@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c
+    entrypoint: bash
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        pip install --quiet --disable-pip-version-check --no-deps --require-hashes \
+          --target /tools/uv -r deploy/cloudbuild/uv-requirements.txt
+        /tools/uv/bin/uv sync --frozen
+
+  # 5. Calidad y seguridad: lock-check, format-check, lint, typecheck, Bandit y pip-audit.
+  - id: quality
+    name: python:3.13-slim@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c
+    entrypoint: bash
+    env:
+      - UV=/tools/uv/bin/uv
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        for command in lock-check format-check lint typecheck security; do
+          /tools/uv/bin/uv run python scripts/task.py "$$command"
+        done
+
+  # 6. Unitarias, integración, contrato y componente con PostgreSQL y el emulador; umbral
+  #    de cobertura de pyproject.toml. Los registros alimentan el manifiesto.
+  - id: tests
+    name: python:3.13-slim@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c
+    entrypoint: bash
+    env:
+      - UV=/tools/uv/bin/uv
+      - TEST_DATABASE_URL=postgresql+psycopg://postgres@sportapp-test-postgres:5432/postgres
+      - PUBSUB_EMULATOR_HOST=sportapp-pubsub-emulator:8085
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        python scripts/release.py wait-tcp sportapp-test-postgres:5432 sportapp-pubsub-emulator:8085
+        /tools/uv/bin/uv run python scripts/task.py coverage-erase
+        for suite in unit integration contract component; do
+          /tools/uv/bin/uv run python scripts/task.py test "$$suite" 2>&1 | tee "dist/tests-$$suite.log"
+        done
+        /tools/uv/bin/uv run python scripts/task.py coverage
+
+  # 7. Render de los manifiestos Kubernetes con kustomize (sin kubectl ni clúster).
+  - id: k8s-render
+    name: registry.k8s.io/kustomize/kustomize@sha256:937e7832dc0b09288b1398399dadb97382a27bbc35bee8fdcac47c7de4fff14d
+    entrypoint: sh
+    args:
+      - -euc
+      - |
+        overlay=deploy/k8s/overlays/local
+        cp "$$overlay/secrets.local.env.example" "$$overlay/secrets.local.env"
+        cp "$$overlay/jwt-private-key.local.pem.example" "$$overlay/jwt-private-key.local.pem"
+        mkdir -p dist/k8s
+        /app/kustomize build deploy/k8s/base -o dist/k8s/base.yaml
+        /app/kustomize build "$$overlay" -o dist/k8s/local.yaml
+        rm "$$overlay/secrets.local.env" "$$overlay/jwt-private-key.local.pem"
+
+  # 8. Cada componente con carga en el render y ninguna imagen mutable.
+  - id: k8s-check
+    name: python:3.13-slim@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c
+    entrypoint: bash
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        python scripts/release.py k8s-check dist/k8s/base.yaml
+        python scripts/release.py k8s-check dist/k8s/local.yaml --allowed-tag local
+
+  # 9. Construir una sola vez cada imagen, probarla y etiquetarla con versión y commit.
+  - id: images
+    name: python:3.13-slim@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c
+    entrypoint: bash
+    env:
+      - PATH=/tools/bin:/usr/local/bin:/usr/bin:/bin
+      - DOCKER_BUILDKIT=1
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        python scripts/release.py images --tag "${_RELEASE_TAG}" --commit "${_RELEASE_COMMIT}" \
+          --registry "${_AR_LOCATION}-docker.pkg.dev/${_AR_PROJECT}/${_AR_REPOSITORY}" \
+          --plan dist/images-plan.json
+
+  # 10. Publicar exactamente esas imágenes (sin sobrescribir etiquetas) y resolver digests.
+  - id: push
+    name: gcr.io/cloud-builders/docker@sha256:f772ab459889c67835bd959c2b9e9351f2c0752c4f989710ecda20c229f0733e
+    entrypoint: python3
+    args: [scripts/release.py, push, --plan, dist/images-plan.json, --digests, dist/image-digests.json]
+
+  # 11. Manifiesto legible por máquinas: versión, commit, contratos, digests y pruebas.
+  - id: manifest
+    name: python:3.13-slim@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c
+    entrypoint: bash
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        python scripts/release.py manifest --mode publication \
+          --plan dist/images-plan.json --digests dist/image-digests.json \
+          --coverage reports/coverage/coverage.xml \
+          --test-log unit=dist/tests-unit.log --test-log integration=dist/tests-integration.log \
+          --test-log contract=dist/tests-contract.log --test-log component=dist/tests-component.log \
+          --build-system cloud-build --build-id "${BUILD_ID}" \
+          --output dist/backend-release.json
+        cat dist/backend-release.json
+
+# Salida: el bucket lo aprovisiona sport-app-platform; la cuenta de construcción solo puede
+# escribir en este prefijo. Cloud Build sube el archivo solo si todos los pasos terminaron.
+artifacts:
+  objects:
+    location: gs://${_RELEASE_BUCKET}/sport-app-backend/${_RELEASE_TAG}/
+    paths:
+      - dist/backend-release.json

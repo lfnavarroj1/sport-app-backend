@@ -4,6 +4,7 @@ Solo usa la biblioteca estándar al importarse: la CI ejecuta `task.py` con
 `uv run --no-project` (jobs `secrets` e `image`), sin las dependencias del proyecto.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 CONTRACT_DATABASE_URL = "postgresql+psycopg://contract@127.0.0.1:1/contract"
@@ -32,6 +33,42 @@ class Component:
     @property
     def image(self) -> str:
         return f"sportapp/{self.name}"
+
+
+def build_command(
+    component: Component,
+    *,
+    dockerfile: str,
+    references: Sequence[str],
+    version: str,
+    revision: str,
+) -> list[str]:
+    """`docker build` de un componente: lo usan `task.py build` y `release.py images`.
+
+    Una sola construcción por componente; `references` son todas las etiquetas que recibe la
+    misma imagen (p. ej., la versión y el commit).
+    """
+    command = [
+        "docker",
+        "build",
+        "--file",
+        dockerfile,
+        "--build-arg",
+        f"PACKAGE={component.name}",
+        "--build-arg",
+        f"APP_FACTORY={component.factory}",
+        "--build-arg",
+        f"SERVICE_VERSION={version}",
+        "--label",
+        f"org.opencontainers.image.revision={revision}",
+        "--label",
+        f"org.opencontainers.image.version={version}",
+        "--label",
+        f"org.opencontainers.image.title={component.name}",
+    ]
+    for reference in references:
+        command += ["--tag", reference]
+    return [*command, "."]
 
 
 _CQRS = {
@@ -121,7 +158,12 @@ COMPONENTS = (
 )
 
 # Paquetes con pruebas propias (componentes desplegables + librería técnica).
-TEST_PACKAGES = ("libs/sportapp_platform", *(component.directory for component in COMPONENTS))
+TEST_PACKAGES = (
+    "libs/sportapp_platform",
+    *(component.directory for component in COMPONENTS),
+    # Comandos de release (`scripts/release.py`); no son código de producción.
+    "scripts",
+)
 
 
 def by_name(name: str) -> Component:

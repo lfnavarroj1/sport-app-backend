@@ -8,6 +8,8 @@ description = "Directorios generados o de terceros; no contienen código del rep
 paths = [
     '''(^|/)\.venv/''',
     '''(^|/)reports/''',
+    # Salidas de scripts/release.py (renders, registros de prueba y manifiestos); ignoradas por Git.
+    '''(^|/)dist/''',
     '''(^|/)\.(mypy|ruff)_cache/''',
     '''(^|/)\.git/''',
     '''uv\.lock$''',

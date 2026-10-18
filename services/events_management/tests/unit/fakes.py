@@ -9,6 +9,7 @@ from uuid import UUID
 
 from events_management.application.errors import IdempotencyKeyConflict
 from events_management.application.ports import (
+    ConcurrentEventView,
     DuplicateDelivery,
     IdempotencyRecord,
     OutboxMessage,
@@ -117,6 +118,7 @@ class InMemoryProjectionUnitOfWork:
         self.store = store
         self.before_commit = before_commit
         self._views: list[SportEvent] = []
+        self._replaced: list[SportEvent] = []
         self._processed: list[tuple[UUID, UUID]] = []
         self._registrations: list[EventRegistration] = []
 
@@ -124,7 +126,7 @@ class InMemoryProjectionUnitOfWork:
         return self
 
     def __exit__(self, *_: Any) -> None:
-        self._views, self._processed, self._registrations = [], [], []
+        self._views, self._replaced, self._processed, self._registrations = [], [], [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -135,6 +137,9 @@ class InMemoryProjectionUnitOfWork:
 
     def add_event_view(self, event: SportEvent, projected_at: datetime) -> None:
         self._views.append(event)
+
+    def replace_event_view(self, event: SportEvent, projected_at: datetime) -> None:
+        self._replaced.append(event)
 
     def registration_version(self, registration_id: UUID) -> int | None:
         item = self.store.registrations.get(registration_id)
@@ -154,11 +159,12 @@ class InMemoryProjectionUnitOfWork:
         if self.before_commit is not None:
             hook, self.before_commit = self.before_commit, None
             hook()
-        if any(message_id in self.store.processed for message_id, _ in self._processed) or any(
-            view.event_id in self.store.views for view in self._views
-        ):
+        if any(message_id in self.store.processed for message_id, _ in self._processed):
             raise DuplicateDelivery()
-        for view in self._views:
+        # Como la clave primaria de `event_read`: otro mensaje del evento creó la vista.
+        if any(view.event_id in self.store.views for view in self._views):
+            raise ConcurrentEventView()
+        for view in (*self._views, *self._replaced):
             self.store.views[view.event_id] = view
         for item in self._registrations:
             self.store.registrations[item.registration_id] = item

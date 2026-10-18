@@ -1,4 +1,5 @@
-"""Bases de escritura y lectura de Eventos migradas, y casos de uso reales (HU021)."""
+"""Bases de escritura y lectura de Eventos migradas, y casos de uso reales (HU021, HU024,
+HU041)."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -15,19 +16,27 @@ from events_management.application.commands.create_event import (
     CreateEvent,
     CreateEventCommand,
 )
+from events_management.application.commands.publish_event import (
+    PublishEvent,
+    PublishEventCommand,
+)
 from events_management.application.commands.register_for_event import RegisterForEvent
 from events_management.application.projections.event_projection import EventsProjector
+from events_management.application.queries.my_events import ListMyEvents
 from events_management.infrastructure.clock import SystemClock
 from events_management.infrastructure.persistence_read.events import (
     SqlAlchemyEventDetailReader,
     SqlAlchemyEventReader,
+    SqlAlchemyOwnEventReader,
     SqlAlchemyProjectionUnitOfWork,
+    SqlAlchemyPublishedEventReader,
     SqlAlchemyRegistrationReader,
 )
 from events_management.infrastructure.persistence_read.models import EventReadRow
 from events_management.infrastructure.persistence_write.models import EventRow
 from events_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyEventCreationUnitOfWork,
+    SqlAlchemyPublicationUnitOfWork,
     SqlAlchemyRegistrationUnitOfWork,
 )
 from sportapp_platform.migrations import upgrade
@@ -38,8 +47,10 @@ READ_HISTORY = "events_management.infrastructure.persistence_read:migrations"
 
 
 class OrganizerOnly:
+    """`actor-permissions.v1` del organizador web: `events.create` y `events.publish`."""
+
     def allows(self, actor_type: str, permission: str) -> bool:
-        return actor_type == "organizer" and permission == "events.create"
+        return actor_type == "organizer" and permission in {"events.create", "events.publish"}
 
 
 @dataclass
@@ -64,6 +75,19 @@ class EventDatabases:
             clock=SystemClock(),
         )
 
+    def publish(self) -> PublishEvent:
+        return PublishEvent(
+            unit_of_work=lambda: SqlAlchemyPublicationUnitOfWork(self.writes),
+            permissions=OrganizerOnly(),
+            clock=SystemClock(),
+        )
+
+    def my_events(self) -> ListMyEvents:
+        return ListMyEvents(reader=SqlAlchemyOwnEventReader(self.reads))
+
+    def published_reader(self) -> SqlAlchemyPublishedEventReader:
+        return SqlAlchemyPublishedEventReader(self.reads)
+
     def project(self) -> EventsProjector:
         return EventsProjector(
             unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.reads), clock=SystemClock()
@@ -87,7 +111,7 @@ class EventDatabases:
         starts_in: timedelta = timedelta(days=30),
         status: str = "PUBLISHED",
     ) -> UUID:
-        """Evento sintético en escritura y lectura: la publicación real pertenece a HU024."""
+        """Evento sintético sembrado en escritura y lectura (sin pasar por la publicación)."""
         event_id, now = uuid4(), datetime.now(UTC)
         starts_at = now + starts_in
         values: dict[str, Any] = {
@@ -109,6 +133,8 @@ class EventDatabases:
             "version": 2 if status == "PUBLISHED" else 1,
             "created_at": now,
             "updated_at": now,
+            # La restricción de HU024: `published_at` existe si y solo si está publicado.
+            "published_at": now if status == "PUBLISHED" else None,
         }
         with self.writes() as session, session.begin():
             session.add(EventRow(**values))
@@ -167,4 +193,10 @@ def event_command(key: UUID | None = None, **overrides: Any) -> CreateEventComma
         event=parse_event(future_body(**overrides)),
         idempotency_key=key or uuid4(),
         correlation_id=uuid4(),
+    )
+
+
+def publish_command(event_id: UUID, key: UUID | None = None) -> PublishEventCommand:
+    return PublishEventCommand(
+        event_id=event_id, idempotency_key=key or uuid4(), correlation_id=uuid4()
     )

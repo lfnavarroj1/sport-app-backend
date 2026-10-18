@@ -1,4 +1,4 @@
-"""CQRS de HU021 contra el emulador de Pub/Sub y PostgreSQL reales (CA5).
+"""CQRS de HU021 y HU024 contra el emulador de Pub/Sub y PostgreSQL reales (CA5).
 
 Outbox → `sportapp.eventos.v1` → `proyector-eventos-v1` → `event_read`. Requiere
 `TEST_DATABASE_URL` y `PUBSUB_EMULATOR_HOST`; cada prueba usa un proyecto propio del
@@ -17,7 +17,7 @@ from typing import Any
 
 from google.cloud import pubsub_v1
 from jsonschema import Draft202012Validator
-from support import event_command, event_databases
+from support import event_command, event_databases, publish_command
 
 from events_management.application.ports import Caller
 from events_management.infrastructure.messaging.pubsub import PubSubEventPublisher
@@ -41,13 +41,9 @@ from events_management.workers.pubsub_setup import ensure_resources
 from events_management.workers.read_projector import ProjectionMessageHandler
 from sportapp_platform.testing.contracts import repository_root
 
-SCHEMA = (
-    repository_root(Path(__file__).resolve())
-    / "contracts"
-    / "events"
-    / "eventos"
-    / "evento.creado.v1.schema.json"
-)
+SCHEMAS = repository_root(Path(__file__).resolve()) / "contracts" / "events" / "eventos"
+SCHEMA = SCHEMAS / "evento.creado.v1.schema.json"
+PUBLISHED_SCHEMA = SCHEMAS / "evento.publicado.v1.schema.json"
 
 
 def wait_until(condition: Callable[[], bool], timeout: float = 30.0) -> bool:
@@ -201,6 +197,61 @@ class EventsMessagingTest(unittest.TestCase):
         reader = self.db.reader()
         for result in created:
             self.assertIsNotNone(reader.owned_by(self.organizer.user_id, result.event.event_id))
+
+    def test_published_event_reaches_the_read_model_after_a_restart(self) -> None:
+        """HU024 CA1 y CA5: `evento.publicado.v1` con el esquema versionado y
+        `ordering_key = event_id`; con el proyector caído no se confirma nada y, al
+        reiniciarlo, `event_read` termina `PUBLISHED` (versión 2) una sola vez."""
+        listener = self.subscriber.subscription_path(self.project, f"test-{uuid.uuid4().hex[:6]}")
+        self.subscriber.create_subscription(
+            request={
+                "name": listener,
+                "topic": f"projects/{self.project}/topics/{EVENTS_TOPIC}",
+                "enable_message_ordering": True,
+            }
+        )
+        created = self.db.create_event()(self.organizer, event_command())
+        event_id = created.event.event_id
+        self.db.publish()(self.organizer, publish_command(event_id))
+
+        self.assertEqual(self.publish_outbox(), 2)
+        received = self.subscriber.pull(
+            request={"subscription": listener, "max_messages": 10}, timeout=30
+        ).received_messages
+        published = [
+            m.message
+            for m in received
+            if m.message.attributes["event_type"] == "evento.publicado.v1"
+        ]
+        self.assertEqual(len(published), 1)
+        body = json.loads(published[0].data)
+        Draft202012Validator(json.loads(PUBLISHED_SCHEMA.read_text(encoding="utf-8"))).validate(
+            body
+        )
+        self.assertEqual(published[0].ordering_key, str(event_id))
+        self.assertEqual(body["aggregate_version"], 2)
+
+        failures: list[str] = []
+
+        def failing(message: Any) -> None:
+            failures.append(message.message_id)
+            message.nack()
+
+        self.consume(failing, lambda: len(failures) >= 1)
+        self.assertEqual(self.db.count(EventReadRow, read=True), 0)
+
+        recovered = self.consume(
+            ProjectionMessageHandler(self.db.project()),
+            lambda: self.db.count(ProcessedEventRow, read=True) == 2,
+            timeout=90.0,
+        )
+
+        self.assertTrue(recovered, "el proyector no aplicó la publicación tras reiniciarse")
+        with self.db.reads() as session:
+            row = session.get(EventReadRow, event_id)
+        assert row is not None
+        self.assertEqual((row.status, row.version), ("PUBLISHED", 2))
+        self.assertIsNotNone(row.published_at)
 
 
 if __name__ == "__main__":

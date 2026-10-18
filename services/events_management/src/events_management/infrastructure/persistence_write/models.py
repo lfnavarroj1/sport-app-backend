@@ -35,7 +35,8 @@ class WriteBase(DeclarativeBase):
 
 
 class EventRow(WriteBase):
-    """Agregado evento masivo (HU021); restricciones equivalentes a ADR-028."""
+    """Agregado evento masivo (HU021); restricciones equivalentes a ADR-028. HU024
+    (ADR-033): `published_at` existe si y solo si el evento está `PUBLISHED`."""
 
     __tablename__ = "event"
     __table_args__ = (
@@ -53,6 +54,7 @@ class EventRow(WriteBase):
             "ends_at = starts_at + make_interval(mins => duration_minutes)", name="ends_at"
         ),
         CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'PUBLISHED') = (published_at IS NOT NULL)", name="published_at"),
     )
 
     event_id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -73,6 +75,7 @@ class EventRow(WriteBase):
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class OutboxEventRow(WriteBase):

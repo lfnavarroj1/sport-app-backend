@@ -1,10 +1,12 @@
 """HU041: detalle de evento publicado, inscripción y «mis inscripciones» (ADR-032).
 
-- `GET /v1/events/{event_id}`: evento `PUBLISHED` con `my_registration` del deportista.
+- `GET /v1/events/{event_id}`: evento visible (ADR-033: `PUBLISHED` para cualquier actor
+  autenticado, `DRAFT` solo para su organizador) con `my_registration` del deportista.
 - `POST /v1/events/{event_id}/registrations`: sin cuerpo, con `Idempotency-Key`; `201` con
   `Location: /v1/me/event-registrations/{registration_id}`.
 - `GET /v1/me/event-registrations?status&limit&cursor`.
-Solo `athlete`; el deportista sale del token y `athlete_id` no viaja en las respuestas.
+Inscribirse y listar: solo `athlete`; el deportista sale del token y `athlete_id` no
+viaja en las respuestas.
 Instantes en UTC (`Z`); `fee` y `applied_fee` son informativos (`null` sin HU025).
 """
 
@@ -109,7 +111,10 @@ class EventDetailResponse(BaseModel):
     ends_at: datetime
     time_zone: str
     capacity: int
-    status: Literal["PUBLISHED"]
+    status: Annotated[
+        Literal["DRAFT", "PUBLISHED"],
+        Field(description="`DRAFT` solo lo recibe el organizador propietario (HU024)."),
+    ]
     version: int
     fee: Annotated[EventFee | None, Field(description="`null` hasta HU025.")]
     my_registration: MyRegistration | None
@@ -225,14 +230,15 @@ def build_registrations_router(
     @router.get(
         "/v1/events/{event_id}",
         response_model=EventDetailResponse,
-        summary="Detalle de un evento publicado (ADR-033) con mi inscripción (HU041)",
-        description="Visible para cualquier actor autenticado; `my_registration` solo se compone "
-        "para el deportista y es `null` para los demás actores.",
+        summary="Detalle de un evento (ADR-033) con mi inscripción (HU041)",
+        description="Un evento `PUBLISHED` es visible para cualquier actor autenticado; un "
+        "`DRAFT`, solo para su organizador propietario (HU024). `my_registration` solo se "
+        "compone para el deportista y es `null` para los demás actores.",
         responses={
             **_DETAIL_AUTH_RESPONSES,
             HTTPStatus.NOT_FOUND.value: {
                 "model": ErrorResponse,
-                "description": "`event_not_found`: inexistente o no publicado.",
+                "description": "`event_not_found`: inexistente, o borrador de otro organizador.",
             },
         },
     )

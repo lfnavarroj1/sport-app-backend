@@ -21,7 +21,7 @@ from sqlalchemy.orm import sessionmaker
 
 from bff_web.main import create_app as create_bff
 from bff_web.settings import BffWebSettings
-from events_management.application.projections.event_projection import ProjectEventCreated
+from events_management.application.projections.event_projection import ProjectEventState
 from events_management.infrastructure.clock import SystemClock
 from events_management.infrastructure.messaging.pubsub import PubSubEventPublisher
 from events_management.infrastructure.persistence_read.events import (
@@ -260,7 +260,7 @@ class EventCreationFlowTest(unittest.TestCase):
         streaming = subscriber.subscribe(
             subscriber.subscription_path(project_id, PROJECTOR_SUBSCRIPTION),
             callback=ProjectionMessageHandler(
-                ProjectEventCreated(
+                ProjectEventState(
                     unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.reads),
                     clock=SystemClock(),
                 )

@@ -1,7 +1,7 @@
 """HU041: consultas del deportista sobre la base de lectura (ADR-032).
 
-- Detalle de un evento `PUBLISHED` con `my_registration` del deportista; un evento
-  inexistente o en borrador es `event_not_found` (CA2).
+- Detalle de un evento visible (ADR-033) con `my_registration` del deportista; un evento
+  inexistente, o en borrador para quien no es su organizador, es `event_not_found` (CA2).
 - «Mis inscripciones»: solo las propias, ordenadas por `event.starts_at`, `registration_id`
   con cursor keyset y filtro opcional `status` (CA8).
 Solo `athlete` (CA9); sin capacidad de plan.
@@ -27,6 +27,7 @@ from events_management.application.ports import (
 from events_management.domain.registrations.model import EventNotAvailable, RegistrationStatus
 
 ATHLETE = "athlete"
+ORGANIZER = "organizer"
 MAX_LIMIT = 100
 DEFAULT_LIMIT = 20
 
@@ -84,11 +85,12 @@ class GetPublishedEvent:
         self._reader = reader
 
     def __call__(self, caller: Caller, event_id: UUID) -> EventDetailView:
-        """ADR-033: un evento `PUBLISHED` es visible para cualquier actor autenticado;
-        `my_registration` solo se compone para el deportista (ADR-032). El `DRAFT` visible para
-        su organizador propietario llega con HU024."""
+        """ADR-033: un evento `PUBLISHED` es visible para cualquier actor autenticado y un
+        `DRAFT` solo para su organizador propietario (HU024); en otro caso `event_not_found`.
+        `my_registration` solo se compone para el deportista (ADR-032)."""
         athlete_id = caller.user_id if caller.actor_type == ATHLETE else None
-        detail = self._reader.published_detail(event_id, athlete_id)
+        owner_id = caller.user_id if caller.actor_type == ORGANIZER else None
+        detail = self._reader.visible_detail(event_id, athlete_id=athlete_id, owner_id=owner_id)
         if detail is None:
             raise EventNotAvailable()
         return detail

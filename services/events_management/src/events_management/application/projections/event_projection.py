@@ -1,14 +1,14 @@
-"""`eventos-read-projector`: proyectar `evento.creado.v1` en `event_read` y
-`usuario.inscrito.v1` en `event_registration_read` (CMP-004, ADR-032).
+"""`eventos-read-projector`: proyectar `evento.creado.v1` y `evento.publicado.v1` en
+`event_read` y `usuario.inscrito.v1` en `event_registration_read` (CMP-004, ADR-032,
+ADR-033).
 
-En una sola transacción de la base de lectura:
+Eventos (estado completo, ADR-033), en una sola transacción de la base de lectura:
 1. si el `event_id` del sobre ya está en `processed_event`, es una entrega repetida;
-2. si la vista ya tiene esa versión o una posterior, el mensaje está superado y solo
-   se registra como procesado;
-3. si es la siguiente versión (la 1 para un evento nuevo), crea la vista y registra el
-   mensaje;
-4. si falta una versión intermedia, falla sin efectos: el mensaje no se confirma y
-   Pub/Sub lo reintenta hasta que llegue la anterior (o termina en la DLQ).
+2. si la vista no existe, se inserta con el estado del mensaje (aunque sea una versión
+   posterior a la 1: la reconstrucción no depende de huecos);
+3. si la versión recibida es mayor que la proyectada, se sustituyen todas las columnas;
+4. si es menor o igual, el mensaje está superado y solo se registra como procesado.
+Si otro mensaje del mismo evento crea la vista en paralelo, se reaplica una vez por versión.
 El ACK lo envía el worker después de este COMMIT.
 """
 
@@ -17,13 +17,20 @@ from collections.abc import Callable
 from enum import StrEnum
 
 from events_management.application.messages import (
-    EventCreatedMessage,
+    EventPublishedMessage,
+    EventStateMessage,
     RegistrationCreatedMessage,
     SportEventMessage,
 )
-from events_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
+from events_management.application.ports import (
+    Clock,
+    ConcurrentEventView,
+    DuplicateDelivery,
+    ProjectionUnitOfWork,
+)
 from events_management.domain.registrations.events import EVENT_TYPE as REGISTERED
-from events_management.domain.sport_events.created import EVENT_TYPE
+from events_management.domain.sport_events.created import EVENT_TYPE as CREATED
+from events_management.domain.sport_events.published import EVENT_TYPE as PUBLISHED
 
 _logger = logging.getLogger("sportapp.projector")
 
@@ -33,52 +40,48 @@ class ProjectionConflict(Exception):
     mensaje no se confirma (termina en la DLQ)."""
 
 
-class ProjectionGap(Exception):
-    """Llegó una versión posterior a la siguiente esperada; se reintenta más tarde."""
-
-
 class ProjectionOutcome(StrEnum):
     PROJECTED = "projected"
     DUPLICATE = "duplicate"
     STALE = "stale"
 
 
-class ProjectEventCreated:
+class ProjectEventState:
+    """`evento.creado.v1` y `evento.publicado.v1` por estado completo y versión mayor."""
+
     def __init__(self, *, unit_of_work: Callable[[], ProjectionUnitOfWork], clock: Clock) -> None:
         self._unit_of_work = unit_of_work
         self._clock = clock
 
-    def __call__(self, message: EventCreatedMessage) -> ProjectionOutcome:
+    def __call__(self, message: EventStateMessage) -> ProjectionOutcome:
         try:
             return self._project(message)
         except DuplicateDelivery:
             return ProjectionOutcome.DUPLICATE
+        except ConcurrentEventView:
+            # La vista ya existe: la segunda pasada la compara por versión.
+            try:
+                return self._project(message)
+            except DuplicateDelivery:
+                return ProjectionOutcome.DUPLICATE
 
-    def _project(self, message: EventCreatedMessage) -> ProjectionOutcome:
+    def _project(self, message: EventStateMessage) -> ProjectionOutcome:
         now = self._clock.now()
-        event_id = message.event.event_id
+        event = message.event
         with self._unit_of_work() as unit_of_work:
             if unit_of_work.is_processed(message.message_id):
                 return ProjectionOutcome.DUPLICATE
-            projected = unit_of_work.projected_version(event_id)
-            if projected is not None and projected >= message.aggregate_version:
-                outcome = ProjectionOutcome.STALE
-            elif (projected or 0) + 1 == message.aggregate_version:
-                unit_of_work.add_event_view(message.event, now)
+            projected = unit_of_work.projected_version(event.event_id)
+            if projected is None:
+                unit_of_work.add_event_view(event, now)
+                outcome = ProjectionOutcome.PROJECTED
+            elif message.aggregate_version > projected:
+                unit_of_work.replace_event_view(event, now)
                 outcome = ProjectionOutcome.PROJECTED
             else:
-                _logger.warning(
-                    "projector.version_gap",
-                    extra={
-                        "fields": {
-                            "event_id": str(event_id),
-                            "projected_version": projected,
-                            "event_version": message.aggregate_version,
-                        }
-                    },
-                )
-                raise ProjectionGap()
-            unit_of_work.add_processed(message.message_id, EVENT_TYPE, event_id, now)
+                outcome = ProjectionOutcome.STALE
+            event_type = PUBLISHED if isinstance(message, EventPublishedMessage) else CREATED
+            unit_of_work.add_processed(message.message_id, event_type, event.event_id, now)
             unit_of_work.commit()
         return outcome
 
@@ -129,7 +132,7 @@ class EventsProjector:
     """Despacha cada mensaje validado de `sportapp.eventos.v1` a su proyección."""
 
     def __init__(self, *, unit_of_work: Callable[[], ProjectionUnitOfWork], clock: Clock) -> None:
-        self._events = ProjectEventCreated(unit_of_work=unit_of_work, clock=clock)
+        self._events = ProjectEventState(unit_of_work=unit_of_work, clock=clock)
         self._registrations = ProjectRegistrationCreated(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, message: SportEventMessage) -> ProjectionOutcome:

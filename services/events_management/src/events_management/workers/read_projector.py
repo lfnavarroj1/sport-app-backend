@@ -2,10 +2,11 @@
 
 Ejecución: `python -m events_management.workers.read_projector`.
 
-- Proyecta `evento.creado.v1` y `usuario.inscrito.v1` (HU041).
+- Proyecta `evento.creado.v1` y `evento.publicado.v1` por estado completo (ADR-033) y
+  `usuario.inscrito.v1` (HU041).
 - Consume `sportapp.eventos.v1` por la suscripción ordenada `proyector-eventos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de `event_read` y `processed_event`.
-- Un mensaje inválido, un hueco de versión o un fallo de procesamiento no se confirma:
+- Un mensaje inválido o un fallo de procesamiento no se confirma:
   Pub/Sub lo reintenta con el backoff de la suscripción (10 a 600 s) y, tras 10
   intentos, lo envía a `sportapp.eventos.proyeccion.dlq`.
 - Un tipo de evento que este proyector aún no proyecta se confirma sin efectos.
@@ -21,8 +22,8 @@ from google.cloud import pubsub_v1
 from sqlalchemy.orm import sessionmaker
 
 from events_management.application.messages import (
-    EventCreatedMessage,
     InvalidEvent,
+    RegistrationCreatedMessage,
     SportEventMessage,
     UnsupportedEvent,
     parse_sport_event_message,
@@ -85,9 +86,9 @@ class ProjectionMessageHandler:
         fields |= {
             "event_id": str(event.message_id),
             "aggregate_id": str(
-                event.event.event_id
-                if isinstance(event, EventCreatedMessage)
-                else event.registration.registration_id
+                event.registration.registration_id
+                if isinstance(event, RegistrationCreatedMessage)
+                else event.event.event_id
             ),
             "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         }

@@ -1,4 +1,4 @@
-"""Unidades de trabajo SQLAlchemy de la base de escritura de eventos (HU021, HU041)."""
+"""Unidades de trabajo SQLAlchemy de la base de escritura de eventos (HU021, HU024, HU041)."""
 
 from collections.abc import Mapping
 from types import TracebackType
@@ -17,7 +17,12 @@ from events_management.domain.registrations.model import (
     EventRegistration,
     RegistrationStatus,
 )
-from events_management.domain.sport_events.model import EventStatus, SportEvent
+from events_management.domain.sport_events.model import (
+    EventDetails,
+    EventStatus,
+    Location,
+    SportEvent,
+)
 from events_management.infrastructure.persistence_write.models import (
     IDEMPOTENCY_PRIMARY_KEY,
     REGISTRATION_UNIQUE,
@@ -161,8 +166,57 @@ class SqlAlchemyEventCreationUnitOfWork(_WriteUnitOfWork):
                 version=event.version,
                 created_at=event.created_at,
                 updated_at=event.updated_at,
+                published_at=event.published_at,
             )
         )
+
+
+def _sport_event(row: EventRow) -> SportEvent:
+    return SportEvent(
+        event_id=row.event_id,
+        organizer_id=row.organizer_id,
+        details=EventDetails(
+            name=row.name,
+            description=row.description,
+            discipline=row.discipline,
+            location=Location(
+                name=row.location_name,
+                address=row.location_address,
+                city=row.location_city,
+                country_code=row.location_country_code,
+            ),
+            starts_at=row.starts_at,
+            ends_at=row.ends_at,
+            time_zone=row.time_zone,
+            duration_minutes=row.duration_minutes,
+            capacity=row.capacity,
+        ),
+        status=EventStatus(row.status),
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        published_at=row.published_at,
+    )
+
+
+class SqlAlchemyPublicationUnitOfWork(_WriteUnitOfWork):
+    """HU024: evento bloqueado, transición `DRAFT` → `PUBLISHED`, idempotencia y
+    `evento.publicado.v1`."""
+
+    def lock_event(self, event_id: UUID) -> SportEvent | None:
+        row = self.session.scalar(
+            select(EventRow).where(EventRow.event_id == event_id).with_for_update()
+        )
+        return _sport_event(row) if row is not None else None
+
+    def update_event(self, event: SportEvent) -> None:
+        row = self.session.get(EventRow, event.event_id)
+        if row is None:
+            raise RuntimeError("El evento bloqueado no está cargado.")
+        row.status = event.status.value
+        row.version = event.version
+        row.updated_at = event.updated_at
+        row.published_at = event.published_at
 
 
 def _registration(row: EventRegistrationRow) -> EventRegistration:

@@ -12,7 +12,8 @@ class IdempotencyKeyConflict(Exception):
 
 
 class PermissionRequired(Exception):
-    """El actor no es `organizer` o no tiene `events.create` (ADR-025, ADR-028)."""
+    """El actor no puede ejecutar la operación: p. ej., no es `organizer` o no tiene
+    `events.create` (HU021) o `events.publish` (HU024) (ADR-025)."""
 
     code = "permission_required"
 

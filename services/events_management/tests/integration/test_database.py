@@ -15,11 +15,11 @@ from sportapp_platform.testing.postgres import temporary_database
 HISTORIES = {
     "write": (
         "events_management.infrastructure.persistence_write:migrations",
-        "0003_event_registration",
+        "0004_event_publication",
     ),
     "read": (
         "events_management.infrastructure.persistence_read:migrations",
-        "0004_event_registration_read",
+        "0005_event_read_publication",
     ),
 }
 

@@ -1,17 +1,20 @@
 """Lectura validada de los eventos de `sportapp.eventos.v1` para el proyector (CMP-004).
 
-Se proyectan `evento.creado.v1` (HU021) y `usuario.inscrito.v1` (HU041). Un mensaje que
+Se proyectan `evento.creado.v1` (HU021), `evento.publicado.v1` (HU024) y
+`usuario.inscrito.v1` (HU041). Un mensaje que
 no cumple el contrato es un `InvalidEvent`: no se confirma y, agotados los reintentos,
 termina en la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este proyector
 todavía no lo proyecta y se confirma sin efectos.
 
-`parse_event_document` también reconstruye el evento guardado como resultado idempotente.
+`parse_event_document` y `parse_published_event_document` también reconstruyen el evento
+guardado como resultado idempotente de HU021 y HU024.
 """
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from events_management.domain.registrations.events import EVENT_TYPE as REGISTERED
@@ -47,6 +50,8 @@ from events_management.domain.sport_events.model import (
     Location,
     SportEvent,
 )
+from events_management.domain.sport_events.published import EVENT_TYPE as PUBLISHED
+from events_management.domain.sport_events.published import SCHEMA_VERSION as PUBLISHED_SCHEMA
 
 
 class InvalidEvent(Exception):
@@ -74,6 +79,14 @@ class EventCreatedMessage:
 
 
 @dataclass(frozen=True)
+class EventPublishedMessage:
+    message_id: UUID
+    aggregate_version: int
+    correlation_id: UUID | None
+    event: SportEvent
+
+
+@dataclass(frozen=True)
 class RegistrationCreatedMessage:
     message_id: UUID
     aggregate_version: int
@@ -81,7 +94,8 @@ class RegistrationCreatedMessage:
     registration: EventRegistration
 
 
-SportEventMessage = EventCreatedMessage | RegistrationCreatedMessage
+EventStateMessage = EventCreatedMessage | EventPublishedMessage
+SportEventMessage = EventCreatedMessage | EventPublishedMessage | RegistrationCreatedMessage
 
 
 def _uuid(value: object, field: str) -> UUID:
@@ -129,11 +143,28 @@ def _location(value: object) -> Location:
 
 
 def parse_event_document(document: object) -> SportEvent:
-    """Evento con la forma de ADR-028 (instantes en UTC); `InvalidEvent` si no la cumple."""
+    """Evento con la forma de ADR-028 (instantes en UTC); `InvalidEvent` si no la cumple.
+
+    `evento.creado.v1` y el resultado idempotente de HU021 siempre describen un borrador.
+    """
+    return _sport_event(document, EventStatus.DRAFT)
+
+
+def parse_published_event_document(document: object) -> SportEvent:
+    """Evento publicado (ADR-033): la forma de ADR-028 más `published_at` en UTC.
+
+    Lo usan `evento.publicado.v1` y el resultado idempotente de HU024.
+    """
+    event = _sport_event(document, EventStatus.PUBLISHED)
+    published = cast("dict[str, Any]", document).get("published_at")
+    published_at = _instant(published, "published_at")
+    return replace(event, published_at=published_at)
+
+
+def _sport_event(document: object, status: EventStatus) -> SportEvent:
     if not isinstance(document, dict):
         raise InvalidEvent("payload_not_object")
-    # `evento.creado.v1` y el resultado idempotente de HU021 siempre describen un borrador.
-    if document.get("status") != EventStatus.DRAFT.value:
+    if document.get("status") != status.value:
         raise InvalidEvent("unknown_status")
     time_zone = document.get("time_zone")
     if not isinstance(time_zone, str) or not time_zone:
@@ -166,23 +197,40 @@ def parse_event_document(document: object) -> SportEvent:
     )
 
 
-def _event_created(envelope: dict[str, Any]) -> EventCreatedMessage:
-    if envelope.get("schema_version") != SCHEMA_VERSION:
+def _event_state(
+    envelope: dict[str, Any],
+    schema_version: int,
+    parse: Callable[[object], SportEvent],
+    minimum_version: int,
+) -> tuple[UUID, int, UUID | None, SportEvent]:
+    """Sobre de un evento que transporta el estado completo del agregado `event`."""
+    if envelope.get("schema_version") != schema_version:
         raise InvalidEvent("unsupported_schema_version")
     version = envelope.get("aggregate_version")
-    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+    if not isinstance(version, int) or isinstance(version, bool) or version < minimum_version:
         raise InvalidEvent("aggregate_version_invalid")
-    event = parse_event_document(envelope.get("payload"))
+    event = parse(envelope.get("payload"))
     if _uuid(envelope.get("aggregate_id"), "aggregate_id") != event.event_id:
         raise InvalidEvent("aggregate_id_mismatch")
     if event.version != version:
         raise InvalidEvent("version_mismatch")
     correlation = envelope.get("correlation_id")
-    return EventCreatedMessage(
-        message_id=_uuid(envelope.get("event_id"), "event_id"),
-        aggregate_version=version,
-        correlation_id=_uuid(correlation, "correlation_id") if correlation else None,
-        event=event,
+    return (
+        _uuid(envelope.get("event_id"), "event_id"),
+        version,
+        _uuid(correlation, "correlation_id") if correlation else None,
+        event,
+    )
+
+
+def _event_created(envelope: dict[str, Any]) -> EventCreatedMessage:
+    return EventCreatedMessage(*_event_state(envelope, SCHEMA_VERSION, parse_event_document, 1))
+
+
+def _event_published(envelope: dict[str, Any]) -> EventPublishedMessage:
+    # Publicar sube la versión de un borrador que nació en 1: la publicada es al menos 2.
+    return EventPublishedMessage(
+        *_event_state(envelope, PUBLISHED_SCHEMA, parse_published_event_document, 2)
     )
 
 
@@ -241,6 +289,8 @@ def parse_sport_event_message(envelope: object) -> SportEventMessage:
         raise InvalidEvent("event_type_missing")
     if event_type == EVENT_TYPE:
         return _event_created(envelope)
+    if event_type == PUBLISHED:
+        return _event_published(envelope)
     if event_type == REGISTERED:
         return _registration_created(envelope)
     raise UnsupportedEvent(event_type)

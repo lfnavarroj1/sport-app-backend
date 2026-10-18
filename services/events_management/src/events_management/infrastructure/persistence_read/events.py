@@ -1,9 +1,9 @@
 """Base de lectura de eventos masivos: transacción del proyector (CMP-004) y reglas de
 visibilidad de `event_read`.
 
-HU021 no expone consultas HTTP; las consultas de este módulo fijan la regla que deben
-reutilizar las historias de consulta: un `DRAFT` solo lo ve su organizador y nunca
-aparece en el catálogo ni en el calendario públicos (CA6).
+Regla de visibilidad (ADR-028, ADR-033): un `DRAFT` solo lo ve su organizador y nunca
+aparece en el catálogo ni en el calendario públicos; un `PUBLISHED` lo ve cualquier actor
+autenticado.
 """
 
 from datetime import datetime
@@ -11,15 +11,17 @@ from types import TracebackType
 from typing import Self
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import ColumnElement, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from events_management.application.ports import (
     CalendarEventView,
+    ConcurrentEventView,
     DuplicateDelivery,
     EventDetailView,
     EventSummary,
+    OwnEventsQuery,
     PublishedEventsQuery,
     RegistrationsQuery,
     RegistrationView,
@@ -44,8 +46,8 @@ from events_management.infrastructure.persistence_read.models import (
     ProcessedEventRow,
 )
 
-# Estados que un catálogo o calendario público puede mostrar; `DRAFT` nunca lo es. Solo
-# HU024 (pendiente) llevará eventos a `PUBLISHED`.
+# Estados que un catálogo o calendario público puede mostrar; `DRAFT` nunca lo es. HU024
+# lleva los eventos a `PUBLISHED`.
 PUBLIC_STATUSES: frozenset[str] = frozenset({"PUBLISHED"})
 
 
@@ -73,6 +75,7 @@ def _event(row: EventReadRow) -> SportEvent:
         version=row.version,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        published_at=row.published_at,
     )
 
 
@@ -121,6 +124,28 @@ class SqlAlchemyEventReader:
                 .limit(limit)
             )
             return [_calendar(row) for row in rows]
+
+
+class SqlAlchemyOwnEventReader:
+    """HU024: eventos del organizador autenticado (ADR-033), keyset `starts_at`, `event_id`
+    sobre el índice `(organizer_id, status, starts_at)`."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def list(self, query: OwnEventsQuery) -> list[SportEvent]:
+        row = EventReadRow
+        statement = select(row).where(row.organizer_id == query.organizer_id)
+        if query.status is not None:
+            statement = statement.where(row.status == query.status)
+        if query.after is not None:
+            statement = statement.where(
+                tuple_(row.starts_at, row.event_id)
+                > tuple_(query.after.starts_at, query.after.event_id)
+            )
+        statement = statement.order_by(row.starts_at, row.event_id).limit(query.limit)
+        with self._session_factory() as session:
+            return [_event(item) for item in session.scalars(statement)]
 
 
 class SqlAlchemyPublishedEventReader:
@@ -178,17 +203,21 @@ def _summary(row: EventReadRow) -> EventSummary:
 
 
 class SqlAlchemyEventDetailReader:
-    """HU041: detalle de un evento publicado con la inscripción del deportista."""
+    """Detalle de un evento visible (ADR-033) con la inscripción del deportista (HU041)."""
 
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
 
-    def published_detail(self, event_id: UUID, athlete_id: UUID | None) -> EventDetailView | None:
+    def visible_detail(
+        self, event_id: UUID, *, athlete_id: UUID | None, owner_id: UUID | None
+    ) -> EventDetailView | None:
+        visible: ColumnElement[bool] = EventReadRow.status.in_(PUBLIC_STATUSES)
+        if owner_id is not None:
+            # El propietario ve también su borrador (HU024); un tercero nunca.
+            visible = or_(visible, EventReadRow.organizer_id == owner_id)
         with self._session_factory() as session:
             row = session.scalar(
-                select(EventReadRow).where(
-                    EventReadRow.event_id == event_id, EventReadRow.status.in_(PUBLIC_STATUSES)
-                )
+                select(EventReadRow).where(EventReadRow.event_id == event_id, visible)
             )
             if row is None:
                 return None
@@ -297,6 +326,35 @@ class SqlAlchemyProjectionUnitOfWork:
                 version=event.version,
                 created_at=event.created_at,
                 updated_at=event.updated_at,
+                published_at=event.published_at,
+                projected_at=projected_at,
+            )
+        )
+
+    def replace_event_view(self, event: SportEvent, projected_at: datetime) -> None:
+        details = event.details
+        self.session.execute(
+            update(EventReadRow)
+            .where(EventReadRow.event_id == event.event_id)
+            .values(
+                organizer_id=event.organizer_id,
+                name=details.name,
+                description=details.description,
+                discipline=details.discipline,
+                location_name=details.location.name,
+                location_address=details.location.address,
+                location_city=details.location.city,
+                location_country_code=details.location.country_code,
+                starts_at=details.starts_at,
+                ends_at=details.ends_at,
+                time_zone=details.time_zone,
+                duration_minutes=details.duration_minutes,
+                capacity=details.capacity,
+                status=event.status.value,
+                version=event.version,
+                created_at=event.created_at,
+                updated_at=event.updated_at,
+                published_at=event.published_at,
                 projected_at=projected_at,
             )
         )
@@ -344,11 +402,11 @@ class SqlAlchemyProjectionUnitOfWork:
             self.session.commit()
         except IntegrityError as error:
             self.session.rollback()
-            # Otra entrega del mismo mensaje (o del mismo evento nuevo) confirmó primero.
-            if _violated_constraint(error) in {
-                PROCESSED_EVENT_PRIMARY_KEY,
-                EVENT_READ_PRIMARY_KEY,
-                REGISTRATION_READ_PRIMARY_KEY,
-            }:
+            constraint = _violated_constraint(error)
+            # Otra entrega del mismo mensaje (o de la misma inscripción) confirmó primero.
+            if constraint in {PROCESSED_EVENT_PRIMARY_KEY, REGISTRATION_READ_PRIMARY_KEY}:
                 raise DuplicateDelivery() from None
+            # Otro mensaje del mismo evento creó la vista: se reaplica por versión (ADR-033).
+            if constraint == EVENT_READ_PRIMARY_KEY:
+                raise ConcurrentEventView() from None
             raise

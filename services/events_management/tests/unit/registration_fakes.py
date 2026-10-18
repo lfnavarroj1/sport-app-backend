@@ -146,12 +146,20 @@ class InMemoryRegistrationUnitOfWork:
 
 
 class InMemoryEventDetailReader:
-    def __init__(self, events: dict[UUID, EventDetailView]) -> None:
+    def __init__(
+        self, events: dict[UUID, EventDetailView], owners: dict[UUID, UUID] | None = None
+    ) -> None:
         self.events = events
+        # Organizador de cada evento: solo él ve su borrador (ADR-033).
+        self.owners = owners if owners is not None else {}
 
-    def published_detail(self, event_id: UUID, athlete_id: UUID | None) -> EventDetailView | None:
+    def visible_detail(
+        self, event_id: UUID, *, athlete_id: UUID | None, owner_id: UUID | None
+    ) -> EventDetailView | None:
         detail = self.events.get(event_id)
-        if detail is None or detail.event.status != "PUBLISHED":
+        if detail is None:
+            return None
+        if detail.event.status != "PUBLISHED" and self.owners.get(event_id) != owner_id:
             return None
         mine = detail.my_registration
         if mine is not None and mine.athlete_id != athlete_id:

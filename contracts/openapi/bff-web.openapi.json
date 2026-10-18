@@ -559,6 +559,244 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EventAggregateResponse": {
+        "description": "Agregado completo de ADR-028 con estado, versión y `published_at` (ADR-033).",
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "discipline": {
+            "title": "Discipline",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "ends_at": {
+            "description": "`starts_at` + `duration_minutes`.",
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/EventLocation"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "organizer_id": {
+            "format": "uuid",
+            "title": "Organizer Id",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Instante de la publicación; `null` en borrador.",
+            "title": "Published At"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "organizer_id",
+          "name",
+          "description",
+          "discipline",
+          "location",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "duration_minutes",
+          "capacity",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "published_at"
+        ],
+        "title": "EventAggregateResponse",
+        "type": "object"
+      },
+      "EventDetailLocation": {
+        "properties": {
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "city",
+          "country_code"
+        ],
+        "title": "EventDetailLocation",
+        "type": "object"
+      },
+      "EventDetailResponse": {
+        "description": "Detalle de ADR-033 en el canal web, sin `my_registration` (propio de HU041).",
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "discipline": {
+            "title": "Discipline",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventFee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` hasta HU025."
+          },
+          "location": {
+            "$ref": "#/components/schemas/EventDetailLocation"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "description": "`DRAFT` solo lo recibe el organizador propietario (HU024).",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "name",
+          "description",
+          "discipline",
+          "location",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "capacity",
+          "status",
+          "version",
+          "fee"
+        ],
+        "title": "EventDetailResponse",
+        "type": "object"
+      },
+      "EventFee": {
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal con dos decimales.",
+            "title": "Amount",
+            "type": "string"
+          },
+          "billing_unit": {
+            "title": "Billing Unit",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "billing_unit"
+        ],
+        "title": "EventFee",
+        "type": "object"
+      },
       "EventLocation": {
         "additionalProperties": false,
         "properties": {
@@ -816,6 +1054,35 @@
           "password"
         ],
         "title": "LoginRequest",
+        "type": "object"
+      },
+      "MyEventsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EventAggregateResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "MyEventsResponse",
         "type": "object"
       },
       "MyServicesResponse": {
@@ -1911,7 +2178,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.15.0"
+    "version": "0.16.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2358,6 +2625,260 @@
         ]
       }
     },
+    "/v1/events/{event_id}": {
+      "get": {
+        "description": "Un evento `PUBLISHED` es visible para cualquier actor autenticado; un `DRAFT`, solo para su organizador propietario.",
+        "operationId": "event_detail_v1_events__event_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: actor desconocido."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: inexistente, o borrador de otro organizador."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Detalle de un evento (ADR-033)",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/v1/events/{event_id}/publish": {
+      "post": {
+        "description": "Sin cuerpo. `DRAFT` → `PUBLISHED` con versión + 1 y `published_at`; un evento ya publicado responde `200` con su estado vigente, sin nueva versión.",
+        "operationId": "publish_v1_events__event_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAggregateResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`organizer` con `events.publish`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: inexistente o de otro organizador."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: requisitos de ADR-028 (`not_in_future` para `starts_at`) o `Idempotency-Key` ausente o inválida."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Publicar un evento propio (HU024)",
+        "tags": [
+          "events"
+        ]
+      }
+    },
     "/v1/me/capabilities": {
       "get": {
         "operationId": "get_capabilities_v1_me_capabilities_get",
@@ -2706,6 +3227,147 @@
         "summary": "Registrar o reemplazar mi perfil demográfico (HU005, ADR-034)",
         "tags": [
           "profile"
+        ]
+      }
+    },
+    "/v1/me/events": {
+      "get": {
+        "description": "Solo los propios; `status` opcional (sin él, `DRAFT` y `PUBLISHED`). Orden `starts_at`, `event_id` ascendente.",
+        "operationId": "my_events_v1_me_events_get",
+        "parameters": [
+          {
+            "description": "Filtro de estado.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "DRAFT",
+                    "PUBLISHED"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filtro de estado.",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyEventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: el actor no es `organizer`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `status`, `limit` o `cursor` inválidos."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mis eventos como organizador (HU024)",
+        "tags": [
+          "events"
         ]
       }
     },

@@ -5,13 +5,17 @@ requiere `TEST_DATABASE_URL`. Dos piezas se ejecutan con su caso de uso en lugar
 su worker, porque su transporte ya se prueba en la integración de cada servicio:
 - el alta `FREE` de Afiliación (HU001) y la publicación/proyección de Entrenamientos
   (Pub/Sub con emulador en `training_management/tests/integration`);
-- el directorio de Usuarios se siembra en su base de lectura tal como lo deja
-  `usuarios-read-projector` (implementado en HU005).
+- el directorio de Usuarios lo llena `UsersProjector` (el caso de uso de
+  `usuarios-read-projector`) con los sobres de la outbox de Usuarios.
+
+HU011 (CA5): `test_hu011_training_athletes_flow` recorre profesional → BFF → autorizaciones
+vigentes de Entrenamientos → enriquecimiento por lote en Usuarios.
 
 El recorrido con los workers reales sobre Pub/Sub está en
 `test_training_plan_vertical_flow.py`.
 """
 
+import json
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -19,7 +23,7 @@ from typing import Any
 
 import httpx
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, update
 from sqlalchemy.orm import sessionmaker
 
 from affiliation_management.application.commands.provision_free_subscription import (
@@ -47,9 +51,19 @@ from training_management.infrastructure.persistence_write.outbox import SqlAlche
 from training_management.main import create_app as create_training
 from training_management.settings import OutboxPublisherSettings, TrainingManagementSettings
 from training_management.workers.outbox_publisher import OutboxRelay
+from users_management.application.messages import parse_users_event
+from users_management.application.projections.users_projection import UsersProjector
+from users_management.infrastructure.clock import SystemClock as UsersClock
 from users_management.infrastructure.persistence_read.models import UserDirectoryRow
+from users_management.infrastructure.persistence_read.projection import (
+    SqlAlchemyProjectionUnitOfWork as UsersProjectionUnitOfWork,
+)
+from users_management.infrastructure.persistence_write.outbox import (
+    SqlAlchemyOutboxStore as UsersOutboxStore,
+)
 from users_management.main import create_app as create_users
 from users_management.settings import UsersManagementSettings
+from users_management.workers.outbox_publisher import build_envelope as users_envelope
 
 USERS_WRITE = "users_management.infrastructure.persistence_write:migrations"
 USERS_READ = "users_management.infrastructure.persistence_read:migrations"
@@ -147,6 +161,11 @@ class TrainingPlanFlowTest(unittest.TestCase):
                 base_url="http://training-management",
             )
         )
+        self.users_client, self.affiliation_client, self.training_client = (
+            users,
+            affiliation,
+            training,
+        )
         self.bff = self.enterContext(
             TestClient(
                 create_bff(
@@ -174,12 +193,12 @@ class TrainingPlanFlowTest(unittest.TestCase):
         self.athlete = self.register("athlete")
         self.professional = self.register("service_provider")
 
-    def register(self, actor_type: str) -> dict[str, str]:
+    def register(self, actor_type: str, full_name: str = "Persona Sintética") -> dict[str, str]:
         email = f"{actor_type}-{uuid.uuid4().hex[:8]}@example.com"
         registered = self.bff.post(
             "/v1/users",
             json={
-                "full_name": "Persona Sintética",
+                "full_name": full_name,
                 "email": email,
                 "password": PASSWORD,
                 "actor_type": actor_type,
@@ -189,18 +208,7 @@ class TrainingPlanFlowTest(unittest.TestCase):
         )
         self.assertEqual(registered.status_code, 201, registered.text)
         user_id = registered.json()["user_id"]
-        # Lo que deja `usuarios-read-projector` al proyectar `usuario.registrado.v1`.
-        with sessionmaker(self.engines["users_r"])() as session, session.begin():
-            session.add(
-                UserDirectoryRow(
-                    user_id=uuid.UUID(user_id),
-                    email=email,
-                    actor_type=actor_type,
-                    status="active",
-                    aggregate_version=1,
-                    projected_at=datetime.now(UTC),
-                )
-            )
+        self.project_users_outbox()
         if actor_type == "athlete":
             ProvisionFreeSubscription(
                 unit_of_work=lambda: SqlAlchemyProvisioningUnitOfWork(
@@ -224,6 +232,17 @@ class TrainingPlanFlowTest(unittest.TestCase):
             "email": email,
             "token": session_response.json()["access_token"],
         }
+
+    def project_users_outbox(self) -> None:
+        """`usuarios-outbox-publisher` + `usuarios-read-projector` sin Pub/Sub."""
+        outbox = UsersOutboxStore(sessionmaker(self.engines["users_w"]))
+        project = UsersProjector(
+            unit_of_work=lambda: UsersProjectionUnitOfWork(sessionmaker(self.engines["users_r"])),
+            clock=UsersClock(),
+        )
+        for event in outbox.claim_batch("w-test", 10, 30):
+            project(parse_users_event(json.loads(json.dumps(users_envelope(event)))))
+            outbox.mark_published(event.event_id, "w-test")
 
     def auth(self, user: dict[str, str], **extra: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {user['token']}", **extra}
@@ -427,6 +446,123 @@ class TrainingPlanFlowTest(unittest.TestCase):
         self.project_outbox()
         after = self.bff.get(history_url, headers=self.auth(professional))
         self.assertEqual(after.json()["code"], "athlete_authorization_required")
+
+    def grant(self, athlete: dict[str, str], professional: dict[str, str]) -> None:
+        granted = self.bff.post(
+            "/v1/me/training-authorizations",
+            json={"professional_email": professional["email"]},
+            headers=self.auth(athlete),
+        )
+        self.assertEqual(granted.status_code, 201, granted.text)
+
+    def athletes_page(self, user: dict[str, str], **params: Any) -> httpx.Response:
+        return self.bff.get("/v1/me/training-athletes", params=params, headers=self.auth(user))
+
+    def test_hu011_training_athletes_flow(self) -> None:
+        """CA5: el profesional elige al deportista de una lista con nombre y correo."""
+        professional = self.professional
+        ana = self.register("athlete", "Ana Sintética")
+        luis = self.register("athlete", "Luis Sintético")
+
+        empty = self.athletes_page(professional)
+        self.assertEqual(empty.status_code, 200, empty.text)
+        self.assertEqual(empty.json(), {"items": [], "next_cursor": None})
+        self.assertEqual(empty.headers["Cache-Control"], "no-store")
+
+        for athlete in (self.athlete, ana, luis):
+            self.grant(athlete, professional)
+        self.assertEqual(self.athletes_page(professional).json()["items"], [], "sin proyectar")
+        self.project_outbox()
+
+        first = self.athletes_page(professional, limit=2)
+        second = self.athletes_page(professional, limit=2, cursor=first.json()["next_cursor"])
+        self.assertEqual(first.status_code, 200, first.text)
+        items = first.json()["items"] + second.json()["items"]
+        self.assertIsNone(second.json()["next_cursor"])
+        self.assertEqual(
+            [(i["athlete_id"], i["full_name"], i["email"]) for i in items],
+            [
+                (luis["user_id"], "Luis Sintético", luis["email"]),
+                (ana["user_id"], "Ana Sintética", ana["email"]),
+                (self.athlete["user_id"], "Persona Sintética", self.athlete["email"]),
+            ],
+        )
+        authorized = [i["authorized_at"] for i in items]
+        self.assertEqual(authorized, sorted(authorized, reverse=True))
+        self.assertTrue(all(value.endswith("Z") for value in authorized))
+
+        # Aislamiento y permiso.
+        stranger = self.register("service_provider")
+        self.assertEqual(self.athletes_page(stranger).json()["items"], [])
+        denied = self.athletes_page(ana)
+        self.assertEqual((denied.status_code, denied.json()["code"]), (403, "permission_required"))
+
+        # Revocación proyectada: el deportista sale de la lista.
+        self.bff.delete(
+            f"/v1/me/training-authorizations/{professional['user_id']}", headers=self.auth(ana)
+        )
+        self.project_outbox()
+        remaining = [i["athlete_id"] for i in self.athletes_page(professional).json()["items"]]
+        self.assertEqual(remaining, [luis["user_id"], self.athlete["user_id"]])
+
+        # Fallo parcial de Usuarios: una cuenta ya no está activa en el directorio → 503.
+        with sessionmaker(self.engines["users_r"])() as session, session.begin():
+            session.execute(
+                update(UserDirectoryRow)
+                .where(UserDirectoryRow.user_id == uuid.UUID(luis["user_id"]))
+                .values(status="disabled")
+            )
+        partial = self.athletes_page(professional)
+        self.assertEqual(
+            (partial.status_code, partial.json()["code"]), (503, "upstream_unavailable")
+        )
+        for value in (luis["user_id"], self.athlete["user_id"], self.athlete["email"]):
+            self.assertNotIn(value, partial.text)
+
+    def test_hu011_training_athletes_with_users_down(self) -> None:
+        """CA5: si Usuarios no responde, no se entrega la lista con identificadores sueltos."""
+        self.grant(self.athlete, self.professional)
+        self.project_outbox()
+        for failure, status, code in (
+            (httpx.ConnectError, 503, "upstream_unavailable"),
+            (httpx.ReadTimeout, 504, "upstream_timeout"),
+        ):
+            with self.subTest(failure=failure.__name__):
+
+                def users(request: httpx.Request, error: type[Exception] = failure) -> Any:
+                    if request.url.path == "/v1/users/lookup-batch":
+                        raise error("usuarios")
+                    return self.users_client.request(
+                        request.method,
+                        request.url.path,
+                        content=request.content,
+                        headers=dict(request.headers),
+                    )
+
+                bff = self.enterContext(
+                    TestClient(
+                        create_bff(
+                            BffWebSettings(
+                                app_env="test",  # type: ignore[arg-type]
+                                users_management_base_url="http://users-management",  # type: ignore[arg-type]
+                                affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
+                                training_management_base_url="http://training-management",  # type: ignore[arg-type]
+                                complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
+                                events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
+                            ),
+                            users_http=httpx.Client(
+                                transport=httpx.MockTransport(users),
+                                base_url="http://users-management",
+                            ),
+                            affiliation_http=self.affiliation_client,
+                            training_http=self.training_client,
+                        ),
+                        base_url="https://bff-web",
+                    )
+                )
+                response = bff.get("/v1/me/training-athletes", headers=self.auth(self.professional))
+                self.assertEqual((response.status_code, response.json()["code"]), (status, code))
+                self.assertNotIn(self.athlete["user_id"], response.text)
 
     def test_roles_without_permission_are_rejected(self) -> None:
         """CA2: un deportista u organizador no puede crear ni asignar planes."""

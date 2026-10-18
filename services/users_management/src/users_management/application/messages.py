@@ -107,13 +107,15 @@ class UnsupportedEvent(Exception):
 class UserRegisteredEvent:
     """`usuario.registrado.v1` reducido a lo que proyecta `user_directory`.
 
-    `full_name` se valida pero no se conserva: ninguna consulta lo necesita.
+    Desde HU011 (CA5) también conserva `full_name`: lo necesita la lista de deportistas
+    del profesional (`POST /v1/users/lookup-batch`).
     """
 
     event_id: UUID
     user_id: UUID
     aggregate_version: int
     correlation_id: UUID | None
+    full_name: str
     email: str
     actor_type: str
     status: str
@@ -264,7 +266,7 @@ def _user_registered(envelope: dict[str, Any]) -> UserRegisteredEvent:
     payload = _object(envelope.get("payload"), "payload", _REGISTERED_FIELDS)
     if _uuid(payload["user_id"], "user_id") != aggregate_id:
         raise InvalidEvent("aggregate_id_mismatch")
-    _text(payload["full_name"], "full_name", 1, 120)
+    full_name = _text(payload["full_name"], "full_name", 1, 120)
     email = _text(payload["email"], "email", 3, 254)
     actor_type = _choice(
         payload["actor_type"], "actor_type", frozenset(value.value for value in ActorType)
@@ -277,6 +279,7 @@ def _user_registered(envelope: dict[str, Any]) -> UserRegisteredEvent:
         user_id=aggregate_id,
         aggregate_version=version,
         correlation_id=_correlation(envelope),
+        full_name=full_name,
         email=email,
         actor_type=actor_type,
         status=status,

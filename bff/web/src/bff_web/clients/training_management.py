@@ -48,6 +48,10 @@ class TrainingManagementClient:
         )
         return self._send("GET", path, access_token, params=params)
 
+    def get_authorized_athletes(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU011 (CA5): deportistas con autorización vigente hacia el profesional del token."""
+        return self._send("GET", "/v1/me/authorized-athletes", access_token, params=params)
+
     def _send(
         self,
         method: str,

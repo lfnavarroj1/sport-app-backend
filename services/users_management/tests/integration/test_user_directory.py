@@ -4,15 +4,19 @@ El directorio lo mantiene `usuarios-read-projector` (refactor de HU001, creado c
 Las pruebas del lookup siembran directamente la vista, igual que la dejaría el proyector;
 `test_projected_registration_is_resolved_by_lookup` recorre el camino completo sin Pub/Sub
 (registro → outbox → sobre publicado → proyector → lookup).
+
+HU011 (CA5): `POST /v1/users/lookup-batch` lee nombre y correo del mismo directorio; el
+nombre lo guarda el proyector y, para las filas anteriores a `0004`, el relleno único.
 """
 
 import json
 import unittest
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, update
 from sqlalchemy.orm import sessionmaker
 
 from sportapp_platform.migrations import upgrade
@@ -31,6 +35,7 @@ from users_management.infrastructure.persistence_read.projection import (
 from users_management.infrastructure.persistence_write.outbox import SqlAlchemyOutboxStore
 from users_management.main import create_app
 from users_management.settings import UsersManagementSettings
+from users_management.workers.directory_backfill import backfill
 from users_management.workers.outbox_publisher import build_envelope
 
 WRITE_HISTORY = "users_management.infrastructure.persistence_write:migrations"
@@ -47,6 +52,7 @@ class UserDirectoryIntegrationTest(unittest.TestCase):
         self.addCleanup(engine.dispose)
         write_engine = create_engine(write_url)
         self.addCleanup(write_engine.dispose)
+        self.read_engine, self.write_engine = engine, write_engine
         self.read_sessions = sessionmaker(engine)
         self.write_sessions = sessionmaker(write_engine)
         self.active_id, self.disabled_id = uuid.uuid4(), uuid.uuid4()
@@ -57,6 +63,7 @@ class UserDirectoryIntegrationTest(unittest.TestCase):
                     UserDirectoryRow(
                         user_id=self.active_id,
                         email="pro@example.com",
+                        full_name="Pro Sintético",
                         actor_type="service_provider",
                         status="active",
                         aggregate_version=1,
@@ -65,6 +72,7 @@ class UserDirectoryIntegrationTest(unittest.TestCase):
                     UserDirectoryRow(
                         user_id=self.disabled_id,
                         email="baja@example.com",
+                        full_name="Baja Sintética",
                         actor_type="athlete",
                         status="disabled",
                         aggregate_version=2,
@@ -146,6 +154,81 @@ class UserDirectoryIntegrationTest(unittest.TestCase):
         self.assertEqual(outcomes, [ProjectionOutcome.APPLIED])
         self.assertEqual(
             lookup.json(), {"user_id": registered.json()["user_id"], "actor_type": "athlete"}
+        )
+
+    # --- HU011 (CA5) ---
+
+    def register_and_project(self, full_name: str, email: str) -> str:
+        registered = self.client.post(
+            "/v1/users",
+            json={
+                "full_name": full_name,
+                "email": email,
+                "password": "contraseña-muy-secreta",
+                "actor_type": "athlete",
+                "accepted_policies_version": "2026-10",
+            },
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+        )
+        self.assertEqual(registered.status_code, 201)
+        project = UsersProjector(
+            unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.read_sessions),
+            clock=SystemClock(),
+        )
+        for event in SqlAlchemyOutboxStore(self.write_sessions).claim_batch("it", 10, 30):
+            project(parse_users_event(json.loads(json.dumps(build_envelope(event)))))
+        user_id: str = registered.json()["user_id"]
+        return user_id
+
+    def batch(self, *user_ids: object) -> Any:
+        return self.client.post(
+            "/v1/users/lookup-batch", json={"user_ids": [str(u) for u in user_ids]}
+        )
+
+    def test_batch_returns_projected_names_of_active_accounts(self) -> None:
+        athlete_id = self.register_and_project("Ana Pérez", "ana.batch@example.com")
+        unknown = uuid.uuid4()
+
+        response = self.batch(athlete_id, self.disabled_id, unknown, self.active_id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["items"],
+            [
+                {
+                    "user_id": athlete_id,
+                    "full_name": "Ana Pérez",
+                    "email": "ana.batch@example.com",
+                },
+                {
+                    "user_id": str(self.active_id),
+                    "full_name": "Pro Sintético",
+                    "email": "pro@example.com",
+                },
+            ],
+        )
+
+    def test_rows_without_name_are_omitted_until_the_backfill_fills_them(self) -> None:
+        """Filas proyectadas antes de `0004`: sin nombre no se entregan; el relleno las
+        completa desde `user_account` una sola vez y no toca las que ya tienen nombre."""
+        athlete_id = self.register_and_project("Luis Gómez", "luis.batch@example.com")
+        with self.read_sessions() as session, session.begin():
+            session.execute(
+                update(UserDirectoryRow)
+                .where(UserDirectoryRow.user_id == uuid.UUID(athlete_id))
+                .values(full_name=None)
+            )
+
+        before = self.batch(athlete_id)
+        first = backfill(self.write_engine, self.read_engine)
+        second = backfill(self.write_engine, self.read_engine)
+        after = self.batch(athlete_id, self.active_id)
+
+        self.assertEqual(before.json()["items"], [])
+        self.assertEqual((first, second), (1, 0))
+        self.assertEqual(
+            [item["full_name"] for item in after.json()["items"]],
+            ["Luis Gómez", "Pro Sintético"],
         )
 
 

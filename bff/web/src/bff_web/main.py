@@ -29,7 +29,7 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.14.0"
+API_VERSION = "0.15.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
@@ -113,6 +113,7 @@ def create_app(
                 verify_token=verifier.verify,
                 permissions=permissions,
                 training=training,
+                users=users,
                 channel=CHANNEL,
             ),
             build_services_router(

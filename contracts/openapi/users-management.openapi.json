@@ -516,6 +516,44 @@
         "title": "LookupUserRequest",
         "type": "object"
       },
+      "LookupUsersBatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "user_ids": {
+            "description": "Entre 1 y 100 identificadores únicos.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "user_ids"
+        ],
+        "title": "LookupUsersBatchRequest",
+        "type": "object"
+      },
+      "LookupUsersBatchResponse": {
+        "properties": {
+          "items": {
+            "description": "Cuentas activas encontradas, en el orden de la solicitud. Una cuenta inexistente, deshabilitada o aún sin nombre proyectado se omite.",
+            "items": {
+              "$ref": "#/components/schemas/UserDisplayItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "LookupUsersBatchResponse",
+        "type": "object"
+      },
       "MaritalStatus": {
         "enum": [
           "SINGLE",
@@ -909,6 +947,30 @@
         "title": "SessionUser",
         "type": "object"
       },
+      "UserDisplayItem": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "full_name",
+          "email"
+        ],
+        "title": "UserDisplayItem",
+        "type": "object"
+      },
       "UserReferenceResponse": {
         "properties": {
           "actor_type": {
@@ -1014,7 +1076,7 @@
   },
   "info": {
     "title": "SportApp - Usuarios",
-    "version": "0.6.0"
+    "version": "0.7.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1970,6 +2032,47 @@
           }
         },
         "summary": "Resolver un correo exacto a usuario y tipo de actor (interno, HU010)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/lookup-batch": {
+      "post": {
+        "operationId": "lookup_users_batch_v1_users_lookup_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LookupUsersBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupUsersBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: lote vacío, de más de 100 o con identificadores repetidos (`duplicate_value`)."
+          }
+        },
+        "summary": "Nombre y correo de un lote de cuentas activas (interno, HU011)",
         "tags": [
           "users"
         ]

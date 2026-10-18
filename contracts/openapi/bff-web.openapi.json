@@ -1582,6 +1582,64 @@
         "title": "SessionUser",
         "type": "object"
       },
+      "TrainingAthleteItem": {
+        "properties": {
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "authorized_at": {
+            "format": "date-time",
+            "title": "Authorized At",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "athlete_id",
+          "full_name",
+          "email",
+          "authorized_at"
+        ],
+        "title": "TrainingAthleteItem",
+        "type": "object"
+      },
+      "TrainingAthletesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingAthleteItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "TrainingAthletesResponse",
+        "type": "object"
+      },
       "TrainingAuthorizationResponse": {
         "properties": {
           "athlete_id": {
@@ -1853,7 +1911,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.14.0"
+    "version": "0.15.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3290,6 +3348,125 @@
         "summary": "Detalle de un servicio propio (HU019, ADR-038)",
         "tags": [
           "services"
+        ]
+      }
+    },
+    "/v1/me/training-athletes": {
+      "get": {
+        "description": "Solo `service_provider` con `training.history.view_assigned` y solo autorizaciones vigentes; orden `authorized_at` y `athlete_id` descendentes. Una revocación retira al deportista cuando se proyecta. Si Usuarios no entrega nombre y correo de todos los deportistas de la página, responde `503`.",
+        "operationId": "training_athletes_v1_me_training_athletes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingAthletesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: límite o cursor inválidos."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Deportistas que me autorizaron, con nombre y correo (HU011, CA5)",
+        "tags": [
+          "training"
         ]
       }
     },

@@ -38,6 +38,9 @@ class UserDirectoryRow(ReadBase):
     )
 
     user_id: Mapped[UUID] = mapped_column(primary_key=True)
+    # HU011 (CA5): nombre visible para la lista de deportistas del profesional. Nulo solo en
+    # filas proyectadas antes de `0004` hasta que corre `workers.directory_backfill`.
+    full_name: Mapped[str | None] = mapped_column(String(120))
     email: Mapped[str] = mapped_column(String(254), unique=True)
     actor_type: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(16))

@@ -57,7 +57,8 @@ class UsersProjectorTest(unittest.TestCase):
         self.assertEqual((first, again), (ProjectionOutcome.APPLIED, ProjectionOutcome.DUPLICATE))
         entry = self.store.directory[event.user_id]
         self.assertEqual(
-            (entry.email, entry.actor_type, entry.status), (event.email, "athlete", "active")
+            (entry.email, entry.full_name, entry.actor_type, entry.status),
+            (event.email, event.full_name, "athlete", "active"),
         )
         self.assertEqual(self.store.processed[event.event_id][0], DIRECTORY_PROJECTION)
 

@@ -86,6 +86,7 @@ class SqlAlchemyProjectionUnitOfWork:
             insert(UserDirectoryRow)
             .values(
                 user_id=entry.user_id,
+                full_name=entry.full_name,
                 email=entry.email,
                 actor_type=entry.actor_type,
                 status=entry.status,

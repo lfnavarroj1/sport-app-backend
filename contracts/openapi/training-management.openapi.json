@@ -56,6 +56,56 @@
         "title": "ActiveTrainingSessionResponse",
         "type": "object"
       },
+      "AuthorizedAthleteItem": {
+        "properties": {
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "authorized_at": {
+            "description": "Instante (UTC) de la autorización vigente.",
+            "format": "date-time",
+            "title": "Authorized At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "athlete_id",
+          "authorized_at"
+        ],
+        "title": "AuthorizedAthleteItem",
+        "type": "object"
+      },
+      "AuthorizedAthletesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuthorizedAthleteItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AuthorizedAthletesResponse",
+        "type": "object"
+      },
       "CreateTrainingPlanRequest": {
         "additionalProperties": false,
         "properties": {
@@ -998,7 +1048,7 @@
   },
   "info": {
     "title": "SportApp - Entrenamientos",
-    "version": "0.7.0"
+    "version": "0.8.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1217,6 +1267,115 @@
           }
         },
         "summary": "Historial de entrenamiento de un deportista que me autorizó (HU011)",
+        "tags": [
+          "training-history"
+        ]
+      }
+    },
+    "/v1/me/authorized-athletes": {
+      "get": {
+        "description": "Solo el profesional con `training.history.view_assigned` y solo autorizaciones vigentes proyectadas; orden `authorized_at` y `athlete_id` descendentes. Una revocación lo retira cuando el proyector la aplica.",
+        "operationId": "authorized_athletes_v1_me_authorized_athletes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorizedAthletesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: límite o cursor inválidos."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          }
+        },
+        "summary": "Deportistas que me autorizaron (HU011, CA5)",
         "tags": [
           "training-history"
         ]

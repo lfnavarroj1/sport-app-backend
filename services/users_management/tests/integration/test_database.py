@@ -21,7 +21,7 @@ class DatabaseIntegrationTest(unittest.TestCase):
     def test_each_history_migrates_from_empty_database_to_head(self) -> None:
         expected = {
             WRITE_HISTORY: "0004_athlete_profile",
-            READ_HISTORY: "0003_athlete_profile_view",
+            READ_HISTORY: "0004_user_directory_full_name",
         }
         for script_location, revision in expected.items():
             with (

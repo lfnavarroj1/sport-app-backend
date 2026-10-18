@@ -179,6 +179,8 @@ class EventRegistrationFlowTest(unittest.TestCase):
             "version": 2 if status == "PUBLISHED" else 1,
             "created_at": now,
             "updated_at": now,
+            # Restricción de HU024: `published_at` existe si y solo si está publicado.
+            "published_at": now if status == "PUBLISHED" else None,
         }
         with sessionmaker(self.engines["events_w"])() as session, session.begin():
             session.add(EventRow(**values))

@@ -8,9 +8,13 @@
   instante; duración de 15 a 1.440 minutos y capacidad de 1 a 100.000.
 - El fin lo calcula el backend; inicio y fin se normalizan a UTC sin perder la zona.
 - Nace en `DRAFT`, versión 1, del organizador autenticado.
+
+HU024 (ADR-033): la única transición es `DRAFT` → `PUBLISHED`. Incrementa una vez la
+versión, fija `published_at` con el reloj del servidor y exige que el agregado persistido
+cumpla de nuevo todas las reglas de ADR-028, con `starts_at` posterior a la publicación.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
@@ -32,9 +36,13 @@ INITIAL_VERSION = 1
 
 class EventStatus(StrEnum):
     DRAFT = "DRAFT"
-    # Representable para que HU041 valide la inscripción en la escritura (ADR-032); la
-    # transición de publicación pertenece a HU024 y todavía no existe.
     PUBLISHED = "PUBLISHED"
+
+
+class EventNotFound(Exception):
+    """El evento no existe o pertenece a otro organizador; no se revela cuál (ADR-033)."""
+
+    code = "event_not_found"
 
 
 @dataclass(frozen=True)
@@ -94,6 +102,7 @@ class SportEvent:
     version: int
     created_at: datetime
     updated_at: datetime
+    published_at: datetime | None = None
 
     @classmethod
     def draft(
@@ -108,6 +117,24 @@ class SportEvent:
             version=INITIAL_VERSION,
             created_at=created_at,
             updated_at=created_at,
+        )
+
+    def publish(self, now: datetime) -> "SportEvent":
+        """`DRAFT` → `PUBLISHED`: una sola subida de versión y `published_at` del servidor.
+
+        Revalida el agregado con ADR-028 en el instante de la publicación; si incumple
+        alguna regla lanza `InvalidSportEvent` y el evento sigue `DRAFT`.
+        """
+        if self.status is not EventStatus.DRAFT:
+            raise ValueError("Solo un borrador se puede publicar.")
+        revalidate_for_publication(self.details, now)
+        published_at = now.astimezone(UTC)
+        return replace(
+            self,
+            status=EventStatus.PUBLISHED,
+            version=self.version + 1,
+            updated_at=published_at,
+            published_at=published_at,
         )
 
 
@@ -221,4 +248,33 @@ def validate_event(raw: EventInput, now: datetime) -> EventDetails:
         time_zone=time_zone,
         duration_minutes=duration,
         capacity=capacity,
+    )
+
+
+def revalidate_for_publication(details: EventDetails, now: datetime) -> None:
+    """Reglas de ADR-028 sobre el agregado persistido más `starts_at` futuro (CA2).
+
+    El inicio se expresa en su zona declarada, como lo habría enviado el organizador, para
+    que también se compruebe que la zona sigue existiendo y coincide con el desfase.
+    """
+    zone = _zone(details.time_zone)
+    starts_at = details.starts_at.astimezone(zone) if zone is not None else details.starts_at
+    location = details.location
+    validate_event(
+        EventInput(
+            name=details.name,
+            description=details.description,
+            discipline=details.discipline,
+            location=LocationInput(
+                name=location.name,
+                address=location.address,
+                city=location.city,
+                country_code=location.country_code,
+            ),
+            starts_at=starts_at.isoformat(),
+            time_zone=details.time_zone,
+            duration_minutes=details.duration_minutes,
+            capacity=details.capacity,
+        ),
+        now,
     )

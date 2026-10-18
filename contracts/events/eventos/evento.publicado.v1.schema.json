@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/eventos/evento.publicado.v1.schema.json",
+  "title": "evento.publicado.v1",
+  "description": "Publicado en sportapp.eventos.v1 con ordering_key = event_id (= aggregate_id) cuando el organizador propietario publica un borrador (HU024, ADR-033, CMP-004). aggregate_version es la versión resultante de la publicación (2 si no hubo otros cambios). Lleva el estado completo del evento más published_at; eventos-read-projector lo aplica a event_read si la versión es mayor que la proyectada o inserta la fila si no existe. Instantes en UTC con sufijo Z; time_zone conserva la zona IANA declarada. Sin tarifa, inscripciones ni credenciales.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador del mensaje; el proyector deduplica por este valor en processed_event."
+    },
+    "event_type": {
+      "const": "evento.publicado.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "events-management"
+    },
+    "aggregate_type": {
+      "const": "event"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "event_id del agregado: una secuencia de versiones por evento masivo."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "Versión del evento después de publicarlo."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Idempotency-Key del comando que publicó el evento."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "organizer_id",
+        "name",
+        "description",
+        "discipline",
+        "location",
+        "starts_at",
+        "ends_at",
+        "time_zone",
+        "duration_minutes",
+        "capacity",
+        "status",
+        "version",
+        "created_at",
+        "updated_at",
+        "published_at"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organizer_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 2000
+        },
+        "discipline": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "address",
+            "city",
+            "country_code"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 120
+            },
+            "address": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 200
+            },
+            "city": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 80
+            },
+            "country_code": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$",
+              "description": "ISO 3166-1 alfa-2."
+            }
+          }
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "starts_at + duration_minutes, calculado por el backend."
+        },
+        "time_zone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "duration_minutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 1440
+        },
+        "capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "status": {
+          "const": "PUBLISHED"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "Igual a aggregate_version."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "Instante de la publicación asignado por el servidor."
+        }
+      }
+    }
+  }
+}

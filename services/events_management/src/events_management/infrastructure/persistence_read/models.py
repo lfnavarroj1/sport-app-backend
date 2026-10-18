@@ -22,8 +22,9 @@ class ReadBase(DeclarativeBase):
 
 
 class EventReadRow(ReadBase):
-    """Vista del evento (CMP-004) a partir de `evento.creado.v1`. Un `DRAFT` solo es
-    visible para su organizador; catálogo y calendario públicos lo excluyen."""
+    """Vista del evento (CMP-004) por estado completo desde `evento.creado.v1` y
+    `evento.publicado.v1` (ADR-033). Un `DRAFT` solo es visible para su organizador;
+    catálogo y calendario públicos lo excluyen."""
 
     __tablename__ = "event_read"
     __table_args__ = (
@@ -50,6 +51,7 @@ class EventReadRow(ReadBase):
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

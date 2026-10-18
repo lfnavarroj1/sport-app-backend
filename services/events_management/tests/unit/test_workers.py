@@ -1,5 +1,5 @@
-"""Workers y adaptadores de HU021 sin infraestructura: mensajes, proyector, outbox y
-política de permisos (CA5)."""
+"""Workers y adaptadores de HU021 y HU024 sin infraestructura: mensajes, proyector por
+estado completo (ADR-033), outbox y política de permisos (CA5)."""
 
 import json
 import os
@@ -20,11 +20,12 @@ from events_management.application.messages import (
     parse_sport_event_message,
 )
 from events_management.application.projections.event_projection import (
-    ProjectEventCreated,
+    ProjectEventState,
     ProjectionOutcome,
 )
 from events_management.domain.sport_events.created import event_document
 from events_management.domain.sport_events.model import SportEvent, validate_event
+from events_management.domain.sport_events.published import aggregate_document
 from events_management.infrastructure.authorization import ContractPermissionPolicy
 from events_management.infrastructure.persistence_write.outbox import ClaimedEvent
 from events_management.settings import OutboxPublisherSettings
@@ -63,6 +64,19 @@ def envelope(event: SportEvent | None = None, **overrides: Any) -> dict[str, Any
     return values
 
 
+def published_envelope(event: SportEvent, **overrides: Any) -> dict[str, Any]:
+    """`evento.publicado.v1` del borrador `event` publicado un día después de `NOW`."""
+    published = event.publish(NOW + timedelta(days=1))
+    values: dict[str, Any] = {
+        **envelope(event),
+        "event_type": "evento.publicado.v1",
+        "aggregate_version": published.version,
+        "payload": aggregate_document(published),
+    }
+    values.update(overrides)
+    return values
+
+
 @dataclass
 class Message:
     body: dict[str, Any] | bytes
@@ -93,7 +107,7 @@ class ParseSportEventMessageTest(unittest.TestCase):
 
     def test_other_event_types_are_unsupported(self) -> None:
         with self.assertRaises(UnsupportedEvent):
-            parse_sport_event_message(envelope(event_type="evento.publicado.v1"))
+            parse_sport_event_message(envelope(event_type="evento.actualizado.v1"))
 
     def test_contract_violations(self) -> None:
         event = an_event()
@@ -131,10 +145,10 @@ class ParseSportEventMessageTest(unittest.TestCase):
             self.assertEqual(raised.exception.reason, reason)
 
 
-class ProjectEventCreatedTest(unittest.TestCase):
+class ProjectEventStateTest(unittest.TestCase):
     def setUp(self) -> None:
         self.read = ReadStore()
-        self.project = ProjectEventCreated(
+        self.project = ProjectEventState(
             unit_of_work=lambda: InMemoryProjectionUnitOfWork(self.read), clock=FixedClock()
         )
 
@@ -160,10 +174,10 @@ class ProjectEventCreatedTest(unittest.TestCase):
 
     def test_concurrent_delivery_loses_to_the_first_commit(self) -> None:
         message = parse_sport_event_message(envelope())
-        rival = ProjectEventCreated(
+        rival = ProjectEventState(
             unit_of_work=lambda: InMemoryProjectionUnitOfWork(self.read), clock=FixedClock()
         )
-        racing = ProjectEventCreated(
+        racing = ProjectEventState(
             unit_of_work=lambda: InMemoryProjectionUnitOfWork(
                 self.read, before_commit=lambda: rival(message)
             ),
@@ -173,12 +187,63 @@ class ProjectEventCreatedTest(unittest.TestCase):
         self.assertEqual(racing(message), ProjectionOutcome.DUPLICATE)
         self.assertEqual(len(self.read.views), 1)
 
+    def test_publication_replaces_the_draft_by_greater_version(self) -> None:
+        """HU024 CA1/CA5: `evento.publicado.v1` sustituye el estado completo del borrador."""
+        event = an_event()
+        created = parse_sport_event_message(envelope(event))
+        published = parse_sport_event_message(published_envelope(event))
+
+        self.project(created)
+        outcome = self.project(published)
+        again = self.project(published)
+
+        view = self.read.views[event.event_id]
+        self.assertEqual(
+            (outcome, again), (ProjectionOutcome.PROJECTED, ProjectionOutcome.DUPLICATE)
+        )
+        self.assertEqual((view.status.value, view.version), ("PUBLISHED", 2))
+        self.assertIsNotNone(view.published_at)
+
+    def test_out_of_order_publication_inserts_and_ignores_the_older_version(self) -> None:
+        """ADR-033: sin la vista se inserta el estado completo; una versión menor no
+        retrocede y solo se registra como procesada."""
+        event = an_event()
+        published = parse_sport_event_message(published_envelope(event))
+        created = parse_sport_event_message(envelope(event))
+
+        first = self.project(published)
+        late = self.project(created)
+
+        self.assertEqual((first, late), (ProjectionOutcome.PROJECTED, ProjectionOutcome.STALE))
+        self.assertEqual(self.read.views[event.event_id].version, 2)
+        self.assertEqual(len(self.read.processed), 2)
+
+    def test_concurrent_creation_of_the_view_is_reapplied_by_version(self) -> None:
+        """Creación y publicación del mismo evento insertan a la vez: la que pierde se
+        reaplica por versión y no se pierde la publicación."""
+        event = an_event()
+        created = parse_sport_event_message(envelope(event))
+        published = parse_sport_event_message(published_envelope(event))
+        rival = ProjectEventState(
+            unit_of_work=lambda: InMemoryProjectionUnitOfWork(self.read), clock=FixedClock()
+        )
+        racing = ProjectEventState(
+            unit_of_work=lambda: InMemoryProjectionUnitOfWork(
+                self.read, before_commit=lambda: rival(created)
+            ),
+            clock=FixedClock(),
+        )
+
+        self.assertEqual(racing(published), ProjectionOutcome.PROJECTED)
+        self.assertEqual(self.read.views[event.event_id].version, 2)
+        self.assertEqual(len(self.read.processed), 2)
+
 
 class ProjectionMessageHandlerTest(unittest.TestCase):
     def setUp(self) -> None:
         self.read = ReadStore()
         self.handler = ProjectionMessageHandler(
-            ProjectEventCreated(
+            ProjectEventState(
                 unit_of_work=lambda: InMemoryProjectionUnitOfWork(self.read), clock=FixedClock()
             )
         )
@@ -202,23 +267,23 @@ class ProjectionMessageHandlerTest(unittest.TestCase):
                 self.assertEqual((message.acked, message.nacked), (False, True))
 
     def test_unsupported_types_are_acked_without_effects(self) -> None:
-        message = Message(envelope(event_type="evento.publicado.v1"))
+        # Candidato sin historia aprobada (guía del dominio): no se proyecta.
+        message = Message(envelope(event_type="evento.actualizado.v1"))
 
         self.handler(message)
 
         self.assertTrue(message.acked)
         self.assertEqual(self.read.views, {})
 
-    def test_version_gap_is_not_acked(self) -> None:
+    def test_later_version_without_the_previous_is_projected_and_acked(self) -> None:
+        """ADR-033 sustituye «solo la siguiente versión»: no hay huecos que esperar."""
         event = an_event()
-        later = SportEvent(**{**event.__dict__, "version": 2})
-        gap = Message(envelope(later, aggregate_version=2))
+        message = Message(published_envelope(event))
 
-        with self.assertLogs("sportapp.projector", level="WARNING") as logs:
-            self.handler(gap)
+        self.handler(message)
 
-        self.assertEqual((gap.acked, gap.nacked), (False, True))
-        self.assertIn("projector.version_gap", logs.output[0])
+        self.assertEqual((message.acked, message.nacked), (True, False))
+        self.assertEqual(self.read.views[event.event_id].version, 2)
 
     def test_failure_is_not_acked_and_does_not_leak_content(self) -> None:
         def broken(_: Any) -> ProjectionOutcome:

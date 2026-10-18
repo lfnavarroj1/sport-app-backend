@@ -73,6 +73,23 @@ class CalendarEventView:
     version: int
 
 
+@dataclass(frozen=True)
+class OwnEventsQuery:
+    """HU024: eventos del organizador autenticado, opcionalmente de un estado."""
+
+    organizer_id: UUID
+    status: str | None
+    after: EventPosition | None
+    limit: int
+
+
+class OwnEventReader(Protocol):
+    def list(self, query: OwnEventsQuery) -> list[SportEvent]:
+        """Hasta `limit` eventos propios en orden `starts_at`, `event_id` y estrictamente
+        después de `after`."""
+        ...
+
+
 class PublishedEventReader(Protocol):
     def published(self, query: PublishedEventsQuery) -> list[CalendarEventView]:
         """Hasta `limit` eventos `PUBLISHED` que se superponen con el periodo, en orden
@@ -138,6 +155,33 @@ class EventCreationUnitOfWork(Transaction, Protocol):
 
     def commit(self) -> None:
         """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+class PublicationUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU024: evento bloqueado, transición, idempotencia y outbox."""
+
+    def find_idempotency(
+        self, actor_id: UUID, operation: str, key: UUID
+    ) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def lock_event(self, event_id: UUID) -> SportEvent | None:
+        """Bloquea la fila del evento hasta el fin de la transacción: serializa las
+        publicaciones concurrentes."""
+        ...
+
+    def update_event(self, event: SportEvent) -> None:
+        """Guarda estado, versión, `updated_at` y `published_at` del evento bloqueado."""
+        ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
         ...
 
 
@@ -220,9 +264,12 @@ class RegistrationsQuery:
 
 
 class EventDetailReader(Protocol):
-    def published_detail(self, event_id: UUID, athlete_id: UUID | None) -> EventDetailView | None:
-        """El evento `PUBLISHED` con la inscripción proyectada de ese deportista, si existe;
-        sin deportista (`None`), `my_registration` es `None`."""
+    def visible_detail(
+        self, event_id: UUID, *, athlete_id: UUID | None, owner_id: UUID | None
+    ) -> EventDetailView | None:
+        """El evento si es visible (ADR-033): `PUBLISHED` para cualquiera; `DRAFT` solo si su
+        organizador es `owner_id`. Con `athlete_id`, la inscripción proyectada de ese
+        deportista; sin él, `my_registration` es `None`."""
         ...
 
 
@@ -237,6 +284,10 @@ class DuplicateDelivery(Exception):
     """Otra entrega del mismo evento confirmó primero su registro en `processed_event`."""
 
 
+class ConcurrentEventView(Exception):
+    """Otro mensaje del mismo evento creó primero su vista; hay que reaplicar por versión."""
+
+
 class ProjectionUnitOfWork(Transaction, Protocol):
     """Transacción local del proyector en la base de lectura."""
 
@@ -247,6 +298,10 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         ...
 
     def add_event_view(self, event: SportEvent, projected_at: datetime) -> None: ...
+
+    def replace_event_view(self, event: SportEvent, projected_at: datetime) -> None:
+        """Estado completo (ADR-033): sustituye todas las columnas de la vista existente."""
+        ...
 
     def registration_version(self, registration_id: UUID) -> int | None:
         """Versión proyectada de la inscripción; bloquea la fila."""
@@ -261,5 +316,6 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     ) -> None: ...
 
     def commit(self) -> None:
-        """Traduce un mensaje o un evento ya proyectado por otra entrega a `DuplicateDelivery`."""
+        """Traduce un mensaje ya procesado o una inscripción ya proyectada por otra entrega a
+        `DuplicateDelivery`, y una vista de evento creada en paralelo a `ConcurrentEventView`."""
         ...

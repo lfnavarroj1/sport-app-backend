@@ -1,6 +1,6 @@
 [project]
 name = "sportapp-backend"
-version = "0.1.0"
+version = "0.1.2"
 description = "Workspace del backend de SportApp: microservicios, BFF y librería técnica."
 requires-python = ">=3.13,<3.14"
 dependencies = []

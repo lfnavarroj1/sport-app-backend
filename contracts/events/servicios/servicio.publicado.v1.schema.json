@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/servicios/servicio.publicado.v1.schema.json",
+  "title": "servicio.publicado.v1",
+  "description": "Publicado en sportapp.servicios.v1 con ordering_key = service_id (= aggregate_id) cuando un profesional publica un servicio propio en DRAFT (HU019, ADR-027). Payload mínimo: no transporta nombre, descripción, tarifa ni disponibilidad; un consumidor autorizado consulta el estado completo en la API propietaria. Sin consumidores aprobados. Instantes en UTC con sufijo Z.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador del mensaje; un consumidor futuro deduplica por este valor."
+    },
+    "event_type": {"const": "servicio.publicado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "producer": {"const": "complementary-services"},
+    "aggregate_type": {"const": "service"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "service_id del agregado: una secuencia de versiones por servicio."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "Versión resultante de la publicación (el borrador de HU015 nace en la versión 1)."
+    },
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Idempotency-Key del comando de publicación."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_id", "provider_id", "status", "published_at"],
+      "properties": {
+        "service_id": {"type": "string", "format": "uuid"},
+        "provider_id": {"type": "string", "format": "uuid"},
+        "status": {"const": "PUBLISHED"},
+        "published_at": {"type": "string", "format": "date-time", "pattern": "Z$"}
+      }
+    }
+  }
+}

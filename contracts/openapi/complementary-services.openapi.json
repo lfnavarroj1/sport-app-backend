@@ -1,6 +1,181 @@
 {
   "components": {
     "schemas": {
+      "AvailabilityInterval": {
+        "additionalProperties": false,
+        "description": "Intervalo `[starts_at, ends_at)`. En la solicitud, con desfase coherente con\n`time_zone`; en la respuesta, en UTC con sufijo `Z`.",
+        "properties": {
+          "capacity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada, p. ej. America/Bogota.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "capacity"
+        ],
+        "title": "AvailabilityInterval",
+        "type": "object"
+      },
+      "BillingUnit": {
+        "enum": [
+          "SERVICE",
+          "SESSION",
+          "HOUR",
+          "DAY"
+        ],
+        "title": "BillingUnit",
+        "type": "string"
+      },
+      "CatalogService": {
+        "properties": {
+          "availability": {
+            "description": "Intervalos futuros que empiezan en el rango, en UTC con su zona.",
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityInterval"
+            },
+            "title": "Availability",
+            "type": "array"
+          },
+          "available": {
+            "description": "`false` solo con `availability=all` y sin intervalos.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "modality": {
+            "$ref": "#/components/schemas/Modality"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ServicePrice",
+            "description": "Tarifa informativa: no es un cobro."
+          },
+          "provider_id": {
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_id",
+          "provider_id",
+          "name",
+          "description",
+          "category",
+          "modality",
+          "price",
+          "availability",
+          "available"
+        ],
+        "title": "CatalogService",
+        "type": "object"
+      },
+      "Category": {
+        "enum": [
+          "SPORTS_MEDICINE",
+          "COACHING",
+          "NUTRITION",
+          "TRANSPORT",
+          "ACCOMPANIMENT"
+        ],
+        "title": "Category",
+        "type": "string"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "issue": {
+            "title": "Issue",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issue"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "details": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "correlation_id"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "HealthStatus": {
         "properties": {
           "checks": {
@@ -28,12 +203,254 @@
         ],
         "title": "HealthStatus",
         "type": "object"
+      },
+      "Modality": {
+        "enum": [
+          "IN_PERSON",
+          "VIRTUAL",
+          "HYBRID"
+        ],
+        "title": "Modality",
+        "type": "string"
+      },
+      "MyServicesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` al final.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "MyServicesResponse",
+        "type": "object"
+      },
+      "PublicationResponse": {
+        "properties": {
+          "provider_id": {
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "PUBLISHED",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "service_id",
+          "provider_id",
+          "status",
+          "version",
+          "published_at",
+          "updated_at"
+        ],
+        "title": "PublicationResponse",
+        "type": "object"
+      },
+      "ServiceAvailabilityResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogService"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` al final.",
+            "title": "Next Cursor"
+          },
+          "restricted_categories": {
+            "description": "Categorías omitidas por falta de capacidad del plan (`[\"SPORTS_MEDICINE\"]` sin `services.sports_medicine.access`).",
+            "items": {
+              "$ref": "#/components/schemas/Category"
+            },
+            "title": "Restricted Categories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "restricted_categories"
+        ],
+        "title": "ServiceAvailabilityResponse",
+        "type": "object"
+      },
+      "ServicePrice": {
+        "additionalProperties": false,
+        "description": "Precio público de referencia en COP, impuestos aplicables incluidos; no es un cobro.",
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal de 0.00 a 999999999.99, máximo dos decimales.",
+            "examples": [
+              "120000.00"
+            ],
+            "pattern": "^\\d{1,9}(\\.\\d{1,2})?$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "billing_unit": {
+            "$ref": "#/components/schemas/BillingUnit"
+          },
+          "currency": {
+            "const": "COP",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "billing_unit"
+        ],
+        "title": "ServicePrice",
+        "type": "object"
+      },
+      "ServiceResponse": {
+        "properties": {
+          "availability": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityInterval"
+            },
+            "title": "Availability",
+            "type": "array"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "modality": {
+            "$ref": "#/components/schemas/Modality"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ServicePrice"
+          },
+          "provider_id": {
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HU019: instante de la publicación en UTC; `null` en borrador.",
+            "title": "Published At"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ServiceStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "service_id",
+          "provider_id",
+          "name",
+          "description",
+          "category",
+          "modality",
+          "price",
+          "availability",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "published_at"
+        ],
+        "title": "ServiceResponse",
+        "type": "object"
+      },
+      "ServiceStatus": {
+        "enum": [
+          "DRAFT",
+          "PUBLISHED"
+        ],
+        "title": "ServiceStatus",
+        "type": "string"
       }
     }
   },
   "info": {
     "title": "SportApp - Servicios complementarios",
-    "version": "0.1.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -86,6 +503,764 @@
         "summary": "Ready",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/v1/me/services": {
+      "get": {
+        "description": "Ordenados por `updated_at` y `service_id` descendentes con cursor keyset.",
+        "operationId": "my_services_v1_me_services_get",
+        "parameters": [
+          {
+            "description": "`DRAFT` o `PUBLISHED`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`DRAFT` o `PUBLISHED`.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Entero de 1 a 100; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 100; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyServicesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el profesional de servicios."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.status` o `query.cursor` (`unknown_value`), `query.limit` (`unknown_value` u `out_of_range`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Mis servicios (ADR-038, soporte de HU019 y HU018)",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/v1/me/services/{service_id}": {
+      "get": {
+        "operationId": "my_service_v1_me_services__service_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Service Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el profesional de servicios."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`service_not_found`: el servicio no existe o es de otro profesional."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `path.service_id` no es un UUID."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Detalle de un servicio propio (ADR-038, soporte de HU019 y HU018)",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/v1/services": {
+      "post": {
+        "operationId": "create_v1_services_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hacen el transporte y el dominio.",
+                "properties": {
+                  "availability": {
+                    "anyOf": [
+                      {
+                        "items": {
+                          "$ref": "#/components/schemas/AvailabilityInterval"
+                        },
+                        "maxItems": 100,
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Opcional; intervalos futuros de hasta 24 h, con fin dentro de 365 días, contiguos permitidos y sin superposición.",
+                    "title": "Availability"
+                  },
+                  "category": {
+                    "$ref": "#/components/schemas/Category"
+                  },
+                  "description": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 2000,
+                    "minLength": 20,
+                    "title": "Description",
+                    "type": "string"
+                  },
+                  "modality": {
+                    "$ref": "#/components/schemas/Modality"
+                  },
+                  "name": {
+                    "description": "Se recortan los espacios exteriores.",
+                    "maxLength": 120,
+                    "minLength": 3,
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "price": {
+                    "$ref": "#/components/schemas/ServicePrice"
+                  }
+                },
+                "required": [
+                  "name",
+                  "description",
+                  "category",
+                  "modality",
+                  "price"
+                ],
+                "title": "CreateServiceRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: el actor no tiene el permiso de la operación."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (ADR-027)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Crear un servicio en borrador (HU015)",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/v1/services/availability": {
+      "get": {
+        "description": "Ordenados por `name` y `service_id` con cursor keyset. Sin parámetro de zona horaria: los instantes van en UTC con la zona del intervalo.",
+        "operationId": "service_availability_v1_services_availability_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase; obligatorio.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase; obligatorio.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase, posterior a `from` y a no más de 31 días; obligatorio.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase, posterior a `from` y a no más de 31 días; obligatorio.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Repetible; sin valor, todas las permitidas.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Repetible; sin valor, todas las permitidas.",
+              "title": "Category"
+            }
+          },
+          {
+            "description": "Repetible.",
+            "in": "query",
+            "name": "modality",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Repetible.",
+              "title": "Modality"
+            }
+          },
+          {
+            "description": "`available` (por defecto) o `all`.",
+            "in": "query",
+            "name": "availability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`available` (por defecto) o `all`.",
+              "title": "Availability"
+            }
+          },
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `query.from`/`query.to` (`required`, `unknown_value`), `query.to` (`ends_before_starts`, `out_of_range` si el periodo supera 31 días), `query.category`, `query.modality`, `query.availability` y `query.cursor` (`unknown_value`), `query.limit` (`unknown_value`, `out_of_range`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la capacidad médica ante Afiliación (también por timeout)."
+          }
+        },
+        "summary": "Disponibilidad de los servicios publicados (HU020)",
+        "tags": [
+          "services"
+        ]
+      }
+    },
+    "/v1/services/{service_id}/publish": {
+      "post": {
+        "description": "Sin cuerpo. Un servicio ya publicado responde `200` con su estado vigente, sin subir la versión ni emitir otro `servicio.publicado.v1`.",
+        "operationId": "publish_v1_services__service_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Service Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: el actor no tiene el permiso de la operación."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`service_not_found`: el servicio no existe o es de otro profesional."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`: la clave se usó con otra solicitud."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (ADR-027): `path.service_id` no es un UUID, `Idempotency-Key` ausente o inválida, o la oferta no cumple las reglas de publicación (sin intervalos futuros: `{field: \"availability\", issue: \"required\"}`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Publicar un servicio propio en borrador (HU019)",
+        "tags": [
+          "services"
         ]
       }
     }

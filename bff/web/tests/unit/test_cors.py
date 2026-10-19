@@ -39,6 +39,8 @@ def settings(origins: str | None) -> BffWebSettings:
         "USERS_MANAGEMENT_BASE_URL": "http://users.invalid",
         "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation.invalid",
         "TRAINING_MANAGEMENT_BASE_URL": "http://training.invalid",
+        "COMPLEMENTARY_SERVICES_BASE_URL": "http://services.invalid",
+        "EVENTS_MANAGEMENT_BASE_URL": "http://events.invalid",
     }
     if origins is not None:
         environment["CORS_ALLOWED_ORIGINS"] = origins

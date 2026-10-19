@@ -17,13 +17,14 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from google.cloud import pubsub_v1
-from sqlalchemy import create_engine, pool
+from sqlalchemy import create_engine, func, pool, select
 from sqlalchemy.orm import sessionmaker
 
 from affiliation_management.application.commands.provision_free_subscription import (
     ProvisionFreeSubscription,
 )
 from affiliation_management.infrastructure.clock import SystemClock
+from affiliation_management.infrastructure.persistence.models import SubscriptionRow
 from affiliation_management.infrastructure.persistence.unit_of_work import (
     SqlAlchemyProvisioningUnitOfWork,
 )
@@ -44,8 +45,9 @@ from users_management.workers.outbox_publisher import OutboxRelay
 
 USERS_HISTORY = "users_management.infrastructure.persistence_write:migrations"
 AFFILIATION_HISTORY = "affiliation_management.infrastructure.persistence:migrations"
-POLICIES = "2026-10"
-CATALOG = "plans-2026-10-11.v1"
+# Versión compartida de las políticas aprobada el 2026-10-17 (HU001).
+POLICIES = "sportapp-c108-c108plus.v1"
+CATALOG = "plans-2026-10-13.v1"
 
 
 def wait_until(condition: Callable[[], bool], timeout: float = 30.0) -> bool:
@@ -75,6 +77,7 @@ class RegistrationFreePlanFlowTest(unittest.TestCase):
                         database_write_url=users_url,  # type: ignore[arg-type]
                         database_read_url=users_url,  # type: ignore[arg-type]
                         registration_policies_version=POLICIES,
+                        health_data_consent_version="health-test.v1",
                         jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
                     )
                 ),
@@ -89,6 +92,8 @@ class RegistrationFreePlanFlowTest(unittest.TestCase):
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
                         affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
                         training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
+                        complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
+                        events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
                     ),
                     users_http=users,
                 )
@@ -123,6 +128,7 @@ class RegistrationFreePlanFlowTest(unittest.TestCase):
 
         affiliation_engine = create_engine(affiliation_url, pool_size=10)
         self.addCleanup(affiliation_engine.dispose)
+        self.affiliation_engine = affiliation_engine
         provision = ProvisionFreeSubscription(
             unit_of_work=lambda: SqlAlchemyProvisioningUnitOfWork(sessionmaker(affiliation_engine)),
             clock=SystemClock(),
@@ -161,13 +167,26 @@ class RegistrationFreePlanFlowTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return dict(response.json())
 
-    def test_registered_athlete_ends_with_free_plan_and_organizer_with_none(self) -> None:
-        """CA6, CA7 y el lado de Afiliación de CA8 de punta a punta."""
+    def subscriptions_of(self, user_id: str) -> int:
+        with self.affiliation_engine.connect() as connection:
+            return (
+                connection.scalar(
+                    select(func.count())
+                    .select_from(SubscriptionRow)
+                    .where(SubscriptionRow.user_id == uuid.UUID(user_id))
+                )
+                or 0
+            )
+
+    def test_registered_athlete_ends_with_free_plan_and_other_actors_with_none(self) -> None:
+        """CA6, CA7 y el lado de Afiliación de CA8 de punta a punta, con el catálogo
+        `plans-2026-10-13.v1`: el deportista recibe una sola suscripción `FREE` (versión 2)."""
         athlete = self.register("athlete")
         organizer = self.register("organizer")
+        provider = self.register("service_provider")
 
         self.assertEqual(self.capabilities(athlete)["subscription_status"], "NONE")
-        self.assertEqual(self.users_relay.run_once(), 2)
+        self.assertEqual(self.users_relay.run_once(), 3)
 
         provisioned = wait_until(
             lambda: self.capabilities(athlete)["subscription_status"] == "ACTIVE"
@@ -177,8 +196,13 @@ class RegistrationFreePlanFlowTest(unittest.TestCase):
         athlete_view = self.capabilities(athlete)
         self.assertEqual(athlete_view["plan_code"], "FREE")
         self.assertEqual(athlete_view["catalog_version"], CATALOG)
+        self.assertEqual(athlete_view["plan_version"], 2)
         self.assertEqual(len(athlete_view["capabilities"]), 11)
-        self.assertEqual(self.capabilities(organizer)["subscription_status"], "NONE")
+        time.sleep(1.0)  # margen para entregas tardías: no deben crear otra suscripción
+        self.assertEqual(self.subscriptions_of(athlete), 1)
+        for other in (organizer, provider):
+            self.assertEqual(self.capabilities(other)["subscription_status"], "NONE")
+            self.assertEqual(self.subscriptions_of(other), 0)
 
 
 if __name__ == "__main__":

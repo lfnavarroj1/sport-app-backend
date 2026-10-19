@@ -6,11 +6,15 @@ Ejecución: `python -m affiliation_management.workers.free_plan_consumer`.
 - Confirma (ACK) el mensaje solo después del COMMIT de inbox, suscripción y outbox.
 - Un mensaje inválido o un fallo de procesamiento no se confirma: Pub/Sub lo
   reintenta con el backoff de la suscripción y, tras 10 intentos, lo envía a la DLQ.
+- Otro tipo de evento del tópico (p. ej. `perfil.*`) se confirma sin efectos: la
+  suscripción ya filtra por `event_type` y esto es la defensa adicional de R-19 (ADR-034).
 """
 
 import json
 import logging
 import signal
+import sys
+import threading
 from collections.abc import Callable
 from typing import Protocol
 
@@ -24,6 +28,7 @@ from affiliation_management.application.commands.provision_free_subscription imp
 from affiliation_management.application.messages import (
     InvalidEvent,
     RegisteredUser,
+    UnsupportedEvent,
     parse_user_registered,
 )
 from affiliation_management.infrastructure.clock import SystemClock
@@ -64,6 +69,13 @@ class FreePlanMessageHandler:
         }
         try:
             event = parse_user_registered(json.loads(message.data))
+        except UnsupportedEvent as unsupported:
+            message.ack()
+            _logger.info(
+                "consumer.ignored_event",
+                extra={"fields": {**fields, "event_type": unsupported.event_type}},
+            )
+            return
         except InvalidEvent as error:
             self._reject(message, {**fields, "reason": error.reason})
             return
@@ -93,6 +105,34 @@ class FreePlanMessageHandler:
         message.nack()
 
 
+class StreamingPull(Protocol):
+    def result(self) -> object: ...
+
+
+def await_subscription(streaming: StreamingPull, stop_requested: threading.Event) -> int:
+    """Espera la suscripción y devuelve el código de salida del proceso.
+
+    `0` si se detuvo por una señal. `1` si la suscripción terminó por sí sola (p. ej.
+    `NotFound` porque el emulador perdió sus recursos): se registra en `ERROR` para que
+    la causa sea visible y Kubernetes lo trate como fallo, en lugar de ocultarlo.
+    """
+    try:
+        streaming.result()
+    except Exception as error:
+        if stop_requested.is_set():
+            _logger.info("consumer.stopping")
+            return 0
+        _logger.error(
+            "consumer.subscription_failed",
+            extra={"fields": {"error_type": type(error).__name__}},
+        )
+        return 1
+    if stop_requested.is_set():
+        return 0
+    _logger.error("consumer.subscription_failed", extra={"fields": {"error_type": None}})
+    return 1
+
+
 def main() -> None:
     settings = load_settings(FreePlanConsumerSettings)
     configure_logging(
@@ -115,17 +155,22 @@ def main() -> None:
         callback=FreePlanMessageHandler(provision),
         flow_control=pubsub_v1.types.FlowControl(max_messages=settings.consumer_max_messages),
     )
-    signal.signal(signal.SIGTERM, lambda *_: streaming.cancel())
-    signal.signal(signal.SIGINT, lambda *_: streaming.cancel())
+    stop_requested = threading.Event()
+
+    def stop(*_: object) -> None:
+        stop_requested.set()
+        streaming.cancel()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     _logger.info("consumer.started", extra={"fields": {"subscription": subscription}})
     try:
-        streaming.result()
-    except Exception:
-        _logger.info("consumer.stopping")
+        exit_code = await_subscription(streaming, stop_requested)
     finally:
         subscriber.close()
         engine.dispose()
         _logger.info("consumer.stopped")
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+# uv para los pasos de cloudbuild.release.yaml (la misma versión que `.github/workflows`).
+# Se instala con `pip install --require-hashes`: solo la rueda manylinux x86_64 de esta versión.
+uv==0.12.23 \
+    --hash=sha256:565c6e2874dbeae86c02f3dea97255e878fec672659a73d4930c6b93fcab2fff

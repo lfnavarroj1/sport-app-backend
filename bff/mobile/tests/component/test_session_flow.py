@@ -37,6 +37,7 @@ class MobileSessionFlowTest(unittest.TestCase):
                         database_write_url=url,  # type: ignore[arg-type]
                         database_read_url=url,  # type: ignore[arg-type]
                         registration_policies_version=POLICIES,
+                        health_data_consent_version="health-test.v1",
                         jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
                     )
                 ),
@@ -47,6 +48,8 @@ class MobileSessionFlowTest(unittest.TestCase):
             app_env="test",  # type: ignore[arg-type]
             users_management_base_url="http://users-management",  # type: ignore[arg-type]
             affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
+            training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
+            events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
         )
         self.bff = self.enterContext(TestClient(create_bff(settings, users_http=self.users)))
         registered = self.users.post(

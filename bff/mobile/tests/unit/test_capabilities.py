@@ -91,6 +91,8 @@ def client_with(upstream: Upstream) -> TestClient:
         app_env="test",  # type: ignore[arg-type]
         users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
         affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
+        training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
+        events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
     )
     app = create_app(
         settings,

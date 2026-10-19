@@ -5,14 +5,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from bff_web.api.capabilities import build_capabilities_router
+from bff_web.api.event_publication import build_event_publication_router
+from bff_web.api.events import build_events_router
+from bff_web.api.profile import build_profile_router
 from bff_web.api.registration import (
     IDEMPOTENCY_HEADER,
     REPLAYED_HEADER,
     build_registration_router,
 )
+from bff_web.api.services import build_service_availability_router, build_services_router
 from bff_web.api.sessions import RETRY_AFTER_HEADER, RefreshCookie, build_sessions_router
 from bff_web.api.training import build_training_router
+from bff_web.api.training_history import build_training_history_router
 from bff_web.clients.affiliation_management import AffiliationManagementClient
+from bff_web.clients.complementary_services import ComplementaryServicesClient
+from bff_web.clients.events_management import EventsManagementClient
 from bff_web.clients.training_management import TrainingManagementClient
 from bff_web.clients.users_management import UsersManagementClient
 from bff_web.settings import BffWebSettings
@@ -23,11 +30,11 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.7.0"
+API_VERSION = "0.16.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
-CORS_ALLOWED_METHODS = ("GET", "POST", "DELETE")
+CORS_ALLOWED_METHODS = ("GET", "POST", "PUT", "DELETE")
 CORS_ALLOWED_HEADERS = (
     "Authorization",
     "Content-Type",
@@ -39,9 +46,12 @@ CORS_EXPOSED_HEADERS = ("Location", REPLAYED_HEADER, RETRY_AFTER_HEADER, CORRELA
 
 def create_app(
     settings: BffWebSettings | None = None,
+    *,
     users_http: httpx.Client | None = None,
     affiliation_http: httpx.Client | None = None,
     training_http: httpx.Client | None = None,
+    services_http: httpx.Client | None = None,
+    events_http: httpx.Client | None = None,
 ) -> FastAPI:
     """Los transportes `*_http` permiten inyectar servicios en pruebas de componente."""
     settings = settings or load_settings(BffWebSettings)
@@ -60,7 +70,17 @@ def create_app(
         base_url=str(settings.training_management_base_url),
         timeout=settings.upstream_timeout_seconds,
     )
+    services_http = services_http or httpx.Client(
+        base_url=str(settings.complementary_services_base_url),
+        timeout=settings.upstream_timeout_seconds,
+    )
+    events_http = events_http or httpx.Client(
+        base_url=str(settings.events_management_base_url),
+        timeout=settings.upstream_timeout_seconds,
+    )
     users = UsersManagementClient(users_http)
+    events = EventsManagementClient(events_http)
+    training = TrainingManagementClient(training_http)
     affiliation = AffiliationManagementClient(affiliation_http)
     verifier = CachedJwksVerifier(
         users.jwks, issuer=settings.jwt_issuer, audience=settings.jwt_audience
@@ -83,15 +103,51 @@ def create_app(
                 athlete_snapshot=affiliation.user_capabilities,
                 channel=CHANNEL,
             ),
+            build_profile_router(verify_token=verifier.verify, users=users),
             build_training_router(
                 verify_token=verifier.verify,
                 permissions=permissions,
                 users=users,
-                training=TrainingManagementClient(training_http),
+                training=training,
+                channel=CHANNEL,
+            ),
+            build_training_history_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                training=training,
+                users=users,
+                channel=CHANNEL,
+            ),
+            build_services_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                services=ComplementaryServicesClient(services_http),
+                channel=CHANNEL,
+            ),
+            build_service_availability_router(
+                verify_token=verifier.verify,
+                services=ComplementaryServicesClient(services_http),
+            ),
+            build_events_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                events=events,
+                channel=CHANNEL,
+            ),
+            build_event_publication_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                events=events,
                 channel=CHANNEL,
             ),
         ],
-        shutdown_hooks=[users_http.close, affiliation_http.close, training_http.close],
+        shutdown_hooks=[
+            users_http.close,
+            affiliation_http.close,
+            training_http.close,
+            services_http.close,
+            events_http.close,
+        ],
     )
     # Se agrega al final para que sea la capa externa y responda la preflight.
     # Con credenciales (HU003 0.4.0): el navegador envía la cookie del refresh token, por

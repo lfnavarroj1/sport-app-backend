@@ -3,17 +3,20 @@
 Nunca se exponen como respuestas públicas.
 """
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     text,
@@ -123,3 +126,95 @@ class LoginFailureWindowRow(WriteBase):
     failures: Mapped[int] = mapped_column(Integer)
     window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+# HU005 (ADR-034): una fila vigente por deportista y sección, con versión propia.
+DEMOGRAPHIC_PRIMARY_KEY = "pk_demographic_profile"
+PHYSIOLOGICAL_PRIMARY_KEY = "pk_physiological_profile"
+
+
+class DemographicProfileRow(WriteBase):
+    """Sección demográfica del perfil. Datos personales: `__repr__` sin valores."""
+
+    __tablename__ = "demographic_profile"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint(
+            "gender IN ('FEMALE', 'MALE', 'NON_BINARY', 'PREFER_NOT_TO_SAY')", name="gender"
+        ),
+        CheckConstraint("country_code ~ '^[A-Z]{2}$'", name="country_code"),
+        CheckConstraint("char_length(city) BETWEEN 2 AND 80", name="city"),
+        CheckConstraint(
+            "marital_status IS NULL OR marital_status IN ('SINGLE', 'MARRIED', "
+            "'DOMESTIC_PARTNERSHIP', 'DIVORCED', 'WIDOWED', 'PREFER_NOT_TO_SAY')",
+            name="marital_status",
+        ),
+        CheckConstraint(
+            "occupation IS NULL OR char_length(occupation) BETWEEN 2 AND 80", name="occupation"
+        ),
+        CheckConstraint(
+            "income_range IS NULL OR income_range IN ('LT_1_SMMLV', '1_2_SMMLV', "
+            "'2_4_SMMLV', 'GT_4_SMMLV', 'PREFER_NOT_TO_SAY')",
+            name="income_range",
+        ),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_account.user_id"), primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger)
+    birth_date: Mapped[date] = mapped_column(Date)
+    gender: Mapped[str] = mapped_column(String(32))
+    country_code: Mapped[str] = mapped_column(String(2))
+    city: Mapped[str] = mapped_column(String(80))
+    marital_status: Mapped[str | None] = mapped_column(String(32))
+    occupation: Mapped[str | None] = mapped_column(String(80))
+    income_range: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"DemographicProfileRow(user_id={self.user_id}, version={self.version})"
+
+
+class PhysiologicalProfileRow(WriteBase):
+    """Sección fisiológica del perfil. Datos de salud: `__repr__` sin valores."""
+
+    __tablename__ = "physiological_profile"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("weight_kg BETWEEN 20.0 AND 300.0", name="weight_kg"),
+        CheckConstraint("height_cm BETWEEN 100 AND 250", name="height_cm"),
+        CheckConstraint("bmi > 0", name="bmi"),
+        CheckConstraint(
+            "resting_heart_rate_bpm IS NULL OR resting_heart_rate_bpm BETWEEN 30 AND 220",
+            name="resting_heart_rate",
+        ),
+        CheckConstraint(
+            # Ambas o ninguna; un `NULL` suelto haría pasar la restricción sin evaluarla.
+            "(systolic_mmhg IS NULL) = (diastolic_mmhg IS NULL) AND (systolic_mmhg IS NULL "
+            "OR (systolic_mmhg BETWEEN 60 AND 250 AND diastolic_mmhg BETWEEN 30 AND 150 "
+            "AND systolic_mmhg > diastolic_mmhg))",
+            name="blood_pressure",
+        ),
+        CheckConstraint(
+            "body_temperature_c IS NULL OR body_temperature_c BETWEEN 34.0 AND 42.0",
+            name="body_temperature",
+        ),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_account.user_id"), primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger)
+    health_consent_version: Mapped[str] = mapped_column(String(64))
+    health_consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    weight_kg: Mapped[Decimal] = mapped_column(Numeric(4, 1))
+    height_cm: Mapped[int] = mapped_column(Integer)
+    bmi: Mapped[Decimal] = mapped_column(Numeric(4, 1))
+    resting_heart_rate_bpm: Mapped[int | None] = mapped_column(Integer)
+    systolic_mmhg: Mapped[int | None] = mapped_column(Integer)
+    diastolic_mmhg: Mapped[int | None] = mapped_column(Integer)
+    body_temperature_c: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"PhysiologicalProfileRow(user_id={self.user_id}, version={self.version})"

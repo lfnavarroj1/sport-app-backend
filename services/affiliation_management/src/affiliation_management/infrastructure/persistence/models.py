@@ -21,6 +21,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -54,7 +55,8 @@ class PlanRow(Base):
 
 
 class PlanVersionRow(Base):
-    """Versión de un plan. Precio, moneda y periodicidad nulos = pendientes de aprobación."""
+    """Versión de un plan. En `plans-2026-10-11.v1` los planes pagos tenían precio nulo
+    (pendiente); desde `plans-2026-10-13.v1` sus precios están en `plan_offer`."""
 
     __tablename__ = "plan_version"
 
@@ -67,6 +69,44 @@ class PlanVersionRow(Base):
     currency: Mapped[str | None] = mapped_column(String(3))
     periodicity: Mapped[str | None] = mapped_column(String(16))
     terms: Mapped[str | None] = mapped_column(Text)
+
+
+class PlanOfferRow(Base):
+    """Oferta de precio de una versión de plan (ADR-036); la precarga `0003_plan_price_offers`.
+
+    Precio de referencia en COP antes de impuestos: SportApp no cobra en el MVP.
+    """
+
+    __tablename__ = "plan_offer"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_code", "plan_version"], ["plan_version.plan_code", "plan_version.version"]
+        ),
+        UniqueConstraint("plan_code", "plan_version", "periodicity"),
+        CheckConstraint(
+            "periodicity IN ('NONE', 'MONTHLY', 'QUARTERLY', 'ANNUAL')", name="periodicity"
+        ),
+        CheckConstraint(
+            "(periodicity = 'NONE' AND duration_months IS NULL)"
+            " OR (periodicity = 'MONTHLY' AND duration_months = 1)"
+            " OR (periodicity = 'QUARTERLY' AND duration_months = 3)"
+            " OR (periodicity = 'ANNUAL' AND duration_months = 12)",
+            name="duration",
+        ),
+        CheckConstraint("price >= 0", name="price"),
+        CheckConstraint("currency = 'COP'", name="currency"),
+    )
+
+    offer_id: Mapped[UUID] = mapped_column(primary_key=True)
+    plan_code: Mapped[str] = mapped_column(String(32))
+    plan_version: Mapped[int] = mapped_column(Integer)
+    periodicity: Mapped[str] = mapped_column(String(16))
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(3))
+    duration_months: Mapped[int | None] = mapped_column(SmallInteger)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class CapabilityRow(Base):
@@ -176,3 +216,5 @@ class CatalogMetadataRow(Base):
 
     catalog_version: Mapped[str] = mapped_column(String(40), primary_key=True)
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Migración que instaló el catálogo (auditoría de la precarga; desde `0003`).
+    migration_revision: Mapped[str | None] = mapped_column(String(32))

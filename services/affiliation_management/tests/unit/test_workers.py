@@ -14,7 +14,10 @@ from affiliation_management.application.commands.provision_free_subscription imp
 )
 from affiliation_management.infrastructure.persistence.outbox import ClaimedEvent
 from affiliation_management.settings import OutboxPublisherSettings
-from affiliation_management.workers.free_plan_consumer import FreePlanMessageHandler
+from affiliation_management.workers.free_plan_consumer import (
+    FreePlanMessageHandler,
+    await_subscription,
+)
 from affiliation_management.workers.outbox_publisher import (
     OutboxRelay,
     build_envelope,
@@ -62,6 +65,20 @@ class FreePlanMessageHandlerTest(unittest.TestCase):
 
         self.assertTrue(all(m.acked for m in (first, repeated, organizer)))
         self.assertEqual(len(self.store.subscriptions), 1)
+
+    def test_other_event_types_of_the_topic_are_acked_without_effects(self) -> None:
+        """R-19 (ADR-034): defensa adicional al filtro de la suscripción."""
+        message = FakeMessage(
+            json.dumps(user_registered(event_type="perfil.fisiologico_actualizado.v1")).encode()
+        )
+
+        with self.assertLogs("sportapp.consumer", level="INFO") as logs:
+            self.handler(message)
+
+        self.assertTrue(message.acked)
+        self.assertFalse(message.nacked)
+        self.assertEqual(self.store.subscriptions, {})
+        self.assertEqual(logs.records[0].getMessage(), "consumer.ignored_event")
 
     def test_invalid_messages_are_not_acked_so_they_reach_the_dlq(self) -> None:
         for data in (b"{no-json", json.dumps(user_registered(schema_version=9)).encode()):
@@ -194,6 +211,47 @@ class FakePublisher:
         self.ordering_keys.append(ordering_key)
         if envelope["event_id"] == str(self.fail_for):
             raise TimeoutError("sin confirmación")
+
+
+class _Streaming:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+
+    def result(self) -> object:
+        if self.error is not None:
+            raise self.error
+        return None
+
+
+class AwaitSubscriptionTest(unittest.TestCase):
+    """HU010 (cierre E2E): un fin inesperado de la suscripción no se oculta como parada."""
+
+    def test_signal_stop_exits_with_zero(self) -> None:
+        stop = threading.Event()
+        stop.set()
+
+        with self.assertLogs("sportapp.consumer", level="INFO") as logs:
+            code = await_subscription(_Streaming(RuntimeError("cancelada")), stop)
+
+        self.assertEqual(code, 0)
+        self.assertEqual([r.getMessage() for r in logs.records], ["consumer.stopping"])
+
+    def test_subscription_failure_is_logged_as_error_and_exits_with_one(self) -> None:
+        class NotFound(Exception):
+            pass
+
+        for streaming, error_type in (
+            (_Streaming(NotFound("sin suscripción")), "NotFound"),
+            (_Streaming(), None),
+        ):
+            with self.subTest(error_type=error_type):
+                with self.assertLogs("sportapp.consumer", level="ERROR") as logs:
+                    code = await_subscription(streaming, threading.Event())
+
+                self.assertEqual(code, 1)
+                [record] = logs.records
+                self.assertEqual(record.getMessage(), "consumer.subscription_failed")
+                self.assertEqual(record.fields["error_type"], error_type)  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

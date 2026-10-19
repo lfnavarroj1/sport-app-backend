@@ -23,6 +23,15 @@ class InvalidEvent(Exception):
         self.reason = reason
 
 
+class UnsupportedEvent(Exception):
+    """Otro tipo de evento del tópico de usuarios (p. ej. `perfil.*` de HU005): no es para
+    este consumidor y se confirma sin efectos (R-19, ADR-034)."""
+
+    def __init__(self, event_type: str) -> None:
+        super().__init__(event_type)
+        self.event_type = event_type
+
+
 @dataclass(frozen=True)
 class RegisteredUser:
     event_id: UUID
@@ -41,8 +50,11 @@ def _uuid(value: object, field: str) -> UUID:
 def parse_user_registered(envelope: object) -> RegisteredUser:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
-    if envelope.get("event_type") != USER_REGISTERED:
+    event_type = envelope.get("event_type")
+    if not isinstance(event_type, str) or not event_type:
         raise InvalidEvent("unexpected_event_type")
+    if event_type != USER_REGISTERED:
+        raise UnsupportedEvent(event_type)
     if envelope.get("schema_version") != USER_REGISTERED_SCHEMA_VERSION:
         raise InvalidEvent("unsupported_schema_version")
     payload: Any = envelope.get("payload")

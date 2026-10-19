@@ -3,11 +3,11 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, create_engine, func, select
+from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportapp_platform.migrations import upgrade
@@ -16,22 +16,46 @@ from training_management.application.commands.authorizations import (
     GrantAuthorization,
     RevokeAuthorization,
 )
+from training_management.application.commands.calculate_training_metric import (
+    CalculateTrainingMetric,
+    CalculateTrainingMetricCommand,
+)
 from training_management.application.commands.create_training_plan import (
     CreateTrainingPlan,
     CreateTrainingPlanCommand,
     SessionInput,
 )
+from training_management.application.commands.training_sessions import (
+    FinishTrainingSession,
+    FinishTrainingSessionCommand,
+    StartTrainingSession,
+    StartTrainingSessionCommand,
+)
 from training_management.application.ports import Caller
-from training_management.application.projections.plan_projection import ProjectPlanCreated
+from training_management.application.projections.snapshot_projection import TrainingProjector
+from training_management.application.queries.training_history import GetTrainingHistory
+from training_management.application.queries.training_metrics import ListTrainingMetricResults
+from training_management.domain.metrics.catalog import TRAINING_METRICS_CATALOG
 from training_management.domain.plans.model import Sport
+from training_management.domain.sessions.model import StartInput
 from training_management.infrastructure.clock import SystemClock
+from training_management.infrastructure.persistence_read.history import (
+    SqlAlchemyActiveSessionReader,
+    SqlAlchemyAuthorizationReader,
+    SqlAlchemyHistoryReader,
+)
+from training_management.infrastructure.persistence_read.metrics import (
+    SqlAlchemyMetricResultReader,
+)
 from training_management.infrastructure.persistence_read.plans import (
     SqlAlchemyPlanReader,
     SqlAlchemyProjectionUnitOfWork,
 )
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
+    SqlAlchemyMetricUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
+    SqlAlchemySessionUnitOfWork,
 )
 
 WRITE_HISTORY = "training_management.infrastructure.persistence_write:migrations"
@@ -43,6 +67,11 @@ class AlwaysCapable:
 
     def has_capability(self, user_id: UUID, capability: str) -> bool:
         return True
+
+
+class HistoryViewer:
+    def allows(self, actor_type: str, permission: str) -> bool:
+        return actor_type == "service_provider" and permission == "training.history.view_assigned"
 
 
 class AuthorOnly:
@@ -85,13 +114,56 @@ class TrainingDatabases:
             clock=SystemClock(),
         )
 
-    def project(self) -> ProjectPlanCreated:
-        return ProjectPlanCreated(
+    def project(self) -> TrainingProjector:
+        return TrainingProjector(
             unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.reads), clock=SystemClock()
         )
 
+    def history(self) -> GetTrainingHistory:
+        return GetTrainingHistory(
+            reader=SqlAlchemyHistoryReader(self.reads),
+            authorizations=SqlAlchemyAuthorizationReader(self.reads),
+            permissions=HistoryViewer(),
+        )
+
+    def start_session(self) -> StartTrainingSession:
+        return StartTrainingSession(
+            unit_of_work=lambda: SqlAlchemySessionUnitOfWork(self.writes),
+            capabilities=AlwaysCapable(),
+            clock=SystemClock(),
+        )
+
+    def finish_session(self) -> FinishTrainingSession:
+        return FinishTrainingSession(
+            unit_of_work=lambda: SqlAlchemySessionUnitOfWork(self.writes), clock=SystemClock()
+        )
+
+    def calculate_metric(self) -> CalculateTrainingMetric:
+        return CalculateTrainingMetric(
+            unit_of_work=lambda: SqlAlchemyMetricUnitOfWork(self.writes),
+            capabilities=AlwaysCapable(),
+            catalog=TRAINING_METRICS_CATALOG,
+            clock=SystemClock(),
+        )
+
+    def metric_results(self) -> ListTrainingMetricResults:
+        return ListTrainingMetricResults(
+            reader=SqlAlchemyMetricResultReader(self.reads),
+            capabilities=AlwaysCapable(),
+            catalog=TRAINING_METRICS_CATALOG,
+        )
+
+    def active_reader(self) -> SqlAlchemyActiveSessionReader:
+        return SqlAlchemyActiveSessionReader(self.reads)
+
     def reader(self) -> SqlAlchemyPlanReader:
         return SqlAlchemyPlanReader(self.reads)
+
+    def discard_pending_outbox(self) -> None:
+        """Marca como publicados los eventos pendientes (p. ej., los de autorizaciones de HU011)
+        cuando la prueba se centra en los eventos posteriores."""
+        with self.writes() as session, session.begin():
+            session.execute(text("UPDATE outbox_event SET published_at = now()"))
 
     def count(self, model: Any, *, read: bool = False) -> int:
         with (self.reads if read else self.writes)() as session:
@@ -135,3 +207,62 @@ def plan_command(athlete_id: UUID, **overrides: Any) -> CreateTrainingPlanComman
     }
     values.update(overrides)
     return CreateTrainingPlanCommand(**values)
+
+
+def utc_seconds(delta: timedelta = timedelta()) -> str:
+    """Instante de ADR-029 (UTC, `Z`, segundos) relativo al reloj real."""
+    instant = (datetime.now(UTC) + delta).replace(microsecond=0)
+    return instant.isoformat().replace("+00:00", "Z")
+
+
+def start_command(
+    session_id: UUID | None = None,
+    *,
+    key: UUID | None = None,
+    plan_id: UUID | None = None,
+    sport: str = "running",
+    started_at: str | None = None,
+) -> StartTrainingSessionCommand:
+    return StartTrainingSessionCommand(
+        start=StartInput(
+            session_id=str(session_id or uuid4()),
+            plan_id=str(plan_id) if plan_id else None,
+            sport=sport,
+            started_at=started_at or utc_seconds(-timedelta(minutes=40)),
+        ),
+        idempotency_key=key or uuid4(),
+        correlation_id=uuid4(),
+    )
+
+
+def finish_command(
+    session_id: UUID, *, key: UUID | None = None, ended_at: str | None = None
+) -> FinishTrainingSessionCommand:
+    return FinishTrainingSessionCommand(
+        session_id=str(session_id),
+        ended_at=ended_at or utc_seconds(-timedelta(minutes=5)),
+        idempotency_key=key or uuid4(),
+        correlation_id=uuid4(),
+    )
+
+
+def metric_command(
+    *,
+    key: UUID | None = None,
+    calculation_id: UUID | None = None,
+    watts: int = 250,
+    measured_at: str | None = None,
+) -> CalculateTrainingMetricCommand:
+    """FTP de ADR-030 (UTC, `Z`, segundos) relativo al reloj real."""
+    return CalculateTrainingMetricCommand(
+        body={
+            "calculation_id": str(calculation_id or uuid4()),
+            "metric_code": "FTP_ESTIMATED",
+            "method_code": "FTP_20_MIN_95_V1",
+            "method_version": 1,
+            "measured_at": measured_at or utc_seconds(-timedelta(hours=1)),
+            "inputs": [{"code": "mean_power_watts", "value": watts, "unit": "W"}],
+        },
+        idempotency_key=str(key or uuid4()),
+        correlation_id=uuid4(),
+    )

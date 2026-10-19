@@ -11,6 +11,8 @@ from sportapp_platform.config import DatabasePoolSettings, PostgresUrl, ServiceS
 USERS_TOPIC = "sportapp.usuarios.v1"
 AFFILIATION_TOPIC = "sportapp.afiliacion.v1"
 FREE_PLAN_SUBSCRIPTION = "sportapp.afiliacion.alta-gratuita.v1"
+# R-19 (ADR-034): la suscripción solo recibe `usuario.registrado.v1` del tópico de usuarios.
+FREE_PLAN_FILTER = 'attributes.event_type = "usuario.registrado.v1"'
 FREE_PLAN_DLQ_TOPIC = "sportapp.afiliacion.alta-gratuita.dlq"
 FREE_PLAN_DLQ_OPS_SUBSCRIPTION = "sportapp.afiliacion.alta-gratuita.dlq.ops"
 MAX_DELIVERY_ATTEMPTS = 10

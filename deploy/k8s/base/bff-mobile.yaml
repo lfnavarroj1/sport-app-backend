@@ -41,6 +41,12 @@ spec:
             # HU003 (ADR-024): Service interno del clúster. En Cloud Run la plataforma lo sustituye.
             - name: AFFILIATION_MANAGEMENT_BASE_URL
               value: http://affiliation-management
+            # HU032: Service interno del clúster. En Cloud Run la plataforma lo sustituye.
+            - name: TRAINING_MANAGEMENT_BASE_URL
+              value: http://training-management
+            # HU035: Service interno del clúster. En Cloud Run la plataforma lo sustituye.
+            - name: EVENTS_MANAGEMENT_BASE_URL
+              value: http://events-management
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/entrenamiento.finalizado.v1.schema.json",
+  "title": "entrenamiento.finalizado.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = session_id (= aggregate_id) cuando termina una sesión de entrenamiento (CMP-003; payload aprobado el 2026-10-12 para HU011). Lo producirá HU032; HU011 lo consume para el historial. Sin métricas de salud, ubicación ni mediciones.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "entrenamiento.finalizado.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "training-management"
+    },
+    "aggregate_type": {
+      "const": "training_session"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "session_id: una secuencia de versiones por sesión."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Identificador del comando que cerró la sesión (definido por HU032)."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "athlete_id",
+        "plan_id",
+        "sport",
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "status"
+      ],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "athlete_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "plan_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid",
+          "description": "Plan de HU010 al que pertenece la sesión, si aplica."
+        },
+        "sport": {
+          "enum": [
+            "running",
+            "cycling",
+            "swimming",
+            "strength",
+            "other"
+          ]
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "const": "FINISHED"
+        }
+      }
+    }
+  }
+}

@@ -27,6 +27,7 @@ SETTINGS_BASE = {
     "DATABASE_WRITE_URL": "postgresql+psycopg://u@127.0.0.1:1/w",
     "DATABASE_READ_URL": "postgresql+psycopg://u@127.0.0.1:1/r",
     "REGISTRATION_POLICIES_VERSION": "2026-10",
+    "HEALTH_DATA_CONSENT_VERSION": "health-test.v1",
 }
 
 

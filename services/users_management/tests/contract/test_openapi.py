@@ -28,6 +28,7 @@ class OpenApiContractTest(unittest.TestCase):
                 database_write_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
                 database_read_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
                 registration_policies_version="2026-10",
+                health_data_consent_version="health-test.v1",
                 jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
             )
         )

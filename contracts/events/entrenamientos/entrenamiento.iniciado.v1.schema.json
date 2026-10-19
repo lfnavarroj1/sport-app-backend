@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/entrenamiento.iniciado.v1.schema.json",
+  "title": "entrenamiento.iniciado.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = session_id (= aggregate_id) cuando un deportista inicia una sesión de entrenamiento (HU032, ADR-029). Versión de agregado 1; entrenamientos-read-projector construye active_training_session. Instantes en UTC con sufijo Z. Sin métricas de salud, ubicación ni mediciones.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "entrenamiento.iniciado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "training-management"},
+    "aggregate_type": {"const": "training_session"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "session_id: una secuencia de versiones por sesión."
+    },
+    "aggregate_version": {"const": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Idempotency-Key del comando de inicio."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "athlete_id", "plan_id", "sport", "started_at", "status"],
+      "properties": {
+        "session_id": {"type": "string", "format": "uuid"},
+        "athlete_id": {"type": "string", "format": "uuid"},
+        "plan_id": {
+          "type": ["string", "null"],
+          "format": "uuid",
+          "description": "Plan de HU010 al que pertenece la sesión, si aplica."
+        },
+        "sport": {"enum": ["running", "cycling", "swimming", "strength", "other"]},
+        "started_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "status": {"const": "ACTIVE"}
+      }
+    }
+  }
+}

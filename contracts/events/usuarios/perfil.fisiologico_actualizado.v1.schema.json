@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/usuarios/perfil.fisiologico_actualizado.v1.schema.json",
+  "title": "perfil.fisiologico_actualizado.v1",
+  "description": "Publicado en sportapp.usuarios.v1 con ordering_key = user_id cuando el deportista registra o reemplaza su sección fisiológica (HU005, ADR-034). Datos de salud: estado completo de la sección, nunca en logs, auditoría ni métricas.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "perfil.fisiologico_actualizado.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "gestion-usuarios"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "user_id del deportista; también ordering_key. aggregate_type = physiological_profile (atributo del mensaje)."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Versión de la sección; igual a payload.version."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Idempotency-Key del comando que originó el evento."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "version",
+        "consent",
+        "measured_at",
+        "weight_kg",
+        "height_cm",
+        "bmi",
+        "resting_heart_rate_bpm",
+        "blood_pressure",
+        "body_temperature_c",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "consent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "accepted_at"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "accepted_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+              "description": "Instante en UTC con sufijo Z."
+            }
+          }
+        },
+        "measured_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+          "description": "UTC Z con precisión de segundos."
+        },
+        "weight_kg": {
+          "type": "string",
+          "pattern": "^\\d{1,3}\\.\\d$",
+          "description": "Cadena decimal con un decimal entre 20.0 y 300.0."
+        },
+        "height_cm": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 250
+        },
+        "bmi": {
+          "type": "string",
+          "pattern": "^\\d{1,3}\\.\\d$",
+          "description": "Calculado por el backend: peso / altura², un decimal, ROUND_HALF_UP. Sin clasificación clínica."
+        },
+        "resting_heart_rate_bpm": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 220
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "blood_pressure": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "systolic_mmhg",
+                "diastolic_mmhg"
+              ],
+              "properties": {
+                "systolic_mmhg": {
+                  "type": "integer",
+                  "minimum": 60,
+                  "maximum": 250
+                },
+                "diastolic_mmhg": {
+                  "type": "integer",
+                  "minimum": 30,
+                  "maximum": 150
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "body_temperature_c": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{1,3}\\.\\d$",
+              "description": "Cadena decimal con un decimal entre 34.0 y 42.0."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+          "description": "Instante en UTC con sufijo Z."
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+          "description": "Instante en UTC con sufijo Z."
+        }
+      }
+    }
+  }
+}

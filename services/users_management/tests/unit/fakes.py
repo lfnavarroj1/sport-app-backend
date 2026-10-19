@@ -4,18 +4,30 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 from uuid import UUID, uuid4
 
 from users_management.application.commands.login import Login
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
 from users_management.application.commands.revoke_session import RevokeSession
-from users_management.application.errors import IdempotencyKeyConflict
+from users_management.application.commands.update_demographic_profile import (
+    UpdateDemographicProfile,
+)
+from users_management.application.commands.update_physiological_profile import (
+    UpdatePhysiologicalProfile,
+)
+from users_management.application.errors import (
+    IdempotencyKeyConflict,
+    ReadModelUnavailable,
+    SectionAlreadyExists,
+)
 from users_management.application.ports import (
+    AthleteProfileView,
     IdempotencyRecord,
     IssuedAccessToken,
     OutboxMessage,
+    StoredProfileSection,
 )
 from users_management.domain.account.errors import EmailAlreadyRegistered
 from users_management.domain.account.model import AccountStatus, ActorType, UserAccount
@@ -24,6 +36,7 @@ from users_management.domain.authentication.model import (
     LoginThrottlePolicy,
     RefreshToken,
 )
+from users_management.domain.profile.events import ProfileSection
 
 CURRENT_POLICIES = "2026-10"
 DEFAULT_PASSWORD = "contraseña-muy-secreta"
@@ -286,3 +299,148 @@ def register_user_with(
         clock=clock or FixedClock(),
         current_policies_version=CURRENT_POLICIES,
     )
+
+
+# --- HU005: perfil del deportista ---
+
+CONSENT_VERSION = "health-test.v1"
+
+
+@dataclass
+class InMemoryProfileStore:
+    sections: dict[tuple[ProfileSection, UUID], StoredProfileSection] = field(default_factory=dict)
+    outbox: list[OutboxMessage] = field(default_factory=list)
+    idempotency: dict[UUID, IdempotencyRecord] = field(default_factory=dict)
+
+
+class InMemoryProfileUnitOfWork:
+    """Aplica los cambios solo al confirmar y valida las mismas unicidades que PostgreSQL.
+
+    `before_commit` simula una solicitud concurrente que confirma justo antes.
+    """
+
+    def __init__(
+        self,
+        store: InMemoryProfileStore,
+        before_commit: Callable[[], None] | None = None,
+    ) -> None:
+        self.store = store
+        self.before_commit = before_commit
+        self._sections: list[tuple[StoredProfileSection, bool]] = []
+        self._outbox: list[OutboxMessage] = []
+        self._idempotency: list[IdempotencyRecord] = []
+        self._deleted: list[UUID] = []
+        self.locked: list[tuple[ProfileSection, UUID]] = []
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self._sections, self._outbox, self._idempotency, self._deleted = [], [], [], []
+
+    def find_idempotency(self, key: UUID) -> IdempotencyRecord | None:
+        return self.store.idempotency.get(key)
+
+    def delete_idempotency(self, key: UUID) -> None:
+        self._deleted.append(key)
+
+    def lock_section(self, section: ProfileSection, user_id: UUID) -> StoredProfileSection | None:
+        self.locked.append((section, user_id))
+        return self.store.sections.get((section, user_id))
+
+    def save_section(self, stored: StoredProfileSection, *, created: bool) -> None:
+        self._sections.append((stored, created))
+
+    def add_outbox(self, message: OutboxMessage) -> None:
+        self._outbox.append(message)
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None:
+        self._idempotency.append(record)
+
+    def commit(self) -> None:
+        if self.before_commit is not None:
+            self.before_commit()
+        for key in self._deleted:
+            self.store.idempotency.pop(key, None)
+        for record in self._idempotency:
+            if record.key in self.store.idempotency:
+                raise IdempotencyKeyConflict()
+        for stored, created in self._sections:
+            if created and (stored.section, stored.user_id) in self.store.sections:
+                raise SectionAlreadyExists()
+        for stored, _ in self._sections:
+            self.store.sections[(stored.section, stored.user_id)] = stored
+        self.store.outbox.extend(self._outbox)
+        for record in self._idempotency:
+            self.store.idempotency[record.key] = record
+
+
+class InMemoryProfileReader:
+    """Proyección simulada: devuelve lo que la prueba deje en `views`."""
+
+    def __init__(self) -> None:
+        self.views: dict[UUID, AthleteProfileView] = {}
+        self.unavailable = False
+
+    def get(self, user_id: UUID) -> AthleteProfileView | None:
+        if self.unavailable:
+            raise ReadModelUnavailable()
+        return self.views.get(user_id)
+
+
+def update_demographic_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> UpdateDemographicProfile:
+    return UpdateDemographicProfile(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+    )
+
+
+def update_physiological_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> UpdatePhysiologicalProfile:
+    return UpdatePhysiologicalProfile(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+        current_consent_version=CONSENT_VERSION,
+    )
+
+
+def demographic_body(**overrides: Any) -> dict[str, Any]:
+    """Cuerpo sintético del ejemplo de ADR-034 (sin `expected_version`: alta)."""
+    values: dict[str, Any] = {
+        "birth_date": "1992-04-18",
+        "gender": "FEMALE",
+        "country_code": "CO",
+        "city": "Bogotá",
+        "marital_status": "SINGLE",
+        "occupation": "Ingeniera",
+        "income_range": "2_4_SMMLV",
+    }
+    values.update(overrides)
+    return values
+
+
+def physiological_body(**overrides: Any) -> dict[str, Any]:
+    """Cuerpo sintético del ejemplo de ADR-034, medido 1 h antes de `FixedClock`."""
+    values: dict[str, Any] = {
+        "consent": {"version": CONSENT_VERSION},
+        "measured_at": "2026-10-07T11:00:00Z",
+        "weight_kg": "68.5",
+        "height_cm": 172,
+        "resting_heart_rate_bpm": 58,
+        "blood_pressure": {"systolic_mmhg": 118, "diastolic_mmhg": 76},
+        "body_temperature_c": "36.6",
+    }
+    values.update(overrides)
+    return values

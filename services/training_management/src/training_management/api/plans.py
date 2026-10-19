@@ -45,6 +45,7 @@ from training_management.domain.plans.model import (
     INTENSITY_RPE_MIN,
     OBJECTIVE_MAX_LENGTH,
     OBJECTIVES_MAX,
+    PLAN_RULE_ISSUES,
     SESSIONS_MAX,
     TITLE_MAX_LENGTH,
     Sport,
@@ -187,8 +188,11 @@ def build_plans_router(
             },
             HTTPStatus.UNPROCESSABLE_ENTITY.value: {
                 "model": ErrorResponse,
-                "description": "`validation_error` o `training_plan_invalid` (reglas en "
-                "`details`).",
+                "description": "`validation_error` (forma del cuerpo) o `training_plan_invalid` "
+                "(reglas de coherencia de CA3) con `details[{field, issue}]`. Motivos estables de "
+                "`issue` en `training_plan_invalid`: "
+                + ", ".join(f"`{issue}`" for issue in PLAN_RULE_ISSUES)
+                + ".",
             },
         },
     )

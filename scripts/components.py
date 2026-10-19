@@ -4,6 +4,7 @@ Solo usa la biblioteca estándar al importarse: la CI ejecuta `task.py` con
 `uv run --no-project` (jobs `secrets` e `image`), sin las dependencias del proyecto.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 CONTRACT_DATABASE_URL = "postgresql+psycopg://contract@127.0.0.1:1/contract"
@@ -34,6 +35,42 @@ class Component:
         return f"sportapp/{self.name}"
 
 
+def build_command(
+    component: Component,
+    *,
+    dockerfile: str,
+    references: Sequence[str],
+    version: str,
+    revision: str,
+) -> list[str]:
+    """`docker build` de un componente: lo usan `task.py build` y `release.py images`.
+
+    Una sola construcción por componente; `references` son todas las etiquetas que recibe la
+    misma imagen (p. ej., la versión y el commit).
+    """
+    command = [
+        "docker",
+        "build",
+        "--file",
+        dockerfile,
+        "--build-arg",
+        f"PACKAGE={component.name}",
+        "--build-arg",
+        f"APP_FACTORY={component.factory}",
+        "--build-arg",
+        f"SERVICE_VERSION={version}",
+        "--label",
+        f"org.opencontainers.image.revision={revision}",
+        "--label",
+        f"org.opencontainers.image.version={version}",
+        "--label",
+        f"org.opencontainers.image.title={component.name}",
+    ]
+    for reference in references:
+        command += ["--tag", reference]
+    return [*command, "."]
+
+
 _CQRS = {
     "DATABASE_WRITE_URL": CONTRACT_DATABASE_URL,
     "DATABASE_READ_URL": CONTRACT_DATABASE_URL,
@@ -60,12 +97,28 @@ def new_signing_key_pem() -> str:
     )
 
 
-_USERS = {**_CQRS, "REGISTRATION_POLICIES_VERSION": "contract"}
+_USERS = {
+    **_CQRS,
+    "REGISTRATION_POLICIES_VERSION": "contract",
+    "HEALTH_DATA_CONSENT_VERSION": "contract",
+}
 _AFFILIATION = {**_SINGLE, "AFFILIATION_EXPECTED_CATALOG_VERSION": "contract"}
 _BFF = {
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
     "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
     "TRAINING_MANAGEMENT_BASE_URL": "http://training-management.invalid",
+    "COMPLEMENTARY_SERVICES_BASE_URL": "http://complementary-services.invalid",
+    "EVENTS_MANAGEMENT_BASE_URL": "http://events-management.invalid",
+}
+_COMPLEMENTARY = {
+    **_SINGLE,
+    "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
+    "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
+}
+_EVENTS = {
+    **_CQRS,
+    "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
+    "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
 }
 _TRAINING = {
     **_CQRS,
@@ -91,12 +144,12 @@ COMPONENTS = (
         "complementary-services",
         "complementary_services",
         "services/complementary_services",
-        _SINGLE,
+        _COMPLEMENTARY,
     ),
     Component(
         "training-management", "training_management", "services/training_management", _TRAINING
     ),
-    Component("events-management", "events_management", "services/events_management", _CQRS),
+    Component("events-management", "events_management", "services/events_management", _EVENTS),
     Component(
         "third-party-management", "third_party_management", "services/third_party_management"
     ),
@@ -105,7 +158,12 @@ COMPONENTS = (
 )
 
 # Paquetes con pruebas propias (componentes desplegables + librería técnica).
-TEST_PACKAGES = ("libs/sportapp_platform", *(component.directory for component in COMPONENTS))
+TEST_PACKAGES = (
+    "libs/sportapp_platform",
+    *(component.directory for component in COMPONENTS),
+    # Comandos de release (`scripts/release.py`); no son código de producción.
+    "scripts",
+)
 
 
 def by_name(name: str) -> Component:

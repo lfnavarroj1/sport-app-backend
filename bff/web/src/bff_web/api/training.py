@@ -41,6 +41,18 @@ REPLAYED_HEADER = "Idempotent-Replayed"
 PERMISSION_REQUIRED = "permission_required"
 PROFESSIONAL_NOT_FOUND = "professional_not_found"
 ATHLETE_AUTHORIZATION_REQUIRED = "athlete_authorization_required"
+# Motivos estables de `details[].issue` en `training_plan_invalid`, iguales a los que publica
+# `training-management` 0.7.0 (solicitud de coordinación 1 de HU010). El BFF no los valida:
+# reenvía el `422` del servicio; la lista solo documenta el contrato para la web.
+TRAINING_PLAN_RULE_ISSUES = (
+    "invalid_length",
+    "invalid_count",
+    "end_date_before_start_date",
+    "period_too_long",
+    "outside_plan_period",
+    "out_of_range",
+    "too_many_sessions_per_day",
+)
 
 _logger = logging.getLogger("sportapp.bff")
 
@@ -148,11 +160,17 @@ def _permission_required() -> Response:
     )
 
 
-def _passthrough(upstream: Any, allowed: set[int], headers: tuple[str, ...] = ()) -> Response:
+def _passthrough(
+    upstream: Any,
+    allowed: set[int],
+    headers: tuple[str, ...] = (),
+    *,
+    source: str = "training-management",
+) -> Response:
     if upstream.status_code not in allowed:
         _logger.warning(
             "bff.upstream_unexpected_status",
-            extra={"fields": {"upstream": "training-management", "status": upstream.status_code}},
+            extra={"fields": {"upstream": source, "status": upstream.status_code}},
         )
         return _upstream_failure(UpstreamUnavailable())
     forwarded = {name: upstream.headers[name] for name in headers if name in upstream.headers}
@@ -171,6 +189,23 @@ class _Session:
         self.actor_type = identity.actor_type
 
 
+def authenticate_session(
+    verify_token: Callable[[str], VerifiedAccessToken], authorization: str | None
+) -> "_Session | Response":
+    """Token verificado del usuario, o la respuesta de error del BFF."""
+    token = _bearer_token(authorization)
+    if token is None:
+        return _unauthenticated()
+    try:
+        identity = verify_token(token)
+    except InvalidAccessToken:
+        return _unauthenticated()
+    except JwksUnavailable:
+        _logger.warning("bff.jwks_unavailable")
+        return _upstream_failure(UpstreamUnavailable())
+    return _Session(token, identity)
+
+
 def build_training_router(
     *,
     verify_token: Callable[[str], VerifiedAccessToken],
@@ -182,17 +217,7 @@ def build_training_router(
     router = APIRouter(tags=["training"])
 
     def authenticate(authorization: str | None) -> _Session | Response:
-        token = _bearer_token(authorization)
-        if token is None:
-            return _unauthenticated()
-        try:
-            identity = verify_token(token)
-        except InvalidAccessToken:
-            return _unauthenticated()
-        except JwksUnavailable:
-            _logger.warning("bff.jwks_unavailable")
-            return _upstream_failure(UpstreamUnavailable())
-        return _Session(token, identity)
+        return authenticate_session(verify_token, authorization)
 
     @router.post(
         "/v1/me/training-authorizations",
@@ -308,8 +333,11 @@ def build_training_router(
             },
             HTTPStatus.UNPROCESSABLE_ENTITY.value: {
                 "model": ErrorResponse,
-                "description": "`validation_error` o `training_plan_invalid` (reglas en "
-                "`details`).",
+                "description": "`validation_error` (forma del cuerpo) o `training_plan_invalid` "
+                "(reglas de coherencia de CA3) con `details[{field, issue}]`. Motivos estables de "
+                "`issue` en `training_plan_invalid`: "
+                + ", ".join(f"`{issue}`" for issue in TRAINING_PLAN_RULE_ISSUES)
+                + ".",
             },
         },
     )

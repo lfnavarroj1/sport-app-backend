@@ -72,6 +72,8 @@ class OutboxPublisherEmulatorTest(unittest.TestCase):
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(envelope)
         self.assertEqual(message.ordering_key, str(result.user_id))
         self.assertEqual(message.attributes["event_type"], "usuario.registrado.v1")
+        # R-19 (ADR-034): el tipo de agregado también viaja como atributo para filtrar.
+        self.assertEqual(message.attributes["aggregate_type"], "user_account")
         self.assertEqual(envelope["aggregate_id"], str(result.user_id))
         self.assertEqual(envelope["correlation_id"], str(cmd.correlation_id))
         self.assertEqual(envelope["causation_id"], str(cmd.idempotency_key))

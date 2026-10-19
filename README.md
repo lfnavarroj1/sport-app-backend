@@ -32,7 +32,7 @@ La arquitectura y las decisiones viven en la documentación central (`documentac
   - [14. Detener, reiniciar y limpiar](#14-detener-reiniciar-y-limpiar)
   - [15. Glosario](#15-glosario)
   - [Estado de verificación de esta guía](#estado-de-verificación-de-esta-guía)
-- [Integración continua](#integración-continua)
+- [Integración continua, release y despliegue](#integración-continua-release-y-despliegue)
 - [Documentación relacionada](#documentación-relacionada)
 - [Pendiente de decisión (no implementado)](#pendiente-de-decisión-no-implementado)
 
@@ -45,17 +45,34 @@ Todos los componentes exponen `/health/live` y `/health/ready`. Historias implem
 | HU001 Registrar usuario | `POST /v1/users` (público, `Idempotency-Key` obligatorio); interno: `GET /v1/subscriptions/by-user/{user_id}/capabilities` en Afiliación | `bff_web` → `users_management` → `user_account` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` → consumidor del alta gratuita de `affiliation_management` → `subscription` `FREE` + `outbox_event` → `afiliacion-outbox-publisher` → `sportapp.afiliacion.v1` | OpenAPI de `users-management`, `bff-web` y `affiliation-management` (0.2.0); eventos `usuario.registrado.v1` y `suscripcion.activada.v1` |
 | HU003 Iniciar sesión | `POST /v1/sessions` y `POST /v1/sessions/refresh` (públicos); `GET /v1/me/capabilities` (con access token) en ambos BFF; `GET /.well-known/jwks.json` solo en el servicio | `bff_web` y `bff_mobile` → `users_management` → `refresh_token` + `login_failure_window`; para capacidades, BFF → JWKS de Usuarios + `actor-permissions.v1` + Afiliación (solo `athlete`) | OpenAPI 0.3.0 de `users-management`, 0.5.0 de `bff-web` (refresh en cookie `HttpOnly`) y 0.3.0 de `bff-mobile`; contrato `contracts/authorization/actor-permissions.v1.json`; sin eventos |
 | HU004 Cerrar sesión | `POST /v1/sessions/revoke` en el servicio y en ambos BFF (web: sin cuerpo, con la cookie y `Origin` permitido; móvil: `{refresh_token}`) | `bff_web` y `bff_mobile` → `users_management` → revoca la familia en `refresh_token` | OpenAPI 0.5.0 de `users-management`, 0.7.0 de `bff-web` y 0.4.0 de `bff-mobile`; sin eventos |
+| HU005 Registrar datos demográficos y fisiológicos | `PUT /v1/me/demographic-profile`, `PUT /v1/me/physiological-profile` (`Idempotency-Key` obligatorio, `expected_version` al reemplazar) y `GET /v1/me/profile`, solo `athlete` | `bff_web` → `users_management` → `demographic_profile` / `physiological_profile` + `idempotency_key` + `outbox_event` → `usuarios-outbox-publisher` → `sportapp.usuarios.v1` → `usuarios-read-projector` → `athlete_profile_view` (y `user_directory` desde `usuario.registrado.v1`) + `processed_event` | OpenAPI 0.6.0 de `users-management` y 0.13.0 de `bff-web`; eventos `perfil.demografico_actualizado.v1` y `perfil.fisiologico_actualizado.v1`; ADR-034 |
 | HU010 Crear plan de entrenamiento | `POST /v1/me/training-authorizations` y `DELETE /v1/me/training-authorizations/{professional_id}` (deportista); `POST /v1/training-plans` (`Idempotency-Key` obligatorio) y `GET /v1/training-plans/{plan_id}`, todos con access token; internos: `POST /v1/users/lookup` en Usuarios y las mismas rutas por identificador en Entrenamientos | `bff_web` → `users_management` (lookup en la base de lectura) → `training_management` → `training_authorization` / `training_plan` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `training_plan_view` | OpenAPI 0.4.0 de `users-management`, 0.2.0 de `training-management` y 0.6.0 de `bff-web`; evento `plan.entrenamiento_creado.v1` |
+| HU011 Ver historial de entrenamiento | `GET /v1/training-history` (deportista, su historial) y `GET /v1/athletes/{athlete_id}/training-history` (profesional autorizado), con `from`, `to`, `sport`, `limit` y `cursor`; CA5: `GET /v1/me/training-athletes?limit&cursor` (profesional; internos `GET /v1/me/authorized-athletes` en Entrenamientos y `POST /v1/users/lookup-batch` en Usuarios) | `bff_web` → `training_management` → `training_session_history` y `training_authorization_view` (base de lectura) ← `entrenamientos-read-projector` ← `entrenamiento.finalizado.v1` (lo publicará HU032) y `autorizacion_entrenamiento.*.v1` (outbox de la autorización) | OpenAPI 0.3.0 de `training-management` y 0.8.0 de `bff-web`; CA5: 0.8.0 de `training-management`, 0.7.0 de `users-management` y 0.15.0 de `bff-web`; eventos `autorizacion_entrenamiento.otorgada.v1`, `autorizacion_entrenamiento.revocada.v1` y `entrenamiento.finalizado.v1` |
+| HU015 Crear servicio | `POST /v1/services` (profesional con `services.create`; `Idempotency-Key` obligatorio) | `bff_web` → `complementary_services` → `service` + `service_availability` + `idempotency_key` (base única, sin eventos) | OpenAPI 0.2.0 de `complementary-services` y 0.9.0 de `bff-web`; ADR-027 |
+| HU019 Publicar servicios | `POST /v1/services/{service_id}/publish` (profesional propietario con `services.publish`; sin cuerpo; `Idempotency-Key` obligatorio), `GET /v1/me/services?status&limit&cursor` y `GET /v1/me/services/{service_id}` (solo `service_provider`) | `bff_web` → `complementary_services` → bloqueo de `service` + `idempotency_key` + `outbox_event` → `servicios-outbox-publisher` → `sportapp.servicios.v1` (sin proyector ni suscripción consumidora) | OpenAPI 0.3.0 de `complementary-services` y 0.11.0 de `bff-web`; evento `servicio.publicado.v1`; ADR-027 y ADR-038 |
+| HU020 Visualizar disponibilidad de los servicios | `GET /v1/services/availability?from&to&category&modality&availability&limit&cursor` (solo deportista; `category` y `modality` repetibles) | `bff_web` → `complementary_services` (base única; capacidad médica verificada ante Afiliación solo si la categoría puede aparecer) → `service` + `service_availability`; solo lectura, sin eventos | OpenAPI 0.4.0 de `complementary-services` y 0.12.0 de `bff-web`; ADR-038 |
+| HU021 Crear evento masivo | `POST /v1/events` (organizador con `events.create`; `Idempotency-Key` obligatorio) | `bff_web` → `events_management` → `event` + `command_idempotency` + `outbox_event` → `eventos-outbox-publisher` → `sportapp.eventos.v1` → `eventos-read-projector` → `event_read` + `processed_event` | OpenAPI 0.2.0 de `events-management` y 0.10.0 de `bff-web`; evento `evento.creado.v1`; ADR-028 |
+| HU032 Iniciar o finalizar entrenamiento | `POST /v1/training-sessions`, `POST /v1/training-sessions/{session_id}/finish` y `GET /v1/training-sessions/active` (deportista; `Idempotency-Key` obligatorio en los comandos) | `bff_mobile` → `training_management` (capacidad en Afiliación solo al iniciar) → `training_session` + `command_idempotency` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `active_training_session` y `training_session_history` | OpenAPI 0.4.0 de `training-management` y 0.5.0 de `bff-mobile`; eventos `entrenamiento.iniciado.v1` y `entrenamiento.finalizado.v1`; ADR-029 |
+| HU034 Calcular indicadores FTP y VO₂max | `GET /v1/training-metrics/catalog` (`ETag`/`304`), `POST /v1/training-metrics/calculations` (`Idempotency-Key` obligatorio) y `GET /v1/training-metrics/calculations?metric_code&limit&cursor` en `bff-mobile` y `training-management` (deportista con `training.metrics.ftp_vo2max`) | `bff_mobile` → `training_management` (capacidad en Afiliación, fuera de la transacción) → `training_metric_calculation` + `training_metric_input` + `command_idempotency` + `outbox_event` → `entrenamientos-outbox-publisher` → `sportapp.entrenamientos.v1` → `entrenamientos-read-projector` → `training_metric_result` + `processed_event` | OpenAPI 0.6.0 de `training-management` y 0.8.0 de `bff-mobile`; evento `indicador.calculado.v1`; ADR-030 |
+| HU035 Ver calendario con eventos o salidas programadas | `GET /v1/me/calendar?from&to` en `bff-mobile` (deportista con `calendar.sport.view`); internos: `GET /v1/events?from&to&limit&cursor` en Eventos y `GET /v1/me/training-plan-sessions?from&to&limit&cursor` en Entrenamientos | `bff_mobile` compone en paralelo `events_management` (`event_read`, solo `PUBLISHED`; capacidad verificada de nuevo en Afiliación) y `training_management` (`training_plan_session_view`, proyectada desde `plan.entrenamiento_creado.v1`); solo lectura | OpenAPI 0.3.0 de `events-management`, 0.5.0 de `training-management` y 0.6.0 de `bff-mobile`; sin eventos nuevos; ADR-031 |
+| HU024 Publicar eventos deportivos | `POST /v1/events/{event_id}/publish` (sin cuerpo; `Idempotency-Key` obligatorio; `organizer` propietario con `events.publish`), `GET /v1/me/events?status&limit&cursor` (eventos propios del `organizer`) y `GET /v1/events/{event_id}` (`PUBLISHED` para cualquier actor autenticado, `DRAFT` solo para su organizador; `bff-web` sin `my_registration`) | `bff_web` → `events_management` → `event` bloqueado + `command_idempotency` + `outbox_event` → `eventos-outbox-publisher` → `sportapp.eventos.v1` → `eventos-read-projector` (estado completo, versión mayor) → `event_read` + `processed_event` | OpenAPI 0.5.0 de `events-management` y 0.16.0 de `bff-web`; evento `evento.publicado.v1`; ADR-033 |
+| HU041 Inscribirse a un evento publicado | `GET /v1/events/{event_id}` (detalle `PUBLISHED` con `my_registration`), `POST /v1/events/{event_id}/registrations` (sin cuerpo; `Idempotency-Key` obligatorio) y `GET /v1/me/event-registrations` (deportista; sin capacidad de plan) en `bff-mobile` y `events-management` | `bff_mobile` → `events_management` → bloqueo de `event` + `event_registration` + `command_idempotency` + `outbox_event` → `eventos-outbox-publisher` → `sportapp.eventos.v1` → `eventos-read-projector` → `event_registration_read` + `processed_event` | OpenAPI 0.4.0 de `events-management` y 0.7.0 de `bff-mobile`; evento `usuario.inscrito.v1`; ADR-032 |
 
 Detalles de HU001:
 
 - **Correo:** se normaliza (minúsculas, sin espacios exteriores) y es único.
 - **Contraseña:** 12–128 caracteres, sin reglas de composición; se guarda solo como hash Argon2id (m=19 MiB, t=2, p=1).
 - **`actor_type`:** `athlete`, `organizer` o `service_provider`.
-- **Políticas:** `accepted_policies_version` debe coincidir con `REGISTRATION_POLICIES_VERSION`.
+- **Políticas:** `accepted_policies_version` debe coincidir con `REGISTRATION_POLICIES_VERSION`; si no, `422 policies_version_mismatch`. La versión compartida aprobada el 2026-10-17 es `sportapp-c108-c108plus.v1`: los Convenios 108 y 108+ del Consejo de Europa son el marco de referencia de protección de datos. SportApp no declara estar certificada, y el tratado no sustituye su aviso de privacidad propio. La cuenta conserva solo la versión aceptada y su instante, nunca el texto de la política.
 - **Idempotencia:** un reintento con la misma clave y el mismo cuerpo, durante 24 h, devuelve el mismo `201` con `Idempotent-Replayed: true`.
 - **Alta gratuita (ADR-024, criterios 6-9):** Afiliación consume `usuario.registrado.v1` (suscripción `sportapp.afiliacion.alta-gratuita.v1`) y, solo para `athlete`, crea una suscripción `FREE` activa con origen `AUTO_REGISTRATION`. `organizer` y `service_provider` no reciben suscripción. Cada evento queda en `inbox_event`; una entrega repetida no crea otra suscripción y un índice único parcial impide dos suscripciones activas por usuario. Inbox, suscripción y outbox se confirman juntos y el mensaje se confirma (ACK) después del COMMIT; un mensaje inválido no se confirma y, tras 10 intentos, va a la DLQ `sportapp.afiliacion.alta-gratuita.dlq`. La activación publica `suscripcion.activada.v1` en `sportapp.afiliacion.v1` con `user_id` como clave de orden.
-- **Catálogo:** la migración `0002_free_plan_catalog` precarga `plans-2026-10-11.v1`: `FREE` (11 capacidades), `INTERMEDIATE` (14) y `PREMIUM` (16). Los planes pagos quedan definidos pero no seleccionables, sin precio hasta que se aprueben los datos comerciales. Afiliación no queda lista (`/health/ready` 503) si falta esa versión, un plan o una capacidad.
+- **Catálogo:** la migración `0002_free_plan_catalog` precargó `plans-2026-10-11.v1`: `FREE` (11 capacidades), `INTERMEDIATE` (14) y `PREMIUM` (16), con los planes pagos sin precio. La migración `0003_plan_price_offers` (ADR-036) instala `plans-2026-10-13.v1` sin tocar la anterior:
+  - versión 2 de los tres planes, con las mismas capacidades; las versiones 1 no cambian, los deportistas existentes las conservan y los nuevos reciben `FREE` v2;
+  - `INTERMEDIATE` y `PREMIUM` activos y seleccionables;
+  - tabla `plan_offer` con siete ofertas en COP, precios de referencia antes de impuestos: `FREE` `NONE` 0; `INTERMEDIATE` 2.400 / 7.200 / 28.800 y `PREMIUM` 4.800 / 14.400 / 57.600 (mensual, trimestral, anual);
+  - `catalog_metadata.migration_revision` para auditar qué migración instaló cada catálogo.
+
+  La precarga es idempotente y corre en el Job de migración antes de habilitar las réplicas. No existe ninguna API ni pantalla para administrar planes. Afiliación no queda lista (`/health/ready` 503) si falta la versión esperada, un plan, una capacidad o una oferta (`plan_offers_mismatch:<plan>`); por eso un despliegue que siga esperando `plans-2026-10-11.v1` tampoco queda listo.
 - **Capacidades (interno):** `GET /v1/subscriptions/by-user/{user_id}/capabilities` devuelve `ACTIVE` con plan, versión, catálogo y capacidades, o `NONE` sin capacidades: nunca concede `FREE` por suposición. Lo consumen los BFF para componer `GET /v1/me/capabilities` (HU003).
 - **Errores:**
 
@@ -128,7 +145,10 @@ deploy/docker/Dockerfile       imagen única parametrizada por componente, usuar
 deploy/k8s/base, overlays/local  Kustomize: Deployments, Services, Jobs de migración, PostgreSQL local
 load/                          k6 y Locust
 scripts/task.py                comandos estables (local y CI)
-.github/workflows/             ci.yml y deliver-development.yml
+scripts/release.py             release: verify, k8s-check, images, push, manifest
+.github/workflows/             ci.yml y release-validation.yml (sin acceso a GCP)
+cloudbuild.release.yaml        construcción y publicación en Cloud Build (iniciada desde GCP)
+deploy/cloudbuild/             uv fijado por hash para Cloud Build
 .githooks/pre-commit           validación rápida local
 ```
 
@@ -167,6 +187,7 @@ Todos se ejecutan desde la raíz del repositorio. CI invoca exactamente estos mi
 | Pruebas de integración | `TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55432/postgres uv run python scripts/task.py test integration` |
 | Pruebas de contrato | `uv run python scripts/task.py test contract` |
 | Pruebas de componente (BFF → servicio → PostgreSQL) | `uv run python scripts/task.py test component` |
+| Carga HA014 (fuera de cada PR) | `uv run --group load locust -f load/locust/training_metrics.py --host http://127.0.0.1:8000 --headless` (parámetros y dataset en la cabecera del script) |
 | Cobertura consolidada (80 %) | `uv run python scripts/task.py coverage` |
 | Regenerar contratos OpenAPI | `uv run python scripts/task.py openapi-export` |
 | SAST y dependencias | `uv run python scripts/task.py security` |
@@ -195,11 +216,144 @@ Detalles de HU004 (decisiones y contrato aprobados el 2026-10-12):
 - **Auditoría (CA4):** `audit.session_revoke` con `result` (`revoked`, `already_revoked` o `unknown`), `user_id`, `family_id`, `idempotency_key` si llegó, y la fecha del registro; nunca el token ni su hash.
 - **Sin evento:** `credencial.revocada.v1` sigue siendo un candidato sin consumidores.
 
+Detalles de HU005 (ADR-034; decisiones de la tarea aprobadas el 2026-10-16):
+
+- **Quién:** solo `athlete`, con la identidad del token; `users-management` vuelve a verificar el access token con su propio JWKS (sin llamada de red). `organizer` y `service_provider` → `403 permission_required`. No depende del plan.
+- **Secciones:** demográfica (`birth_date` con edad de 13 a 120 años, `gender`, `country_code` ISO alfa-2, `city`; opcionales `marital_status`, `occupation`, `income_range`) y fisiológica (`consent.version` = `HEALTH_DATA_CONSENT_VERSION`, `measured_at` `AAAA-MM-DDTHH:MM:SSZ` entre −365 días y +5 min, `weight_kg` y `body_temperature_c` como cadena con un decimal, `height_cm`, opcionales `resting_heart_rate_bpm` y `blood_pressure`). Sin raza/etnia, religión ni magnitudes clínicas excluidas. `bmi` lo calcula el backend (`Decimal`, `ROUND_HALF_UP`: 68.5 kg y 172 cm → `"23.2"`) y se rechaza en el cuerpo.
+- **Validación todo o nada:** `422 validation_error` con `details[{field, issue}]` y el catálogo de ADR-034; cualquier campo fuera del contrato (incluidos `user_id` y `bmi`) → `field_not_allowed`; la `Idempotency-Key` ausente o no UUID se informa junto con el resto.
+- **Versión y concurrencia:** `201` al crear y `200` al reemplazar; la sección se bloquea (`FOR UPDATE`) y `expected_version` debe coincidir: si no, `409 version_conflict` con `details=[{field: expected_version, issue: "<versión vigente>"}]` (`"0"` si la sección no existe). Ocho reemplazos simultáneos producen una sola versión nueva.
+- **Idempotencia:** tabla `idempotency_key` existente, `operation` propia por sección, 24 h; el reintento devuelve el mismo código y cuerpo con `Idempotent-Replayed: true`; otro payload u otro deportista con la misma clave → `409 idempotency_key_reused`.
+- **Transacción y eventos:** sección + clave + `outbox_event` en un COMMIT (migración de escritura `0004_athlete_profile`); `perfil.demografico_actualizado.v1` y `perfil.fisiologico_actualizado.v1` con el estado completo de la sección, `ordering_key = user_id` y `causation_id` = clave.
+- **Consulta:** `GET /v1/me/profile` lee `athlete_profile_view` (migración de lectura `0003_athlete_profile_view`): siempre `200`, con secciones y versiones `null` si aún no se proyectan; si la base de lectura cae, `503 upstream_unavailable`. Es eventual: el cliente usa la respuesta del comando como confirmación inmediata.
+- **Proyector (`usuarios-read-projector`, CMP-001):** `python -m users_management.workers.read_projector`; suscripción `proyector-usuarios-v1` con orden, DLQ `sportapp.usuarios.proyeccion.dlq` (5 entregas, espera de 10 a 600 s) y `…dlq.ops`. `usuario.registrado.v1` → `user_directory` (solo la siguiente versión: desde ahora `POST /v1/users/lookup` resuelve a usuarios reales); `perfil.*` → la sección de `athlete_profile_view` si la versión es mayor; deduplica por `event_id` en `processed_event` en la misma transacción y confirma después del COMMIT; otros tipos se confirman sin efectos.
+- **Privacidad:** ningún valor demográfico ni fisiológico en logs, auditoría, métricas ni errores. Auditoría `audit.profile_section_updated` con `user_id`, `section`, `section_version`, `result` y `correlation_id` (el nombre `section_version` evita que el formateador de logs pise la `version` del servicio).
+- **Tópico compartido (R-19, parte backend):** el publicador agrega `aggregate_type` a los atributos del mensaje; la suscripción `sportapp.afiliacion.alta-gratuita.v1` del emulador filtra `attributes.event_type = "usuario.registrado.v1"` y el consumidor `FREE` confirma sin efectos los demás tipos. Un emulador ya en marcha conserva la suscripción sin filtro: reinícielo para aplicarlo. El filtro en GCP lo debe crear la plataforma (`T-HU001-PLAT`).
+
+Detalles de HU034 (ADR-030, aceptada el 2026-10-12; decisiones de la tarea confirmadas el 2026-10-14):
+
+- **Quién:** solo `athlete` con la capacidad `training.metrics.ftp_vo2max` vigente (el plan `FREE` del catálogo `plans-2026-10-11.v1` la incluye), verificada en `bff-mobile` y de nuevo en el servicio, siempre antes de abrir la transacción. El deportista sale del token: un `athlete_id` u otro campo extra en el cuerpo responde `422` con `field_not_allowed`. Otro actor → `403 permission_required`; sin la capacidad → `403 capability_required`; Afiliación sin respuesta → `503 upstream_unavailable` o `504 upstream_timeout`.
+- **Catálogo:** `GET /v1/training-metrics/catalog` devuelve `catalog_version` y los dos métodos inmutables de ADR-030 con los metadatos para pintar el formulario (`metric_code`, `label_key`, `result_unit`, `result_scale`, `method_code`, `method_version`, `method_label_key`, `disclaimer_key` e `inputs[]` con `code`, `label_key`, `value_type: "INTEGER"`, `unit`, `minimum`, `maximum`, `scale` y `required`). Responde con `ETag: "<catalog_version>"`; si `If-None-Match` coincide, `304` sin cuerpo. El BFF reenvía la cabecera y devuelve `304` y `ETag` tal como llegan.
+- **Métodos:** `FTP_20_MIN_95_V1` (`mean_power_watts` entero de 1 a 2.500 W; FTP estimado en W = potencia × 0,95, redondeo `ROUND_HALF_UP` a 0 decimales; 250 W → 238 W) y `COOPER_12_MIN_V1` (`distance_meters` entero de 600 a 6.000 m; VO₂max estimado en `mL/kg/min` = (d − 504,9) / 44,73, `ROUND_HALF_UP` a 1 decimal; 2.400 m → 42,4). Se calcula con `Decimal`, nunca con `float` ni con el valor del cliente. El catálogo es inyectable: una prueba registra un tercer método solo para la prueba (extensibilidad de HA014) y nada llega al producto.
+- **Validación:** `422 validation_error` con `details[{field, issue}]`, rutas como `inputs[0].value`, `measured_at` o `method_version` y las causas de ADR-030 (`required`, `field_not_allowed`, `unknown_metric`, `unsupported_method_version`, `unknown_input`, `duplicate_input`, `invalid_unit`, `out_of_range`, `invalid_datetime`, `too_far_in_future`, `too_old`). Un valor no entero o no numérico responde `out_of_range`. `measured_at` solo se acepta como `AAAA-MM-DDTHH:MM:SSZ` (si no, `invalid_datetime`), hasta 5 minutos por delante del reloj y con no más de 365 días. Una entrada inválida no deja cálculo, clave ni evento. Dos causas no están en el catálogo de ADR-030 y quedan por ratificar: `invalid_uuid` (un `calculation_id` que no es UUID v4 o una `Idempotency-Key` que no es UUID) e `invalid_cursor` (cursor de la consulta inválido). En la consulta, `limit` fuera de 1–100 o no entero responde `query.limit: out_of_range` y un `metric_code` desconocido, `query.metric_code: unknown_metric`.
+- **Respuesta:** `201` con el cuerpo enviado más `athlete_id`, `result {value, unit, scale}` (número JSON), `status: "CONFIRMED"`, `calculated_at` (UTC `Z`, lo asigna el backend), `disclaimer_key: "estimated_not_diagnostic"` y `version: 1`. El resultado siempre es una estimación de campo, no un diagnóstico.
+- **Idempotencia:** `Idempotency-Key` UUID por deportista y operación (`calculate_training_metric`) durante 30 días, en la `command_idempotency` de HU032. Misma clave y payload → la respuesta original (`201`) con `Idempotent-Replayed: true`; otro payload → `409 idempotency_key_reused`. El mismo `calculation_id` con los mismos datos y otra clave → `200` con el resultado existente, sin otro evento; con datos distintos → `409 calculation_id_reused`.
+- **Transacción y evento (CQRS, CMP-003):** cálculo, entradas normalizadas, clave e `indicador.calculado.v1` se confirman juntos (migración de escritura `0005_training_metrics`). El evento va a `sportapp.entrenamientos.v1` con `calculation_id` como `aggregate_id` y clave de orden, `aggregate_type` `training_metric_calculation`, versión 1 y la clave de idempotencia como `causation_id`; la respuesta no espera la proyección.
+- **Proyección y consulta:** `entrenamientos-read-projector` guarda `training_metric_result` y `processed_event` en una transacción (migración de lectura `0006_training_metric_results`, índice `(athlete_id, measured_at DESC, calculation_id DESC)`); el mismo evento repetido se descarta y otra versión del mismo cálculo va a reintentos y DLQ. `GET /v1/training-metrics/calculations` lee solo los resultados del deportista del token, ordenados por `measured_at DESC, calculation_id DESC` con cursor keyset opaco, `limit` de 1 a 100 (20 por defecto) y `metric_code` opcional (desconocido → `unknown_metric`); sin resultados → `200` con `items: []`.
+- **Auditoría:** `audit.training_metric_calculated` con `result` (`calculated`, `replayed`, `existing` o `rejected` con `reason`), `calculation_id`, `metric_code` y `athlete_id`; sin entradas, resultado, cuerpos ni token.
+- **Identificadores:** un `calculation_id` ya usado por otro deportista responde `409 calculation_id_reused` (revela que existe, con riesgo bajo por ser UUID v4); no se valida que la `Idempotency-Key` sea distinta del `calculation_id`, aunque ADR-030 lo pide al cliente.
+- **Versiones:** `training-management` 0.6.0 y `bff-mobile` 0.8.0 (la ficha reservaba 0.7.0, que ya tomó HU041).
+- **Rendimiento (HA014):** `load/locust/training_metrics.py` reproduce la mezcla de ADR-030 (30 % catálogo, 35 % cálculo y 35 % consulta) contra `bff-mobile` a tasa constante (por defecto 30 rps durante 10 minutos, después de 60 s de calentamiento que no cuentan) y termina con código 1 si alguna operación llega a p95 de 3 s o a 1 % de error, o si no sostiene el 90 % de la tasa (los rechazos funcionales esperados se informan aparte). Los parámetros y el dataset están en la cabecera del script. Ejemplo con cuentas preparadas (CSV `email,password` de deportistas con plan):
+
+  ```text
+  HA014_ATHLETES_FILE=deportistas.csv uv run --group load locust -f load/locust/training_metrics.py --host http://127.0.0.1:8000 --headless --csv reports/load/ha014 --only-summary
+  ```
+
+  Sin `HA014_ATHLETES_FILE`, cada usuario virtual registra un deportista sintético en `HA014_REGISTRATION_URL` y espera a que el alta gratuita active la capacidad. La corrida completa queda **BLOQUEADA** hasta tener un ambiente representativo.
+
+Detalles de HU024 (ADR-033, aceptada el 2026-10-12; decisiones de la tarea del 2026-10-18):
+
+- **Publicar:** solo `organizer` con `events.publish` (BFF y servicio) y propietario del evento; `organizer_id` sale del token. Inexistente o ajeno → `404 event_not_found`. Con la fila de `event` bloqueada (`FOR UPDATE`): `DRAFT` → `PUBLISHED`, versión + 1, `updated_at` = `published_at` = reloj del servidor; evento, clave (`command_idempotency`, `operation = publish_event`, 24 h) y `evento.publicado.v1` en un COMMIT. La respuesta no espera la proyección.
+- **Requisitos (CA2):** el agregado persistido se revalida con todas las reglas de ADR-028 (el inicio se expresa en su zona declarada) y `starts_at` debe ser posterior a la publicación; si no, `422 validation_error` con `details[{field, issue}]` y el evento sigue `DRAFT` sin datos parciales. La tarifa no es requisito.
+- **Idempotencia (CA4):** huella organizador + operación + `event_id`. Misma clave → la respuesta original con `Idempotent-Replayed: true`; misma clave con otro evento → `409 idempotency_key_reused`; ya publicado con otra clave → `200` con el estado vigente, sin versión ni evento (esa clave también queda registrada). Ocho publicaciones simultáneas producen una transición y un evento.
+- **Eventos propios:** `GET /v1/me/events` para cualquier `organizer` (decisión del responsable: HU018 y HU022 la reutilizarán); `status` opcional (`DRAFT`/`PUBLISHED`; sin él, ambos), `limit` 1–100 (20) y cursor keyset `starts_at, event_id`. Cada elemento es el agregado completo de la respuesta de publicar (`published_at` `null` en borrador). Lee `event_read`.
+- **Detalle:** el mismo esquema de HU041 con `status` `DRAFT|PUBLISHED` (decisión del responsable); un `DRAFT` solo lo recibe su organizador; `bff-web` lo entrega sin `my_registration`.
+- **Proyección (ADR-033, CMP-004):** `eventos-read-projector` aplica `evento.creado.v1` y `evento.publicado.v1` por estado completo: fila ausente → se inserta (aunque llegue primero la versión 2); versión mayor → sustituye todas las columnas; menor o igual → se confirma sin efectos. Sustituye la regla «solo la siguiente versión» de HU021. Si dos mensajes del mismo evento crean la vista a la vez, el que pierde se reaplica por versión.
+- **Migraciones:** escritura `0004_event_publication` (`event.published_at` y la restricción `(status = 'PUBLISHED') = (published_at IS NOT NULL)`; un `PUBLISHED` sembrado antes recibe `published_at = updated_at`, decisión del responsable); lectura `0005_event_read_publication` (`event_read.published_at`). ADR-033 las sugería como `0003`/`0004`, que ya tomó HU041.
+- **Auditoría:** `audit.event_published` con resultado (`published`, `already_published`, `replayed`, `rejected` con `reason`), `event_id`, `organizer_id` y correlación; sin textos libres, ubicación ni token.
+
+Detalles de HU041 (ADR-032, aceptada el 2026-10-12):
+
+- **Quién:** solo `athlete`, filtrado en `bff-mobile` y de nuevo en el servicio (`403 permission_required`); el deportista sale del token y el cliente nunca envía `athlete_id`. No exige capacidad de plan.
+- **Elegibilidad y errores:** evento `PUBLISHED` con `starts_at` futuro; inexistente o `DRAFT` → `404 event_not_found`; ya iniciado → `409 event_registration_closed`; ya inscrito → `409 event_registration_exists` con `details=[{"field": "registration_id", "issue": "<uuid>"}]` para que la app abra la inscripción existente (el formato de `details` es elección de esta tarea); sin cupo → `409 event_full`; `Idempotency-Key` ausente o no UUID → `422 validation_error`.
+- **Cupo y unicidad:** el comando bloquea la fila de `event` (`FOR UPDATE`), cuenta las inscripciones frente a `capacity` y guarda inscripción, clave y `usuario.inscrito.v1` en la misma transacción; la unicidad `(event_id, athlete_id)` de la base respalda la regla. Ocho solicitudes concurrentes al último cupo → una `201` y siete `event_full` (prueba de integración).
+- **Idempotencia:** clave por deportista y operación, 24 h. `command_idempotency` pasa a tener PK `(actor_id, operation, key)` (migración de escritura `0003_event_registration`), así que la misma clave en HU021 y en HU041 no se cruza. Misma clave y evento → respuesta original con `Idempotent-Replayed: true` (también si llegan a la vez); otro evento → `409 idempotency_key_reused`.
+- **Estado y tarifa:** `REGISTERED`, versión `1`; `applied_fee` es informativa y hoy `null` (las tarifas son de HU025); sin cobro ni estados de pago. `201` con `Location: /v1/me/event-registrations/{registration_id}`.
+- **Proyección:** `eventos-read-projector` despacha por tipo (`evento.creado.v1`, `evento.publicado.v1` y `usuario.inscrito.v1`); la inscripción se guarda en `event_registration_read` (migración de lectura `0004_event_registration_read`, porque `0003` ya la usó HU035) junto con `processed_event`; la misma versión repetida se descarta y otra versión del mismo `registration_id` va a reintentos y DLQ.
+- **Consultas:** el detalle lee `event_read` (solo `PUBLISHED`; `fee` en `null` hasta HU025); en el servicio es visible para cualquier actor autenticado, como fija ADR-033 (desde HU024 el `DRAFT` también lo ve su organizador), y `my_registration` solo se compone para el deportista desde `event_registration_read` (en `bff-mobile` solo entra `athlete`); «mis inscripciones» filtra por el deportista del token y `status` (`REGISTERED`), `limit` 1-100 (20 por defecto) y cursor keyset `starts_at, registration_id`. Ambas leen la proyección, así que una inscripción recién creada aparece con el retraso del proyector.
+- **Modelo de escritura:** `event.status` admite `PUBLISHED` (restricción ampliada) para que la inscripción pueda validarlo; la transición `DRAFT → PUBLISHED` la hace HU024. Las pruebas de HU041 siembran eventos publicados de forma sintética (con `published_at`).
+- **Auditoría:** `audit.event_registration_created` con resultado, `registration_id`, `event_id`, `athlete_id` y correlación; sin cuerpos ni token.
+
+Detalles de HU035 (ADR-031, aceptada el 2026-10-12):
+
+- **Quién:** solo `athlete` con `calendar.sport.view` vigente (Afiliación), verificado en `bff-mobile`; `events-management` vuelve a verificar la capacidad antes de servir eventos (`403 capability_required`, `503 upstream_unavailable` si no puede evaluarla, también ante timeout); `training-management` solo exige `athlete` y usa el `athlete_id` del token, sin capacidad, para las sesiones propias.
+- **Periodo:** `from`/`to` instantes ISO 8601 con desfase (zona del dispositivo); sin ambos, el mes UTC en curso (`to` = último segundo del mes); `from` ≤ `to`; hasta 92 días. Errores `422 validation_error` con `invalid_datetime`, `ends_before_starts`, `out_of_range` y, si llega solo uno de los dos, `required` (ADR-031 no fija ese caso). Las sesiones se piden por las fechas de `from` y `to` en el desfase recibido.
+- **Fuentes:** `EVENT_PUBLISHED`, eventos `PUBLISHED` de `event_read` que se superponen con el periodo (bordes incluidos; nunca borradores ni `organizer_id`); `TRAINING_PLAN_SESSION`, sesiones de planes `ASSIGNED` del deportista con fecha en el periodo (inclusiva). Hoy no existen eventos `PUBLISHED`: la publicación es de HU024.
+- **Sesiones planificadas:** `plan.entrenamiento_creado.v1` no lleva identificador por sesión, así que la vista `training_plan_session_view` (migración de lectura `0005`, con backfill desde `training_plan_view`) usa un UUIDv5 determinista de `plan_id` y la posición de la sesión, el mismo que calcula el proyector; reconstruir la vista da los mismos identificadores.
+- **Composición:** consultas en paralelo con el timeout de cada cliente; hasta 200 elementos por fuente con `truncated` (no se pagina la composición). Una fuente caída → `200` con la otra y `sources[{name, status: OK|UNAVAILABLE|TIMEOUT, truncated}]`; ambas → `504 upstream_timeout` si las dos vencieron el tiempo, si no `503 upstream_unavailable`. Orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`; `occurs_on` es la fecha del evento en su `time_zone` o la `scheduled_date`.
+- **Tiempo:** instantes en UTC `Z` y `time_zone` del evento; las sesiones solo tienen fecha. El móvil convierte a la zona del dispositivo.
+- **Observabilidad:** `bff.calendar` registra estado y número de elementos por fuente y la latencia, sin cuerpos ni identificadores; la correlación se propaga a ambas consultas paralelas.
+
+Detalles de HU032 (ADR-029, aceptada el 2026-10-12):
+
+- **Quién:** solo `athlete`, filtrado en `bff-mobile` y de nuevo en el servicio. Iniciar exige `training.session.record` en Afiliación, consultada **antes** de abrir la transacción; finalizar o consultar la sesión propia no vuelve a pedirla. Sin respuesta de Afiliación: `503 upstream_unavailable`, o `504 upstream_timeout` si venció el tiempo (HU010 sigue respondiendo `503` en ambos casos).
+- **Inicio:** `session_id` UUID v4 generado por el móvil, `sport` del catálogo de HU010, `plan_id` opcional (plan propio `ASSIGNED` que incluya ese deporte; si no, `404 training_plan_not_found`) y `started_at`. Responde `201` con `Location` y la sesión `ACTIVE`, versión 1. Una restricción única parcial de la base (`uq_training_session_athlete_active`) permite una sola sesión activa por deportista: la carrera responde `409 active_session_exists`.
+- **Fin:** `POST /v1/training-sessions/{session_id}/finish` con `ended_at`; bloquea la sesión, calcula `duration_seconds` (diferencia entera, puede ser 0) y responde `200` con `FINISHED`, versión 2. Sesión inexistente o ajena: `404 training_session_not_found`. Repetirlo con el mismo `ended_at` devuelve la sesión terminada; con otro, `409 training_session_already_finished`. `training_session_not_active` no se emite: no existen más estados que `ACTIVE` y `FINISHED`.
+- **Tiempo:** `started_at` y `ended_at` son la acción observada por el móvil, en UTC `YYYY-MM-DDTHH:MM:SSZ`; se rechazan con más de 5 minutos hacia el futuro (`too_far_in_future`) o más de 30 días de antigüedad (`too_old`); `ended_at` anterior al inicio → `ends_before_starts`. La duración enviada por el cliente se rechaza (`field_not_allowed`).
+- **Idempotencia:** `Idempotency-Key` UUID distinta por comando, aislada por deportista y operación durante 30 días (`command_idempotency`; la tabla `idempotency_key` de HU010 no cambia). Misma clave y payload → resultado original con `Idempotent-Replayed: true`; otro payload → `409 idempotency_key_reused`. El mismo `session_id` con el mismo inicio devuelve la sesión vigente sin otro evento; con otros datos o de otra persona → `409 session_id_reused`.
+- **Eventos (CQRS, CMP-003):** sesión, clave y evento se confirman juntos. `entrenamiento.iniciado.v1` (versión 1) y el `entrenamiento.finalizado.v1` ya aprobado para HU011 (versión 2, esquema sin cambios), ambos con `session_id` como clave de orden y la clave de idempotencia como `causation_id`. Con HU032 el historial de HU011 empieza a recibir datos reales.
+- **Proyección:** `entrenamientos-read-projector` crea `active_training_session` con el inicio y, con el fin, la elimina y actualiza `training_session_history` en la misma transacción; si el fin llega antes que el inicio, el inicio tardío ya no crea una sesión activa. `GET /v1/training-sessions/active` lee esa vista (`200` o `204`) y nunca debe contradecir una versión local más reciente del móvil.
+- **Errores de validación:** `422 validation_error` con `details[{field, issue}]` y `issue` en `required`, `field_not_allowed`, `unknown_value`, `invalid_uuid`, `invalid_datetime`, `too_far_in_future`, `too_old` o `ends_before_starts`. El BFF reenvía cuerpo, clave y correlación sin reinterpretarlos.
+- **Auditoría:** `audit.training_session_started` y `audit.training_session_finished` con resultado, `session_id` y `athlete_id`; sin deporte, tiempos, cuerpos, token ni ubicación.
+
+Detalles de HU021 (ADR-028, aceptada el 2026-10-12):
+
+- **Quién crea:** solo `organizer` con `events.create`, verificado en el BFF y de nuevo en el servicio (que valida el access token con el JWKS de Usuarios, en caché, sin llamar a otro dominio durante el comando). `organizer_id` sale del token; en el cuerpo se rechaza (`field_not_allowed`), igual que `event_id`, `ends_at`, `status`, `version` y las marcas de tiempo.
+- **Evento:** `name` (3–120), `description` (20–2.000) y `discipline` (2–80, texto libre sin catálogo) recortados; `location` con `name` (3–120), `address` (5–200), `city` (2–80) y `country_code` ISO 3166-1 alfa-2 en mayúsculas (lista de 249 códigos en el dominio); `starts_at` futuro con desfase explícito, coherente con la zona IANA `time_zone` en ese instante; `duration_minutes` de 15 a 1.440 y `capacity` de 1 a 100.000. El backend calcula `ends_at = starts_at + duration_minutes`.
+- **Fechas:** `starts_at`, `ends_at`, `created_at` y `updated_at` se guardan y responden en UTC con sufijo `Z`; `time_zone` es un dato del evento (dónde ocurre). El frontend convierte a la zona del usuario.
+- **Respuesta:** `201` con `Location: /v1/events/{event_id}` y el borrador `DRAFT`, versión 1 (contrato de ADR-028). La respuesta usa la escritura confirmada y no espera la proyección.
+- **Idempotencia:** `Idempotency-Key` UUID por organizador, 24 horas (`command_idempotency`). Misma clave y payload normalizado → mismo `201` con `Idempotent-Replayed: true`; otro payload → `409 idempotency_key_reused`; la clave de otro organizador crea su propio evento. Solicitudes concurrentes con la misma clave producen un evento y un mensaje.
+- **Transacción y evento (CQRS, CMP-004):** `event`, `command_idempotency` y `evento.creado.v1` en `outbox_event` se confirman juntos. `eventos-outbox-publisher` publica en `sportapp.eventos.v1` con `event_id` como clave de orden; `causation_id` es la clave de idempotencia. El payload lleva el estado completo del borrador, sin credenciales ni datos de pago.
+- **Proyección:** `eventos-read-projector` consume `proyector-eventos-v1` (DLQ `sportapp.eventos.proyeccion.dlq`, 10 intentos, espera de 10 a 600 s: aprobados en ADR-028), deduplica por el `event_id` del sobre en `processed_event`, aplica solo la siguiente `aggregate_version` y confirma el mensaje después del COMMIT de `event_read`. Un `DRAFT` solo lo ve su organizador y nunca aparece en el catálogo público; HU021 no expone consultas HTTP (las agregan HU022-HU024).
+- **Errores de validación:** `422 validation_error` con `details[{field, issue}]`; `field` usa rutas como `location.country_code` e `issue` es uno de `required`, `field_not_allowed`, `invalid_length`, `unknown_value`, `not_in_future`, `out_of_range`, `time_zone_unknown` o `time_zone_offset_mismatch`. El BFF reenvía cuerpo y clave sin reinterpretarlos.
+- **Otros errores:** `401 invalid_access_token`, `403 permission_required`, `503 upstream_unavailable` (JWKS) y, en el BFF, `503`/`504 upstream_timeout`. ADR-028 nombra estos casos `unauthenticated`, `forbidden` y `service_unavailable`; se conservan los códigos que ya usa el repositorio (igual que en HU015).
+- **Auditoría:** `audit.event_created` con resultado, `event_id`, `organizer_id` y `correlation_id`; sin textos libres, ubicación ni token.
+
+Detalles de HU020 (ADR-038; decisiones aprobadas el 2026-10-14):
+
+- **Quién:** solo `athlete` (`403 permission_required` en el BFF y en el servicio). La consulta no exige capacidad de plan salvo para la categoría médica.
+- **Periodo y datos:** `from`/`to` obligatorios en instantes ISO 8601 con desfase, `from < to`, hasta 31 días. Se ofrecen los intervalos futuros que **empiezan** en `[from, to)` de los servicios `PUBLISHED` (los borradores nunca aparecen), con `starts_at`/`ends_at` en UTC `Z`, `time_zone` y `capacity`; tarifa `COP` como cadena con su unidad de cobro (informativa, no es un cobro ni un beneficio del plan). Sin parámetro de zona: el cliente convierte. La lectura no reserva ni bloquea cupos.
+- **Filtros:** `category` y `modality` repetibles (`category=COACHING&category=TRANSPORT`, como pide ADR-041 para HU029); `availability=available` (por defecto) excluye los servicios sin intervalos en el rango y `all` los incluye con `available: false`.
+- **Categoría médica:** `SPORTS_MEDICINE` solo con `services.sports_medicine.access`. El servicio consulta a Afiliación **solo si la categoría puede aparecer** (sin filtro de categoría o incluyéndola); sin la capacidad la omite y responde `restricted_categories: ["SPORTS_MEDICINE"]`, también si se pidió explícitamente (`200` vacío, no `403`). Si Afiliación no responde (error o timeout): `503 upstream_unavailable`; con categorías no médicas la consulta no depende de Afiliación. El BFF no consulta capacidades: la regla vive en el servicio.
+- **Paginación:** orden por `name` y `service_id` con cursor keyset opaco; `limit` de 1 a 50 (20 por defecto).
+- **Errores:** `422 validation_error` con `query.from`/`query.to` (`required`, `unknown_value`), `query.to` (`ends_before_starts`, `out_of_range` si supera 31 días), `query.category`, `query.modality`, `query.availability`, `query.cursor` (`unknown_value`) y `query.limit` (`unknown_value`, `out_of_range`), con el catálogo de ADR-027.
+- **Persistencia:** migración `0004_service_availability_read` con los índices `ix_service_status_category` y `ix_service_availability_service_id_starts_at`; sin CQRS ni eventos.
+
+Detalles de HU019 (ADR-027 «Contrato de publicación de HU019» y ADR-038; decisiones aprobadas el 2026-10-13):
+
+- **Quién publica:** solo el `service_provider` propietario con `services.publish`, verificado en el BFF y de nuevo en el servicio; `provider_id` sale del token. Un servicio inexistente o ajeno responde `404 service_not_found` (no se revela que existe).
+- **Transición:** `DRAFT` → `PUBLISHED`, una sola vez: sube la versión (de 1 a 2 en un borrador de HU015) y fija `published_at`. Si ya está publicado, otra clave devuelve `200` con el estado vigente, sin subir versión ni emitir otro evento. `200` con `{service_id, provider_id, status, version, published_at, updated_at}` en UTC `Z`.
+- **Reglas:** la oferta almacenada se valida de nuevo con las reglas de HU015 y necesita al menos un intervalo con inicio futuro; los vencidos se ignoran. Sin ninguno futuro: `422 validation_error` con `{field: "availability", issue: "required"}`.
+- **Idempotencia y concurrencia:** `Idempotency-Key` UUID por profesional, 24 horas (la misma tabla de HU015, PK `provider_id, key`). Misma clave y servicio → respuesta original con `Idempotent-Replayed: true`; la clave usada para otro servicio (o al crear) → `409 idempotency_key_reused`. El comando bloquea el servicio (`FOR UPDATE`) y confirma servicio, clave y outbox en una transacción: dos publicaciones simultáneas producen una transición, una versión y un evento.
+- **Evento:** `servicio.publicado.v1` en `sportapp.servicios.v1`, clave de orden `service_id`, `aggregate_version` = versión nueva, `causation_id` = `Idempotency-Key`; payload mínimo `{service_id, provider_id, status, published_at}` (sin nombre, tarifa ni disponibilidad). Base única, sin CQRS: no hay proyector, base de lectura ni suscripción consumidora; en el emulador solo se crea el tópico (`python -m complementary_services.workers.pubsub_setup`).
+- **Publicador (`servicios-outbox-publisher`):** `python -m complementary_services.workers.outbox_publisher`. Reclama con arrendamiento y `SKIP LOCKED`, publica fuera de transacción y marca `published_at` solo tras el ACK. Un fallo reprograma con espera de 10·2^(n−1) s (tope 600 s, jitter de ±10 % sin salir de 10–600 s); el evento nunca se descarta y desde el décimo fallo se registra `outbox.publish_alert` en nivel `ERROR` con `event_id` y `attempts` (antes, `outbox.publish_failed` en `WARNING`). Los publicados se conservan siete días: la purga corre como máximo una vez por hora por réplica y nunca toca pendientes.
+- **Consultas propias (ADR-038):** `GET /v1/me/services` filtra por `status` (`DRAFT`|`PUBLISHED`), ordena por `updated_at` descendente y `service_id`, con cursor keyset y `limit` de 1 a 100 (20 por defecto); `GET /v1/me/services/{service_id}` devuelve el servicio completo o `404 service_not_found`. Otro actor → `403 permission_required`. El servicio completo incluye ahora `published_at` (`null` en borrador), también en la respuesta de `POST /v1/services`.
+- **Otros errores:** `401 invalid_access_token`, `403 permission_required`, `503 upstream_unavailable` y, en el BFF, `504 upstream_timeout`. ADR-027 nombra estos casos `unauthenticated`, `forbidden` y `service_unavailable`; se conservan los códigos del repositorio (pendiente de alinear en la documentación). Un `service_id` de la ruta que no es UUID responde `422` con `{field: "path.service_id", issue: "uuid_parsing"}` del manejador común, antes de autenticar, en el servicio y en el BFF (convención del repositorio, como `event_id` en HU041); ADR-027 llamaría `unknown_value` a ese caso.
+
+Detalles de HU015 (ADR-027, aceptada el 2026-10-12):
+
+- **Quién crea:** solo `service_provider` con `services.create`; `provider_id` sale del token y, si viene en el cuerpo, se rechaza (`field_not_allowed`). El servicio nace `DRAFT`, versión 1, y no aparece en ningún catálogo hasta publicarse (HU019).
+- **Oferta:** nombre de 3 a 120 caracteres y descripción de 20 a 2.000, tras recortar espacios exteriores; categoría `SPORTS_MEDICINE`, `COACHING`, `NUTRITION`, `TRANSPORT` o `ACCOMPANIMENT`; modalidad `IN_PERSON`, `VIRTUAL` o `HYBRID`; tarifa `{amount, currency, billing_unit}` con `amount` como **cadena** decimal de `0.00` a `999999999.99` (máximo dos decimales), `currency = COP` y unidad `SERVICE`, `SESSION`, `HOUR` o `DAY`. Es un precio público de referencia con impuestos incluidos: no crea cobro, factura ni pago, y es independiente del plan de afiliación.
+- **Disponibilidad inicial (opcional):** hasta 100 intervalos explícitos `[starts_at, ends_at)` con desfase UTC, zona IANA (`time_zone`) y capacidad de 1 a 100; inicio futuro, duración de hasta 24 horas y fin dentro de 365 días; el desfase debe coincidir con la zona en cada instante; contiguos permitidos, superpuestos rechazados (se compara en UTC).
+- **Fechas:** el backend guarda y responde los instantes en UTC con sufijo `Z`; `time_zone` es un dato de la oferta (dónde ocurre el servicio), no una conversión. El frontend convierte a la zona del usuario.
+- **Idempotencia:** `Idempotency-Key` UUID por profesional, 24 horas. Misma clave y payload normalizado → mismo `201` con `Idempotent-Replayed: true`; otro payload → `409 idempotency_key_reused`; la misma clave de otro profesional crea su propio servicio.
+- **Errores de validación (ADR-027 §14):** `422 validation_error` con `details[{field, issue}]`; `field` usa índices entre corchetes (`availability[0].time_zone`) y `issue` es uno de `required`, `field_not_allowed`, `unsupported_currency`, `out_of_range`, `too_many_decimals`, `invalid_length`, `unknown_value`, `not_in_future`, `ends_before_starts`, `overlapping_interval`, `time_zone_unknown`, `time_zone_offset_mismatch` o `too_many_intervals`. Por eso esta ruta lee el JSON sin la validación automática de FastAPI; el esquema se publica igualmente en el OpenAPI. El BFF reenvía cuerpo y clave sin reinterpretarlos.
+- **Otros errores:** `401 invalid_access_token`, `403 permission_required`, `503 upstream_unavailable` (JWKS) y, en el BFF, `504 upstream_timeout`. Sin eventos (`servicio.creado` no existe; `servicio.publicado.v1` es de HU019).
+
+Detalles de HU011 (decisiones y contratos aprobados el 2026-10-12):
+
+- **Quién consulta:** el deportista, su propio historial (sin capacidad de plan: ADR-024 no define una para HU011); el `service_provider` con `training.history.view_assigned`, el de un deportista con autorización vigente (la de HU010). Otro actor o la ruta equivocada → `403 permission_required`; sin autorización vigente → `403 athlete_authorization_required`. El acceso del profesional se audita (`audit.training_history_access`).
+- **Autorización proyectada:** cada cambio real de la autorización (otorgar, revocar, reactivar) deja en la outbox, en la misma transacción, `autorizacion_entrenamiento.otorgada.v1` o `.revocada.v1` con el estado completo; `aggregate_id` es un UUIDv5 determinista de la pareja y la versión es la de la autorización. El proyector aplica un evento solo si su versión es mayor que la proyectada. Una revocación surte efecto en la consulta cuando el proyector la aplica. La migración de escritura `0003_authorization_backfill` publica un evento por cada autorización creada antes de HU011.
+- **Datos:** `entrenamiento.finalizado.v1` (`session_id`, `athlete_id`, `plan_id` opcional, `sport`, `started_at`, `ended_at`, `duration_seconds`, `status`), sin métricas de salud ni ubicación. Lo produce HU032 al finalizar una sesión (versión 2 del agregado `training_session`).
+- **Filtros y orden (CA1, CA2):** `from` y `to` son fechas de fin inclusivas en UTC (`to` ≥ `from`); `sport` del catálogo de HU010. Orden `ended_at` descendente y, en empate, `session_id` descendente. Sin historial: `items: []` y `filters.sports` con los deportes disponibles.
+- **Paginación (CA4):** `limit` de 1 a 100 (20 por defecto) y `next_cursor` opaco; el cursor marca la última sesión entregada (keyset), así que las páginas no pierden ni repiten registros aunque lleguen sesiones nuevas. Cursor, rango o límite inválidos → `422 validation_error` con el parámetro en `details`.
+- **Selección directa del profesional (CA5, decisión del 2026-10-18):** `bff-web` 0.15.0 `GET /v1/me/training-athletes?limit&cursor` (solo `service_provider` con `training.history.view_assigned`) devuelve `{items:[{athlete_id, full_name, email, authorized_at}], next_cursor}`. Toma la página de `training-management` 0.8.0 `GET /v1/me/authorized-athletes` (autorizaciones `ACTIVE` del profesional del token en `training_authorization_view`, orden `authorized_at` y `athlete_id` descendentes, índice `ix_training_authorization_view_professional_order` de la migración de lectura `0007_authorized_athletes_index`) y agrega nombre y correo con el contrato interno `users-management` 0.7.0 `POST /v1/users/lookup-batch` (1 a 100 UUID únicos; devuelve las cuentas activas con nombre proyectado, en el orden pedido; `422 validation_error` con `too_short`, `too_long`, `uuid_parsing` o `duplicate_value`). Los `user_ids` salen solo de la página de Entrenamientos; si Usuarios no devuelve a alguno, cae o rechaza → `503 upstream_unavailable` (`504 upstream_timeout` por tiempo) y nunca un UUID sin nombre. Página vacía → no se llama a Usuarios. Nombre y correo no se guardan en Entrenamientos ni van a logs o URL (`Cache-Control: no-store`). Una revocación retira al deportista cuando el proyector la aplica.
+- **Nombre en el directorio:** la migración de lectura `0004_user_directory_full_name` agrega `user_directory.full_name` (nulo) y `usuarios-read-projector` lo guarda desde `usuario.registrado.v1`. Las filas proyectadas antes no tienen nombre: el Job `users-management-directory-backfill` (`python -m users_management.workers.directory_backfill`, después de `users-management-migrate-read`) las completa una vez desde `user_account`. Es idempotente y registra solo conteos. Mientras una fila no tenga nombre, el lote la omite y el BFF responde `503`.
+
 Detalles de HU010 (decisiones y contrato aprobados el 2026-10-12):
 
 - **Autorización previa del deportista:** el deportista (con la capacidad `training.plan.manage` de su plan) autoriza a un profesional por su correo; solo entonces ese profesional puede crearle y asignarle planes. Autorizar dos veces devuelve la existente (`200`); una revocada se reactiva (`201`). Revocar (`204`) solo exige ser deportista, nunca depende del plan contratado. La autorización vive en `training_management` (`training_authorization`).
 - **Quién crea:** solo `service_provider`, con el permiso `training.plan.author` de `actor-permissions.v1`. BFF y servicio lo verifican; el servicio vuelve a validar el access token con el JWKS de Usuarios y consulta a Afiliación las capacidades del deportista.
-- **Correos:** el BFF los resuelve con el contrato interno `POST /v1/users/lookup` (coincidencia exacta del correo normalizado; una cuenta deshabilitada no se resuelve) y envía al servicio solo identificadores. El lookup lee el directorio `user_directory` de la base de lectura de Usuarios, que mantendrá `usuarios-read-projector` (refactor pendiente de HU001): **hasta que exista, el lookup responde `404` para cualquier usuario real**.
+- **Correos:** el BFF los resuelve con el contrato interno `POST /v1/users/lookup` (coincidencia exacta del correo normalizado; una cuenta deshabilitada no se resuelve) y envía al servicio solo identificadores. El lookup lee el directorio `user_directory` de la base de lectura de Usuarios, que mantiene `usuarios-read-projector` desde HU005 (refactor de HU001). Antes de HU005, el lookup respondía `404` para cualquier usuario real.
 - **Sin enumeración al asignar:** un correo inexistente, de otro actor o sin autorización recibe el mismo `403 athlete_authorization_required`.
 - **Reglas del plan (CA3):** título de 1 a 120 caracteres; de 1 a 5 objetivos de 1 a 200; `start_date` ≤ `end_date` y periodo máximo de 52 semanas; de 1 a 100 sesiones dentro del periodo, cada una con deporte (`running`, `cycling`, `swimming`, `strength`, `other`), duración de 1 a 600 minutos e intensidad RPE de 1 a 10 (escala CR10); como máximo 2 sesiones el mismo día. Las reglas cruzadas responden `422 training_plan_invalid` con cada regla incumplida en `details`; los rangos de cada campo, `422 validation_error`. Sin campo de notas libres.
 - **Transacción e idempotencia:** plan, sesiones, `outbox_event` e `idempotency_key` se confirman juntos. La autorización se lee con bloqueo compartido: una revocación concurrente no se intercala con la creación. Un reintento con la misma clave durante 24 h devuelve el mismo `201` con `Idempotent-Replayed: true`; la clave de otro profesional nunca devuelve un plan ajeno (`409 idempotency_key_reused`).
@@ -235,6 +389,7 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `DATABASE_WRITE_URL`, `DATABASE_READ_URL` | users, training, events | `postgresql+psycopg://…` (obligatorias). |
 | `DATABASE_URL` | affiliation, complementary services | `postgresql+psycopg://…` (obligatoria). |
 | `REGISTRATION_POLICIES_VERSION` | users | Versión vigente de las políticas que se aceptan al registrarse (obligatoria). |
+| `HEALTH_DATA_CONSENT_VERSION` | users | Versión vigente del consentimiento de datos de salud que exige `PUT /v1/me/physiological-profile` (HU005; obligatoria: sin ella el servicio no arranca). Local: `local-dev`; la política real sigue pendiente. |
 | `JWT_PRIVATE_KEY` | users | Clave privada Ed25519 en PEM que firma los access tokens (obligatoria; un valor inválido detiene el arranque). En `.env` va en una sola línea con `\n` literales. En Kubernetes se lee del Secret `sportapp-users-jwt`. |
 | `JWT_ISSUER`, `JWT_AUDIENCE` | users | `iss` y `aud` de los access tokens (por defecto `sportapp-users-management` y `sportapp`). |
 | `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS` | users | Vigencia del access token (900) y del refresh token (604800). |
@@ -242,7 +397,7 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC` | publicador de usuarios | Proyecto y tópico (por defecto `sportapp.usuarios.v1`). |
 | `PUBSUB_EMULATOR_HOST` | publicador de usuarios | Solo local/CI: dirige el cliente al emulador. |
 | `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicadores de usuarios y afiliación | Lote (100), arrendamiento (30 s) e identidad de la réplica (valores iniciales de CMP-001). |
-| `AFFILIATION_EXPECTED_CATALOG_VERSION` | affiliation | Versión de catálogo que debe estar instalada para quedar listo (obligatoria; hoy `plans-2026-10-11.v1`). Cambia en el mismo release que una migración de catálogo nueva. |
+| `AFFILIATION_EXPECTED_CATALOG_VERSION` | affiliation | Versión de catálogo que debe estar instalada para quedar listo (obligatoria; hoy `plans-2026-10-13.v1`, desde `0003_plan_price_offers`). Cambia en el mismo release que una migración de catálogo nueva. |
 | `PUBSUB_PROJECT_ID`, `FREE_PLAN_SUBSCRIPTION`, `CONSUMER_MAX_MESSAGES` | consumidor del alta gratuita | Proyecto, suscripción (por defecto `sportapp.afiliacion.alta-gratuita.v1`) y mensajes simultáneos por réplica (10). |
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC` | publicador de afiliación | Proyecto y tópico (por defecto `sportapp.afiliacion.v1`). |
 | `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | bff-web, bff-mobile | URL del servicio de usuarios (obligatoria) y timeout (5 s). |
@@ -251,7 +406,16 @@ Cada componente valida su configuración al iniciar. Si falta una variable, fall
 | `AFFILIATION_MANAGEMENT_BASE_URL` | bff-web, bff-mobile | URL del contrato interno de Afiliación para `GET /v1/me/capabilities` (obligatoria; en el clúster, `http://affiliation-management`). |
 | `JWT_ISSUER`, `JWT_AUDIENCE` | bff-web, bff-mobile | `iss` y `aud` esperados en el access token (por defecto los mismos que emite `users-management`). |
 | `ACTOR_PERMISSIONS_PATH` | bff-web, bff-mobile | Ruta del contrato `actor-permissions.v1.json`. La imagen la fija en `/opt/sportapp/contracts/authorization/`; en el repositorio se localiza sola. Un contrato ausente o inválido detiene el arranque. |
-| `TRAINING_MANAGEMENT_BASE_URL` | bff-web | URL del servicio de entrenamientos para HU010 (obligatoria; en el clúster, `http://training-management`). |
+| `COMPLEMENTARY_SERVICES_BASE_URL` | bff-web | URL del servicio de servicios complementarios para HU015 (obligatoria; en el clúster, `http://complementary-services`). |
+| `EVENTS_MANAGEMENT_BASE_URL` | bff-web, bff-mobile | URL del servicio de eventos masivos para HU021 y HU024 (web), HU035 y HU041 (móvil); obligatoria; en el clúster, `http://events-management`. |
+| `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | events | JWKS de Usuarios para verificar el access token (obligatoria), timeout (5 s), `iss`/`aud` esperados y contrato de permisos; además `DATABASE_WRITE_URL` y `DATABASE_READ_URL`. |
+| `AFFILIATION_MANAGEMENT_BASE_URL` | events | Contrato interno de capacidades de Afiliación para `GET /v1/events` (HU035; obligatoria; en el clúster, `http://affiliation-management`). |
+| `AFFILIATION_MANAGEMENT_BASE_URL` | complementary | Contrato interno de capacidades de Afiliación para la categoría médica de `GET /v1/services/availability` (HU020; obligatoria; en el clúster, `http://affiliation-management`). |
+| `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC`, `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de eventos | Proyecto, tópico (por defecto `sportapp.eventos.v1`), lote (100), arrendamiento (30 s) e identidad de la réplica; usa `DATABASE_WRITE_URL`. |
+| `PUBSUB_PROJECT_ID`, `PROJECTOR_SUBSCRIPTION`, `CONSUMER_MAX_MESSAGES` | proyector de eventos | Proyecto, suscripción (por defecto `proyector-eventos-v1`) y mensajes simultáneos por réplica (10); usa `DATABASE_READ_URL`. |
+| `USERS_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS`, `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | complementary services | JWKS de Usuarios para verificar el access token (obligatoria), timeout (5 s), `iss`/`aud` esperados y contrato de permisos. |
+| `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC`, `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `OUTBOX_BUSY_POLL_SECONDS`, `OUTBOX_IDLE_POLL_MAX_SECONDS`, `WORKER_ID` | publicador de servicios complementarios | Proyecto, tópico (por defecto `sportapp.servicios.v1`), lote (100), arrendamiento (30 s), espera entre ciclos (0,25 s con trabajo, hasta 2 s sin él) e identidad de la réplica; usa `DATABASE_URL`. Reintentos (10–600 s), alerta (décimo fallo) y retención de publicados (7 días) son fijos de ADR-027. |
+| `TRAINING_MANAGEMENT_BASE_URL` | bff-web, bff-mobile | URL del servicio de entrenamientos para HU010 (web), HU032 y HU034 (móvil); obligatoria; en el clúster, `http://training-management`. |
 | `USERS_MANAGEMENT_BASE_URL`, `AFFILIATION_MANAGEMENT_BASE_URL`, `UPSTREAM_TIMEOUT_SECONDS` | training | JWKS de Usuarios para verificar el access token y contrato interno de capacidades de Afiliación (obligatorias), y timeout (5 s). |
 | `JWT_ISSUER`, `JWT_AUDIENCE`, `ACTOR_PERMISSIONS_PATH` | training | Igual que en los BFF: `iss`/`aud` esperados y ruta del contrato de permisos. |
 | `PUBSUB_PROJECT_ID`, `PUBSUB_TOPIC`, `OUTBOX_BATCH_SIZE`, `OUTBOX_LEASE_SECONDS`, `WORKER_ID` | publicador de entrenamientos | Proyecto, tópico (por defecto `sportapp.entrenamientos.v1`), lote (100), arrendamiento (30 s) e identidad de la réplica; usa `DATABASE_WRITE_URL`. |
@@ -339,20 +503,20 @@ Marque cada casilla al terminar el paso. Así sabe en qué punto está si se int
  │  events-management ─────────────────┘                                                                   │
  │  third-party-management                                                                                 │
  │                                                                                                        │
- │  publicadores outbox, consumidor de afiliación y proyector de entrenamientos ──► pubsub-emulator      │
+ │  publicadores outbox, consumidor de afiliación y proyectores de entrenamientos y eventos ──► pubsub   │
  │                                                                                                        │
- │  Jobs que se ejecutan una vez: 8 migraciones de base de datos + 3 preparaciones de Pub/Sub            │
+ │  Jobs que se ejecutan una vez: 8 migraciones de base de datos + 4 preparaciones de Pub/Sub            │
  └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Inventario exacto de lo que se crea (41 recursos):
+Inventario exacto de lo que se crea (47 recursos):
 
 | Tipo | Cantidad | Nombres |
 | --- | ---: | --- |
 | Namespace | 1 | `sportapp-local` |
 | StatefulSet | 1 | `postgres` |
-| Deployment | 14 | `bff-web`, `bff-mobile`, `users-management`, `affiliation-management`, `complementary-services`, `training-management`, `events-management`, `third-party-management`, `users-management-outbox-publisher`, `affiliation-management-free-plan-consumer`, `affiliation-management-outbox-publisher`, `training-management-outbox-publisher`, `training-management-read-projector`, `pubsub-emulator` |
-| Job | 11 | `users-management-migrate-write`, `users-management-migrate-read`, `affiliation-management-migrate-main`, `complementary-services-migrate-main`, `training-management-migrate-write`, `training-management-migrate-read`, `events-management-migrate-write`, `events-management-migrate-read`, `users-management-pubsub-setup`, `affiliation-management-pubsub-setup`, `training-management-pubsub-setup` |
+| Deployment | 18 | `bff-web`, `bff-mobile`, `users-management`, `affiliation-management`, `complementary-services`, `training-management`, `events-management`, `third-party-management`, `users-management-outbox-publisher`, `users-management-read-projector`, `affiliation-management-free-plan-consumer`, `affiliation-management-outbox-publisher`, `training-management-outbox-publisher`, `training-management-read-projector`, `events-management-outbox-publisher`, `events-management-read-projector`, `complementary-services-outbox-publisher`, `pubsub-emulator` |
+| Job | 14 | `users-management-migrate-write`, `users-management-migrate-read`, `users-management-directory-backfill`, `affiliation-management-migrate-main`, `complementary-services-migrate-main`, `training-management-migrate-write`, `training-management-migrate-read`, `events-management-migrate-write`, `events-management-migrate-read`, `users-management-pubsub-setup`, `affiliation-management-pubsub-setup`, `training-management-pubsub-setup`, `events-management-pubsub-setup`, `complementary-services-pubsub-setup` |
 | Service | 10 | uno por Deployment de aplicación, más `postgres` y `pubsub-emulator` |
 | ConfigMap | 2 | `sportapp-runtime-<hash>` (configuración) y `postgres-init-<hash>` (script que crea las bases) |
 | Secret | 2 | `sportapp-database-<hash>` (contraseñas del paso 9) y `sportapp-users-jwt-<hash>` (clave de firma de HU003) |
@@ -879,8 +1043,8 @@ kubectl --context docker-desktop --namespace sportapp-local get pods
 
 Debe ver:
 
-- **15 pods `Running` con `READY 1/1`:** `postgres-0`, `pubsub-emulator-...`, `users-management-...`, `affiliation-management-...`, `complementary-services-...`, `training-management-...`, `events-management-...`, `third-party-management-...`, `bff-web-...`, `bff-mobile-...`, `users-management-outbox-publisher-...`, `affiliation-management-free-plan-consumer-...`, `affiliation-management-outbox-publisher-...`, `training-management-outbox-publisher-...` y `training-management-read-projector-...`.
-- **Pods `Completed`** de los 11 Jobs.
+- **18 pods `Running` con `READY 1/1`:** `postgres-0`, `pubsub-emulator-...`, `users-management-...`, `affiliation-management-...`, `complementary-services-...`, `training-management-...`, `events-management-...`, `third-party-management-...`, `bff-web-...`, `bff-mobile-...`, `users-management-outbox-publisher-...`, `affiliation-management-free-plan-consumer-...`, `affiliation-management-outbox-publisher-...`, `training-management-outbox-publisher-...`, `training-management-read-projector-...`, `events-management-outbox-publisher-...`, `events-management-read-projector-...` y `complementary-services-outbox-publisher-...`.
+- **Pods `Completed`** de los 13 Jobs.
 - Pueden quedar además pods de Jobs en `Error`: son los intentos fallidos del principio. Mientras su Job tenga un pod `Completed`, está bien.
 
 Resumen de Jobs (todos deben decir `Complete`):
@@ -971,7 +1135,7 @@ uv run python scripts/task.py smoke --base-url http://127.0.0.1:8000
   "email": "ana@example.com",
   "password": "una-clave-de-prueba",
   "actor_type": "athlete",
-  "accepted_policies_version": "local-dev"
+  "accepted_policies_version": "sportapp-c108-c108plus.v1"
 }
 ```
 
@@ -988,7 +1152,7 @@ Pruebe también los demás criterios de aceptación:
 | Datos inválidos (CA3) | Clave nueva y `"password": "corta"` | **422** `validation_error`, con el campo indicado |
 | Políticas no vigentes | Clave nueva y `"accepted_policies_version": "2020-01"` | **422** `policies_version_mismatch` |
 
-> `accepted_policies_version` debe ser `local-dev`, que es el valor configurado para el entorno local. La versión real de las políticas aún no está publicada.
+> `accepted_policies_version` debe ser `sportapp-c108-c108plus.v1`, la versión compartida aprobada (y la configurada en el overlay local). La composición de la plataforma debe configurar ese mismo valor en `REGISTRATION_POLICIES_VERSION`.
 
 #### 12.4 Ver que el evento se publicó (CA4)
 
@@ -1141,18 +1305,126 @@ Luego vuelva al paso 11.1.
 | Manifiestos del paso 11 | Validados sin aplicarlos: 34 recursos válidos contra el esquema de Kubernetes 1.33 (kubeconform estricto). |
 | Pasos 11 a 14 en el clúster | **Pendiente de la primera ejecución.** Si un resultado difiere de lo descrito, comparta el diagnóstico de la sección 13 para corregir la guía. |
 
-## Integración continua
+## Integración continua, release y despliegue
+
+Cuatro responsables, sin solaparse:
+
+| Quién | Qué hace | Credenciales de GCP |
+| --- | --- | --- |
+| **GitHub Actions** (`ci.yml`, `release-validation.yml`) | Valida: formato, lint, tipos, secretos, seguridad, pruebas y construcción local de imágenes. Nunca publica ni despliega. | **Ninguna**: sin `google-github-actions/auth`, sin `id-token: write`, sin secretos ni variables de GCP. No ejecuta `gcloud`, `kubectl`, Terraform ni OpenTofu. |
+| **Cloud Build** (`cloudbuild.release.yaml`) | Iniciado desde GCP por un trigger de tag SemVer: valida, prueba, construye una vez, publica en Artifact Registry y escribe `backend-release.json`. | Las de su propia cuenta de construcción, administrada en GCP. Este repositorio no aporta ninguna. |
+| **`sport-app-platform` / Cloud Deploy** | Promueve los digests de `backend-release.json` a producción, con aprobación obligatoria. | Las suyas; fuera de este repositorio. |
+| **Terraform** (en `sport-app-platform`) | Infraestructura, aplicada manualmente por el propietario. | Nunca se ejecuta desde este repositorio. |
+
+### GitHub Actions (sin GCP)
 
 `.github/workflows/ci.yml`:
 
 | Evento | Checks |
 | --- | --- |
-| push a `feature/**`, `fix/**`, `chore/**`, `release/**`, `hotfix/**` | `quality`, `unit`, `secrets` |
-| pull request a `develop` o `main` | los anteriores más `integration-coverage` (PostgreSQL real, emulador de Pub/Sub, suites de integración, contrato y componente, umbral 80 %), `security` e `image (<componente>)` |
+| push a `feature/**`, `fix/**`, `chore/**`, `release/**`, `hotfix/**` | `quality` (incluye el render de `deploy/k8s` con kustomize fijado por digest, sin `kubectl`), `unit`, `secrets` |
+| pull request a `develop` o `main` | los anteriores más `integration-coverage` (PostgreSQL real, emulador de Pub/Sub, suites de integración, contrato y componente, umbral 80 %), `security` e `image (<componente>)` (construye sin publicar) |
 
-`.github/workflows/deliver-development.yml` (merge a `develop`) está **bloqueado** hasta ratificar GCP y Workload Identity Federation. Sin las variables del Environment `development` informa el bloqueo y no publica nada. El job `deploy` falla de forma explícita hasta definir el destino.
+`.github/workflows/release-validation.yml` (`release: types: [published]`): comprueba que el tag sea `vX.Y.Z` o `vX.Y.Z-pre` y que su commit pertenezca a `main`, repite calidad, seguridad, secretos y las cuatro suites con el umbral de cobertura, construye y prueba las ocho imágenes en el runner **sin publicarlas** y deja el artefacto `backend-validation-<tag>` (`backend-validation.json`: versión, commit, contratos, componentes con su `imageId` local y resultado de pruebas).
 
-Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves JSON. Ningún workflow fusiona ramas.
+Un push o un merge a `develop` o `main` no publica ni despliega. `deliver-development.yml` se retiró el 2026-10-18: GCP no es un ambiente automático de desarrollo.
+
+Las acciones están fijadas a SHA completo, con permisos mínimos (`contents: read`). Ningún workflow fusiona ramas.
+
+### Cloud Build: construir y publicar (`cloudbuild.release.yaml`)
+
+Pasos, en orden; cualquier fallo detiene el build:
+
+1. `verify`: sustituciones obligatorias presentes, tag SemVer, tag → commit y commit dentro de `main`, contra una copia temporal sin archivos del repositorio (`scripts/release.py verify`).
+2. `secrets`: Gitleaks sobre el árbol fuente.
+3. `test-services`: PostgreSQL y el emulador de Pub/Sub en la red `cloudbuild`, con imágenes fijadas por digest.
+4. `install`: `uv` 0.12.23 instalado con `--require-hashes` (`deploy/cloudbuild/uv-requirements.txt`) y el entorno desde `uv.lock`.
+5. `quality`: `lock-check`, `format-check`, `lint`, `typecheck` y `security`.
+6. `tests`: suites `unit`, `integration`, `contract` y `component`, más `coverage` con el umbral de `pyproject.toml` (80 %).
+7. `k8s-render` y 8. `k8s-check`: render de `deploy/k8s/base` y del overlay local con kustomize, sin `kubectl` ni clúster; cada componente aparece y ninguna imagen es mutable.
+9. `images`: cada componente se construye **una sola vez**, se prueba (importa su aplicación dentro de la imagen, sin red) y recibe las etiquetas `<tag>` y `<commit>`.
+10. `push`: publica exactamente esas imágenes. Si una etiqueta ya existe en el registro, falla en vez de sobrescribirla. Resuelve el digest `sha256` de cada una.
+11. `manifest`: escribe `dist/backend-release.json`. Cloud Build lo sube a `gs://<_RELEASE_BUCKET>/sport-app-backend/<tag>/` solo si todos los pasos terminaron bien.
+
+`cloudbuild.release.yaml` **no** ejecuta Terraform, `gcloud run deploy/update`, `kubectl` ni credenciales de GKE; no crea releases ni rollouts de Cloud Deploy y no cambia IAM, APIs ni infraestructura. Las imágenes de todos los pasos están fijadas por digest y no se usa `latest`.
+
+Sustituciones:
+
+| Sustitución | Obligatoria | Valor |
+| --- | --- | --- |
+| `_RELEASE_TAG` | sí (por defecto `${TAG_NAME}` del trigger) | `vX.Y.Z` o `vX.Y.Z-pre` |
+| `_RELEASE_COMMIT` | sí (por defecto `${COMMIT_SHA}`) | SHA completo del commit etiquetado |
+| `_AR_LOCATION` | sí | región del repositorio de Artifact Registry (p. ej., `us-central1`) |
+| `_AR_PROJECT` | no (por defecto `${PROJECT_ID}`) | proyecto del repositorio de Artifact Registry |
+| `_AR_REPOSITORY` | sí | repositorio Docker de Artifact Registry |
+| `_RELEASE_BUCKET` | sí | bucket de salida del manifiesto, aprovisionado previamente |
+| `_SOURCE_REPOSITORY_URL` | no (por defecto el repositorio público) | URL desde la que `verify` comprueba tag y `main` |
+
+Las imágenes quedan como `<_AR_LOCATION>-docker.pkg.dev/<_AR_PROJECT>/<_AR_REPOSITORY>/<componente>`. El build usa `options.logging: CLOUD_LOGGING_ONLY` (necesario con una cuenta de servicio propia) y `substitutionOption: MUST_MATCH`.
+
+### `backend-release.json`
+
+Estructura (los valores entre `<>` son ilustrativos):
+
+```text
+{
+  "schemaVersion": 1,
+  "kind": "backend-release",
+  "repository": "https://github.com/lfnavarroj1/sport-app-backend",
+  "version": "<X.Y.Z>",
+  "tag": "<vX.Y.Z>",
+  "commit": "<sha de 40 caracteres>",
+  "contractVersion": "<info.version de bff-web>",
+  "contracts": {"bff-web": "<versión>", "bff-mobile": "<versión>", "...": "los ocho componentes"},
+  "builtAt": "<AAAA-MM-DDTHH:MM:SSZ>",
+  "build": {"system": "cloud-build", "id": "<BUILD_ID>"},
+  "images": {
+    "users-management": "us-central1-docker.pkg.dev/<proyecto>/<repositorio>/users-management@sha256:<64 hex>",
+    "...": "una URI por digest para cada uno de los ocho componentes"
+  },
+  "testResults": {
+    "status": "passed",
+    "suites": {"unit": {"status": "passed", "tests": <n>, "skipped": <n>}, "...": "..."},
+    "coverage": {"line": <porcentaje>, "branch": <porcentaje>, "threshold": 80.0}
+  }
+}
+```
+
+- `contractVersion` es la versión del OpenAPI de `bff-web`, la que el frontend compara con su `expectedBffContract` (decisión del responsable, 2026-10-18); `contracts` trae la de los ocho componentes.
+- `images` solo admite URI por digest: el manifiesto se rechaza si falta un componente o si una URI lleva una etiqueta. Las claves y el formato coinciden con `backendArtifacts` de `schemas/release-manifest.schema.json` de la plataforma.
+- No contiene secretos ni etiquetas mutables.
+
+### Lo que debe crear `sport-app-platform` (manual, fuera de este repositorio)
+
+1. **Trigger de Cloud Build** sobre este repositorio, por tag con la expresión `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`, archivo `cloudbuild.release.yaml` y las sustituciones de la tabla.
+2. **Cuenta de construcción exclusiva del backend**, asignada al trigger, con solo:
+   - `roles/artifactregistry.writer` sobre **el** repositorio de Artifact Registry del backend (a nivel de repositorio, no de proyecto);
+   - `roles/storage.objectCreator` sobre el bucket de salida, condicionado al prefijo `sport-app-backend/` (o un bucket dedicado);
+   - `roles/logging.logWriter` para los registros del build.
+3. **Bucket de salida** del manifiesto, con versionado o retención para que un `backend-release.json` publicado no se reemplace.
+4. **Proceso de promoción** (Cloud Deploy) que lea `backend-release.json`, valide el esquema y los digests y despliegue esos mismos digests: Cloud Run para `bff-web` y `bff-mobile`, GKE para el resto. Sin recompilar.
+5. **Aprobación obligatoria** antes de producción (`requireApproval` en el destino de Cloud Deploy).
+6. Recomendado: etiquetas inmutables en el repositorio de Artifact Registry, para que ni un reintento manual pueda mover `<tag>` o `<commit>`.
+
+La cuenta de construcción **no** debe tener Owner ni Editor, permisos de IAM, de red, de Cloud SQL ni para crear infraestructura. Tampoco debe poder impersonar `tf-apply-production` ni desplegar directamente en GKE o Cloud Run.
+
+### Publicar una release
+
+1. Integrar en `main` (PR de `release/**` o `hotfix/**`).
+2. Crear la release en GitHub con un tag SemVer sobre ese commit, por ejemplo `gh release create v1.2.0 --target main --title v1.2.0`.
+3. GitHub ejecuta `release-validation.yml`; su artefacto `backend-validation-v1.2.0` es la evidencia de GitHub.
+4. El trigger de Cloud Build (creado por la plataforma) se activa con el mismo tag, publica las imágenes y escribe `backend-release.json`.
+5. `sport-app-platform` promueve con aprobación. Este repositorio no despliega.
+
+Validación local de los mismos pasos, sin GCP:
+
+```powershell
+py -3.13 -m uv run python scripts/task.py k8s-render --use-example --engine docker
+py -3.13 scripts/release.py k8s-check reports/k8s/base.yaml
+py -3.13 scripts/release.py images --tag v0.0.0-local --commit (git rev-parse HEAD) --plan dist/images-plan.json
+```
+
+`release.py images` sin `--registry` solo construye y prueba en local, y `release.py push` rechaza un plan sin registro.
 
 ## Documentación relacionada
 
@@ -1162,10 +1434,10 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
 ## Pendiente de decisión (no implementado)
 
 - Ratificar ADR-019. Configurar los rulesets de `develop`/`main`, `CODEOWNERS` y aprobadores. Hoy solo existe la rama `master`.
-- GCP: proyectos, Workload Identity Provider, Artifact Registry, destino GKE/Cloud Run y Terraform (ADR-017).
-- Manifiesto de release, workflows de staging/producción, SBOM y escaneo de imágenes.
+- GCP (en `sport-app-platform`, aplicado manualmente): trigger y cuenta de Cloud Build del backend, repositorio de Artifact Registry, bucket del manifiesto y promoción con Cloud Deploy. GitHub no recibe credenciales de GCP (decisión del 2026-10-18).
+- Promoción con Cloud Deploy, trigger y cuenta de Cloud Build, bucket de salida (todo en `sport-app-platform`); SBOM, procedencia y escaneo de imágenes antes de publicar.
 - Contrato compartido de errores, sobre de eventos y primeros esquemas. Tópicos, suscripciones y DLQ.
-- Proyector de lectura de usuarios (`usuarios-read-projector`, suscripción `proyector-usuarios-v1`, DLQ): refactor pendiente de HU001. Debe llenar `user_directory` a partir de `usuario.registrado.v1`; HU010 ya lo consulta (`POST /v1/users/lookup`). Workers CQRS de eventos (CMP-002).
+- Proyector de lectura de usuarios (`usuarios-read-projector`): integrado en `develop` con HU005 (PR #21, `VERIFICADO_EN_CI`); falta desplegarlo en la composición de la plataforma y en GCP (suscripción `proyector-usuarios-v1`, DLQ, IAM) y ratificar su SLA de frescura. Los workers CQRS de eventos existen desde HU021 (CMP-004).
 - HU001:
   - prueba de carga HA003 en un ambiente representativo (escenario listo en `load/locust/registration.py`);
   - protección contra abuso y enumeración en el registro (el `409 email_already_registered` revela qué correos existen);
@@ -1180,8 +1452,57 @@ Las acciones están fijadas a SHA completo, con permisos mínimos y sin llaves J
   - IP real del usuario detrás del balanceador: Uvicorn solo confía en `X-Forwarded-For` de las IP en `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`), que debe fijar la plataforma;
   - revocación por incidente, MFA y recuperación de cuenta (el cierre de sesión ya existe: HU004);
   - clientes web y móvil (almacenamiento seguro y E2E).
+- HU021:
+  - `T-HU021-WEB`: formulario `/organizador/eventos/nuevo` contra `bff-web` 0.10.0 (errores por campo, misma clave en los reintentos de red, `502`, `503` y `504`) y E2E vertical;
+  - `T-HU021-PLAT`: tópico `sportapp.eventos.v1`, suscripción `proyector-eventos-v1` con orden, DLQ, reintentos, IAM, métricas y alerta en la composición local de la plataforma y en GCP (aquí solo existe la creación en el emulador);
+  - catálogo y calendario públicos (HU022, HU023): deben reutilizar la regla de visibilidad de `event_read` (un `DRAFT` nunca es público); las consultas del organizador ya existen (HU024);
+  - tamaño de lote, arrendamiento, pool y HPA de los workers de eventos, y SLA de frescura de la proyección (CMP-004, no bloqueantes);
+  - purga de claves de idempotencia vencidas, como en HU001, HU010 y HU015.
+- HU015:
+  - `T-HU015-WEB` (formulario y borrador) y su E2E;
+  - purga de claves de idempotencia vencidas, como en HU001 y HU010.
+- HU019:
+  - `T-HU019-WEB`: publicar desde «mis servicios» contra `bff-web` 0.11.0 (misma clave en los reintentos de red, `502`, `503` y `504`; errores por campo) y su E2E vertical;
+  - `T-HU019-PLAT`: tópico `sportapp.servicios.v1`, IAM del publicador, métricas de atraso de la outbox y la alerta sobre `outbox.publish_alert` en la composición local de la plataforma y en GCP (aquí solo existe la creación en el emulador);
+  - alinear en la documentación los códigos `unauthenticated`/`forbidden`/`service_unavailable` de ADR-027 con los del repositorio, como en HU015 y HU021;
+  - purga de claves de idempotencia vencidas, como en HU015.
+- HU020:
+  - `T-HU020-WEB`: opción «Servicios» del deportista en `/deportista/servicios` (filtros, intervalos en la zona del navegador, paginación, estado vacío y explicación de `restricted_categories`) contra `bff-web` 0.12.0, y su E2E;
+  - demostrar la categoría médica con un deportista `PREMIUM` real cuando exista HU016 (hoy la prueba de componente simula esa capacidad);
+  - consumidor `FREE` operativo en la composición local para la capacidad.
+- HU034:
+  - `T-HU034-MOB`: catálogo, formulario por metadatos, resultado con aviso localizado e historial con caché Room cifrada (`STALE` a las 24 h) y cola `PENDING_SYNC` contra `bff-mobile` 0.8.0 (CA6, CA8 y CA9), y su E2E;
+  - HA014: corrida completa (10 min, 30 rps, p95 < 3 s y error < 1 %) **BLOQUEADA** hasta un ambiente representativo; la evidencia debe registrar revisión, dataset, recursos, p50/p95/p99 y error (`load/locust/training_metrics.py`);
+  - plataforma: tópico `sportapp.entrenamientos.v1`, `proyector-entrenamientos-v1`, DLQ, IAM, métricas y alertas fuera del emulador, como en HU032; desplegar el proyector compatible antes que el productor de `indicador.calculado.v1` (ADR-030);
+  - ratificar en ADR-030 las causas `invalid_uuid` e `invalid_cursor`, que no están en su catálogo;
+  - purga de `command_idempotency` vencida (30 días), como las demás claves.
+  - Verificado el 2026-10-18 en `sportapp-local`: el consumidor `FREE` activa la capacidad y el recorrido por `bff-mobile` 0.8.0 pasa de punta a punta (CA1–CA5) con el publicador y el proyector de Entrenamientos.
+- HU024:
+  - `T-HU024-WEB`: `/organizador/eventos/publicacion` contra `bff-web` 0.16.0 (lista con `GET /v1/me/events`, detalle, `422` por campo, confirmación y la misma clave en los reintentos) y E2E vertical;
+  - plataforma: desplegar el proyector compatible antes que el productor de `evento.publicado.v1` (ADR-033) y `proyector-eventos-v1` con su DLQ fuera del emulador;
+  - SLA de frescura de la proyección (CMP-004) sin ratificar: entre la publicación y la proyección, la lista y el calendario muestran el estado anterior.
+- HU041:
+  - `T-HU041-MOB`: detalle, botón de inscripción con clave conservada en reintentos y «mis inscripciones» con caché Room cifrada (`STALE` 24 h) contra `bff-mobile` 0.7.0, y su E2E;
+  - el E2E vertical depende de integrar el backend de HU024 (`VERIFICADO_LOCALMENTE` el 2026-10-18) y de publicar el evento por API o con `T-HU024-WEB`;
+  - plataforma: `proyector-eventos-v1` y su DLQ fuera del emulador, como en HU021;
+  - riesgo de clave caliente en eventos muy demandados (bloqueo de la fila del evento) para HA017;
+  - purga de claves de idempotencia vencidas, como en las demás historias.
+- HU035:
+  - `T-HU035-MOB`: pantalla `/calendario` con caché Room cifrada, `STALE` a las 24 h y estados de fuente incompleta contra `bff-mobile` 0.6.0, y su E2E;
+  - dependencias para la aceptación (ADR-031): consumidor `FREE` operativo, `usuarios-read-projector`, HU024 (publicación de eventos) y `T-HU010-WEB`;
+  - ADR-031 no fija qué responder si llega solo uno de `from`/`to`: se respondió `422 required`;
+  - inscripción del deportista a eventos: cubierta por HU041 (ADR-032).
+- HU032:
+  - `T-HU032-MOB`: pantalla `/entrenamientos/sesion` offline first (Room, WorkManager, cifrado con Keystore, orden inicio→fin, expiración de 30 días) contra `bff-mobile` 0.5.0, y su E2E sin red;
+  - plataforma: confirmar que tópico `sportapp.entrenamientos.v1`, `proyector-entrenamientos-v1`, DLQ, IAM, métricas y alertas existan fuera del emulador antes del E2E desplegado;
+  - desplegar el proyector compatible antes que el productor del evento de inicio (ADR-029);
+  - purga de `command_idempotency` vencida (30 días), como las demás claves.
+- HU011:
+  - `T-HU011-WEB` (línea de tiempo con filtros y paginación) y la opción del historial en el menú del deportista, que la navegación vigente solo asigna al profesional;
+  - ratificar el SLA de frescura de la proyección (una revocación se aplica con el retraso del proyector);
+  - CA5: `T-HU011-WEB` debe consumir `GET /v1/me/training-athletes` (selector del deportista); la plataforma debe ejecutar el Job `users-management-directory-backfill` después de la migración `0004` en cada ambiente con datos previos.
 - HU010:
-  - `usuarios-read-projector` (refactor de HU001): sin él, `POST /v1/users/lookup` no resuelve a nadie fuera de las pruebas y el flujo web no puede autorizar ni asignar;
+  - desplegar `usuarios-read-projector` (implementado en HU005): sin él en la composición, `POST /v1/users/lookup` no resuelve a nadie y el flujo web no puede autorizar ni asignar. El recorrido completo por Pub/Sub ya está verificado en `bff/web/tests/component/test_training_plan_vertical_flow.py` (2026-10-17). En la composición local siguen faltando, a cargo de la plataforma: recrear los recursos del emulador después de cada reinicio (guarda todo en memoria), alinear sus nombres con `contracts/events/README.md` (`proyector-usuarios-v1`, `proyector-entrenamientos-v1`, `sportapp.<dominio>.proyeccion.dlq`, `sportapp.afiliacion.alta-gratuita.v1` con filtro) y `HEALTH_DATA_CONSENT_VERSION` en el ConfigMap. Si falta su suscripción, los proyectores de Usuarios y Entrenamientos y el consumidor `FREE` registran `*.subscription_failed` (`error_type`, p. ej. `NotFound`) y salen con código 1;
   - `T-HU010-WEB`: pantallas de autorización (deportista) y de creación/asignación (profesional) contra `bff-web` 0.6.0, y E2E vertical;
   - `T-HU010-PLAT`: tópico `sportapp.entrenamientos.v1`, suscripción `proyector-entrenamientos-v1` con orden, DLQ, reintentos, IAM, métricas y alerta en la composición local de la plataforma y en GCP (aquí solo existe la creación en el emulador);
   - ratificar los reintentos del proyector (10 intentos, backoff 10–600 s), el SLA de frescura de la vista y el tamaño de lote/pool del perfil de entrenamientos (CMP-003);

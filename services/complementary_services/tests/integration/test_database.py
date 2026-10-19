@@ -21,13 +21,15 @@ class DatabaseIntegrationTest(unittest.TestCase):
             ):
                 upgrade(script_location, url)
 
-                self.assertEqual(current_revision(url), "0001_baseline")
+                self.assertEqual(current_revision(url), "0004_service_availability_read")
 
     def test_ready_against_real_postgres(self) -> None:
         with temporary_database("complementary_services_app") as url:
             settings = ComplementaryServicesSettings(
                 app_env="test",
                 database_url=url,
+                users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
+                affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
             )
             with TestClient(create_app(settings)) as client:
                 response = client.get("/health/ready")

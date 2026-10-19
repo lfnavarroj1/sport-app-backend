@@ -1,7 +1,10 @@
-"""HU010: `POST /v1/users/lookup` (contrato interno aprobado el 2026-10-12).
+"""Contratos internos de identidad que consume solo `bff-web` dentro de la red de la
+plataforma.
 
-Solo lo consume `bff-web` dentro de la red de la plataforma. El correo va en el
-cuerpo y no en la ruta para que no quede en registros de acceso ni proxies.
+- HU010: `POST /v1/users/lookup` (aprobado el 2026-10-12). El correo va en el cuerpo y no en
+  la ruta para que no quede en registros de acceso ni proxies.
+- HU011 (CA5, aprobado el 2026-10-18): `POST /v1/users/lookup-batch`, nombre y correo de las
+  cuentas activas de un lote de identificadores. Datos personales: no se registran.
 """
 
 from http import HTTPStatus
@@ -13,6 +16,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from sportapp_platform.errors import ErrorDetail, ErrorResponse, error_response
 from users_management.application.queries.lookup_user import LookupUserByEmail
+from users_management.application.queries.lookup_users_batch import (
+    MAX_BATCH,
+    InvalidLookupBatch,
+    LookupUsersByIds,
+)
 from users_management.domain.account.errors import InvalidRegistrationData
 from users_management.domain.account.model import EMAIL_MAX_LENGTH, ActorType
 
@@ -30,7 +38,35 @@ class UserReferenceResponse(BaseModel):
     actor_type: ActorType
 
 
-def build_lookup_router(lookup_user: LookupUserByEmail) -> APIRouter:
+class LookupUsersBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_ids: Annotated[
+        list[UUID],
+        Field(
+            min_length=1,
+            max_length=MAX_BATCH,
+            description="Entre 1 y 100 identificadores únicos.",
+        ),
+    ]
+
+
+class UserDisplayItem(BaseModel):
+    user_id: UUID
+    full_name: str
+    email: str
+
+
+class LookupUsersBatchResponse(BaseModel):
+    items: list[UserDisplayItem] = Field(
+        description="Cuentas activas encontradas, en el orden de la solicitud. Una cuenta "
+        "inexistente, deshabilitada o aún sin nombre proyectado se omite."
+    )
+
+
+def build_lookup_router(
+    lookup_user: LookupUserByEmail, lookup_batch: LookupUsersByIds
+) -> APIRouter:
     router = APIRouter(prefix="/v1/users", tags=["users"])
 
     @router.post(
@@ -63,5 +99,37 @@ def build_lookup_router(lookup_user: LookupUserByEmail) -> APIRouter:
                 HTTPStatus.NOT_FOUND, USER_NOT_FOUND, "No existe una cuenta activa con ese correo."
             )
         return UserReferenceResponse(user_id=reference.user_id, actor_type=reference.actor_type)
+
+    @router.post(
+        "/lookup-batch",
+        response_model=LookupUsersBatchResponse,
+        summary="Nombre y correo de un lote de cuentas activas (interno, HU011)",
+        responses={
+            HTTPStatus.UNPROCESSABLE_ENTITY.value: {
+                "model": ErrorResponse,
+                "description": "`validation_error`: lote vacío, de más de 100 o con "
+                "identificadores repetidos (`duplicate_value`).",
+            },
+        },
+    )
+    def lookup_users_batch(
+        body: LookupUsersBatchRequest, response: Response
+    ) -> Response | LookupUsersBatchResponse:
+        try:
+            found = lookup_batch(body.user_ids)
+        except InvalidLookupBatch as error:
+            return error_response(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                error.code,
+                "La solicitud no es válida.",
+                [ErrorDetail(field="body.user_ids", issue=error.issue)],
+            )
+        response.headers["Cache-Control"] = "no-store"
+        return LookupUsersBatchResponse(
+            items=[
+                UserDisplayItem(user_id=item.user_id, full_name=item.full_name, email=item.email)
+                for item in found
+            ]
+        )
 
     return router

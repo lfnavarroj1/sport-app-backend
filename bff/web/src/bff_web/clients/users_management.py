@@ -1,4 +1,4 @@
-"""Cliente HTTP de `users_management` según su OpenAPI 0.4.0."""
+"""Cliente HTTP de `users_management` según su OpenAPI 0.6.0."""
 
 from typing import Any
 from uuid import UUID
@@ -51,6 +51,50 @@ class UsersManagementClient:
         document: dict[str, Any] = response.json()
         return document
 
+    def put_demographic_profile(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU005 (ADR-034): bytes del cuerpo y clave tal cual; el servicio valida y responde
+        el `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PUT",
+            "/v1/me/demographic-profile",
+            access_token,
+            content=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def put_physiological_profile(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU005 (ADR-034): bytes del cuerpo y clave tal cual; el servicio valida y responde
+        el `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PUT",
+            "/v1/me/physiological-profile",
+            access_token,
+            content=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def get_profile(self, access_token: str) -> httpx.Response:
+        """HU005 (ADR-034): perfil proyectado del deportista del token."""
+        return self._send_as_user("GET", "/v1/me/profile", access_token)
+
+    def lookup_users_batch(self, user_ids: list[UUID]) -> list[dict[str, Any]]:
+        """HU011 (CA5): nombre y correo de cuentas activas por identificador (contrato interno).
+
+        Los identificadores salen siempre de la página autorizada de Entrenamientos. Cualquier
+        respuesta distinta de `200` es indisponibilidad.
+        """
+        response = self._post(
+            "/v1/users/lookup-batch", {"user_ids": [str(user_id) for user_id in user_ids]}, {}
+        )
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        items: list[dict[str, Any]] = response.json()["items"]
+        return items
+
     def jwks(self) -> dict[str, Any]:
         """Claves públicas de firma; un fallo se propaga para conservar el JWKS anterior."""
         response = self._http.get("/.well-known/jwks.json")
@@ -64,6 +108,31 @@ class UsersManagementClient:
             headers = {**headers, CORRELATION_HEADER: correlation_id}
         try:
             return self._http.post(path, json=payload, headers=headers)
+        except httpx.TimeoutException:
+            raise UpstreamTimeout() from None
+        except httpx.TransportError:
+            raise UpstreamUnavailable() from None
+
+    def _send_as_user(
+        self,
+        method: str,
+        path: str,
+        access_token: str,
+        *,
+        content: bytes | None = None,
+        idempotency_key: str | None = None,
+    ) -> httpx.Response:
+        # Reenvía el access token: el servicio vuelve a verificar identidad y actor.
+        headers = {"Authorization": f"Bearer {access_token}"}
+        if content:
+            headers["Content-Type"] = "application/json"
+        if idempotency_key is not None:
+            headers[IDEMPOTENCY_HEADER] = idempotency_key
+        correlation_id = current_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_HEADER] = correlation_id
+        try:
+            return self._http.request(method, path, content=content, headers=headers)
         except httpx.TimeoutException:
             raise UpstreamTimeout() from None
         except httpx.TransportError:

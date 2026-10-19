@@ -43,3 +43,47 @@ class TrainingPlanNotFound(Exception):
 
 class AuthorizationConflict(Exception):
     """Otra solicitud concurrente creó primero la misma autorización."""
+
+
+class CapabilitiesTimeout(CapabilitiesUnavailable):
+    """Afiliación no respondió a tiempo (HU032 responde `504`; HU010 lo trata como `503`)."""
+
+    code = "upstream_timeout"
+
+
+class ActiveSessionExists(Exception):
+    """HU032: el deportista ya tiene una sesión `ACTIVE` (restricción única de la base)."""
+
+    code = "active_session_exists"
+
+
+class SessionIdReused(Exception):
+    """HU032: el `session_id` ya existe con otro inicio o pertenece a otra persona."""
+
+    code = "session_id_reused"
+
+
+class TrainingSessionNotFound(Exception):
+    """HU032: la sesión no existe o no pertenece a quien llama."""
+
+    code = "training_session_not_found"
+
+
+class TrainingSessionAlreadyFinished(Exception):
+    """HU032: la sesión ya terminó con otro `ended_at`."""
+
+    code = "training_session_already_finished"
+
+
+class SessionIdConflict(Exception):
+    """Otra solicitud concurrente insertó primero el mismo `session_id`."""
+
+
+class CalculationIdReused(Exception):
+    """HU034: el `calculation_id` ya existe con otros datos o pertenece a otra persona."""
+
+    code = "calculation_id_reused"
+
+
+class CalculationIdConflict(Exception):
+    """Otra solicitud concurrente insertó primero el mismo `calculation_id`."""

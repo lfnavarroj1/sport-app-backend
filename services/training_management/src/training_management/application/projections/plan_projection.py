@@ -53,6 +53,8 @@ class ProjectPlanCreated:
                 outcome = ProjectionOutcome.STALE
             elif (projected or 0) + 1 == event.aggregate_version:
                 unit_of_work.add_plan_view(event.plan, now)
+                # HU035: las sesiones del plan, consultables por fecha (ADR-031).
+                unit_of_work.save_planned_sessions(event.plan, now)
                 outcome = ProjectionOutcome.PROJECTED
             else:
                 _logger.warning(

@@ -28,6 +28,19 @@ DURATION_MINUTES_MAX = 600
 INTENSITY_RPE_MIN = 1
 INTENSITY_RPE_MAX = 10
 
+# Motivos estables de `details[].issue` en `training_plan_invalid`: forman parte del contrato
+# publicado (OpenAPI 0.7.0, solicitud de coordinación 1 de HU010). Uno nuevo es un cambio de
+# contrato y debe agregarse aquí y en `bff-web`.
+PLAN_RULE_ISSUES = (
+    "invalid_length",
+    "invalid_count",
+    "end_date_before_start_date",
+    "period_too_long",
+    "outside_plan_period",
+    "out_of_range",
+    "too_many_sessions_per_day",
+)
+
 
 class Sport(StrEnum):
     RUNNING = "running"

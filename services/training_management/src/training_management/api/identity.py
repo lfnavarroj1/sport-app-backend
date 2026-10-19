@@ -13,6 +13,7 @@ from uuid import UUID
 
 from fastapi import Response
 
+from sportapp_platform.correlation import current_correlation_id
 from sportapp_platform.errors import ErrorResponse, error_response
 from sportapp_platform.tokens import InvalidAccessToken, JwksUnavailable, VerifiedAccessToken
 from training_management.application.errors import (
@@ -40,6 +41,11 @@ AUTH_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades.",
     },
 }
+
+
+def correlation_uuid() -> UUID | None:
+    correlation_id = current_correlation_id()
+    return UUID(correlation_id) if correlation_id else None
 
 
 def unauthenticated() -> Response:

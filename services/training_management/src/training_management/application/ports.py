@@ -7,7 +7,9 @@ from typing import Any, Protocol, Self
 from uuid import UUID
 
 from training_management.domain.authorizations.model import TrainingAuthorization
-from training_management.domain.plans.model import TrainingPlan
+from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.plans.model import Sport, TrainingPlan
+from training_management.domain.sessions.model import TrainingSession
 
 
 class Clock(Protocol):
@@ -206,6 +208,8 @@ class AuthorizationUnitOfWork(Transaction, Protocol):
 
     def update(self, authorization: TrainingAuthorization) -> None: ...
 
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
     def commit(self) -> None:
         """Traduce una inserción concurrente de la misma pareja a `AuthorizationConflict`."""
         ...
@@ -215,6 +219,244 @@ class PlanReader(Protocol):
     """Vista de lectura de planes (base de lectura, CQRS)."""
 
     def get(self, plan_id: UUID) -> PlanView | None: ...
+
+
+@dataclass(frozen=True)
+class AuthorizationView:
+    """Estado proyectado de la autorización deportista → profesional (HU011)."""
+
+    athlete_id: UUID
+    professional_id: UUID
+    status: str
+    version: int
+    granted_at: datetime
+    revoked_at: datetime | None
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == "ACTIVE"
+
+
+@dataclass(frozen=True)
+class SessionHistoryEntry:
+    """Sesión terminada en el historial de lectura (HU011); sin datos de salud."""
+
+    session_id: UUID
+    athlete_id: UUID
+    plan_id: UUID | None
+    sport: str
+    started_at: datetime
+    ended_at: datetime
+    duration_seconds: int
+    version: int
+
+
+@dataclass(frozen=True)
+class HistoryPosition:
+    """Posición del cursor: última sesión entregada en el orden `ended_at`, `session_id`."""
+
+    ended_at: datetime
+    session_id: UUID
+
+
+@dataclass(frozen=True)
+class HistoryQuery:
+    athlete_id: UUID
+    ended_from: datetime | None
+    ended_before: datetime | None
+    sport: str | None
+    after: HistoryPosition | None
+    limit: int
+
+
+class HistoryReader(Protocol):
+    def list(self, query: HistoryQuery) -> list[SessionHistoryEntry]:
+        """Hasta `limit` sesiones, de la más reciente a la más antigua, estrictamente después
+        de `after` en el orden (`ended_at` desc, `session_id` desc)."""
+        ...
+
+
+class AuthorizationReader(Protocol):
+    def get(self, athlete_id: UUID, professional_id: UUID) -> AuthorizationView | None: ...
+
+
+@dataclass(frozen=True)
+class AuthorizedAthleteEntry:
+    """Deportista con autorización vigente hacia el profesional (HU011, CA5). Solo
+    identificadores: el nombre y el correo los agrega el BFF desde Usuarios."""
+
+    athlete_id: UUID
+    authorized_at: datetime
+
+
+@dataclass(frozen=True)
+class AuthorizedAthletePosition:
+    """Posición del cursor: último deportista entregado en el orden `authorized_at`,
+    `athlete_id` descendentes."""
+
+    authorized_at: datetime
+    athlete_id: UUID
+
+
+@dataclass(frozen=True)
+class AuthorizedAthletesQuery:
+    professional_id: UUID
+    after: AuthorizedAthletePosition | None
+    limit: int
+
+
+class AuthorizedAthleteReader(Protocol):
+    def list(self, query: AuthorizedAthletesQuery) -> list[AuthorizedAthleteEntry]:
+        """Hasta `limit` autorizaciones vigentes (`ACTIVE`) del profesional, de la más reciente
+        a la más antigua, estrictamente después de `after`."""
+        ...
+
+
+@dataclass(frozen=True)
+class CommandRecord:
+    """Resultado de un comando de HU032 o HU034, con clave aislada por deportista y operación."""
+
+    actor_id: UUID
+    operation: str
+    key: UUID
+    request_fingerprint: str
+    resource_id: UUID
+    response: dict[str, Any]
+    created_at: datetime
+    expires_at: datetime
+
+
+class SessionUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU032: sesión, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_session(self, session_id: UUID, *, for_update: bool = False) -> TrainingSession | None:
+        """Con `for_update`, bloquea la fila hasta el fin de la transacción (finalización)."""
+        ...
+
+    def plan_allows(self, plan_id: UUID, athlete_id: UUID, sport: Sport) -> bool:
+        """El plan existe, está `ASSIGNED` al deportista y contiene una sesión del deporte."""
+        ...
+
+    def add_session(self, session: TrainingSession) -> None: ...
+
+    def update_session(self, session: TrainingSession) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`, el `session_id` duplicado a
+        `SessionIdConflict` y una segunda sesión activa a `ActiveSessionExists`."""
+        ...
+
+
+@dataclass(frozen=True)
+class ActiveSessionView:
+    """Sesión activa proyectada (HU032) a partir de `entrenamiento.iniciado.v1`."""
+
+    session_id: UUID
+    athlete_id: UUID
+    plan_id: UUID | None
+    sport: str
+    started_at: datetime
+    version: int
+
+
+class ActiveSessionReader(Protocol):
+    def current(self, athlete_id: UUID) -> ActiveSessionView | None:
+        """La sesión activa proyectada más reciente del deportista."""
+        ...
+
+
+@dataclass(frozen=True)
+class PlannedSessionEntry:
+    """Sesión planificada de un plan asignado (HU035), proyectada desde el plan de HU010."""
+
+    session_id: UUID
+    plan_id: UUID
+    athlete_id: UUID
+    plan_title: str
+    scheduled_date: date
+    sport: str
+    duration_minutes: int
+    intensity_rpe: int
+
+
+@dataclass(frozen=True)
+class PlannedSessionPosition:
+    """Posición del cursor en el orden `scheduled_date`, `plan_id`, `session_id`."""
+
+    scheduled_date: date
+    plan_id: UUID
+    session_id: UUID
+
+
+@dataclass(frozen=True)
+class PlannedSessionQuery:
+    athlete_id: UUID
+    date_from: date
+    date_to: date
+    after: PlannedSessionPosition | None
+    limit: int
+
+
+class PlannedSessionReader(Protocol):
+    def list(self, query: PlannedSessionQuery) -> list[PlannedSessionEntry]:
+        """Hasta `limit` sesiones de planes `ASSIGNED` del deportista con fecha en el rango
+        (inclusivo), estrictamente después de `after` en el orden ascendente."""
+        ...
+
+
+class MetricUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU034: cálculo, entradas, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_calculation(self, calculation_id: UUID) -> TrainingMetricCalculation | None: ...
+
+    def add_calculation(self, calculation: TrainingMetricCalculation) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el `calculation_id`
+        duplicado a `CalculationIdConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class MetricResultPosition:
+    """Posición del cursor: último resultado entregado en el orden `measured_at`,
+    `calculation_id` (ambos descendentes)."""
+
+    measured_at: datetime
+    calculation_id: UUID
+
+
+@dataclass(frozen=True)
+class MetricResultQuery:
+    athlete_id: UUID
+    metric_code: str | None
+    after: MetricResultPosition | None
+    limit: int
+
+
+class MetricResultReader(Protocol):
+    """Proyección `training_metric_result` (HU034, lectura CQRS)."""
+
+    def list(self, query: MetricResultQuery) -> list[TrainingMetricCalculation]:
+        """Hasta `limit` resultados del deportista, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`measured_at`, `calculation_id`) desc."""
+        ...
 
 
 class DuplicateDelivery(Exception):
@@ -229,6 +471,40 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     def projected_version(self, plan_id: UUID) -> int | None: ...
 
     def add_plan_view(self, view: PlanView, projected_at: datetime) -> None: ...
+
+    def save_planned_sessions(self, view: PlanView, projected_at: datetime) -> None:
+        """HU035: inserta o reemplaza las sesiones del plan en `training_plan_session_view`."""
+        ...
+
+    def authorization_version(self, athlete_id: UUID, professional_id: UUID) -> int | None:
+        """Versión proyectada; bloquea la fila para aplicar las versiones en serie."""
+        ...
+
+    def save_authorization_view(self, view: AuthorizationView, projected_at: datetime) -> None:
+        """Inserta o reemplaza el estado proyectado de la pareja."""
+        ...
+
+    def session_version(self, session_id: UUID) -> int | None: ...
+
+    def save_session_entry(self, entry: SessionHistoryEntry, projected_at: datetime) -> None:
+        """Inserta o reemplaza la sesión terminada en el historial."""
+        ...
+
+    def active_session_version(self, session_id: UUID) -> int | None:
+        """Versión de la sesión activa proyectada; bloquea la fila."""
+        ...
+
+    def save_active_session(self, view: ActiveSessionView, projected_at: datetime) -> None: ...
+
+    def delete_active_session(self, session_id: UUID) -> None: ...
+
+    def metric_result(self, calculation_id: UUID) -> TrainingMetricCalculation | None:
+        """HU034: resultado proyectado del cálculo; bloquea la fila."""
+        ...
+
+    def add_metric_result(
+        self, calculation: TrainingMetricCalculation, projected_at: datetime
+    ) -> None: ...
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

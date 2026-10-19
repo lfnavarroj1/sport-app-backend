@@ -4,15 +4,18 @@ Ejecución: `python -m training_management.workers.read_projector`.
 
 - Consume `sportapp.entrenamientos.v1` por la suscripción ordenada `proyector-entrenamientos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de la vista y `processed_event`.
-- Un mensaje inválido, un hueco de versión o un fallo de procesamiento no se
-  confirma: Pub/Sub lo reintenta con el backoff de la suscripción y, tras 10
-  intentos, lo envía a `sportapp.entrenamientos.proyeccion.dlq`.
+- Un mensaje inválido, un hueco de versión, un cálculo ya proyectado con otros datos
+  (HU034) o un fallo de procesamiento no se confirma: Pub/Sub lo reintenta con el
+  backoff de la suscripción y, tras 10 intentos, lo envía a
+  `sportapp.entrenamientos.proyeccion.dlq`.
 - Un tipo de evento que este proyector aún no proyecta se confirma sin efectos.
 """
 
 import json
 import logging
 import signal
+import sys
+import threading
 from collections.abc import Callable
 from typing import Protocol
 
@@ -23,15 +26,16 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.database import create_database_engine
 from sportapp_platform.logging import configure_logging
 from training_management.application.messages import (
+    AuthorizationChangedEvent,
     InvalidEvent,
+    MetricCalculatedEvent,
     PlanCreatedEvent,
+    TrainingEvent,
     UnsupportedEvent,
     parse_training_event,
 )
-from training_management.application.projections.plan_projection import (
-    ProjectionOutcome,
-    ProjectPlanCreated,
-)
+from training_management.application.projections.plan_projection import ProjectionOutcome
+from training_management.application.projections.snapshot_projection import TrainingProjector
 from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.persistence_read.plans import (
     SqlAlchemyProjectionUnitOfWork,
@@ -56,8 +60,18 @@ class InboundMessage(Protocol):
     def nack(self) -> None: ...
 
 
+def _aggregate_id(event: TrainingEvent) -> object:
+    if isinstance(event, PlanCreatedEvent):
+        return event.plan.plan_id
+    if isinstance(event, AuthorizationChangedEvent):
+        return event.aggregate_id
+    if isinstance(event, MetricCalculatedEvent):
+        return event.calculation.calculation_id
+    return event.session.session_id
+
+
 class ProjectionMessageHandler:
-    def __init__(self, project: Callable[[PlanCreatedEvent], ProjectionOutcome]) -> None:
+    def __init__(self, project: Callable[[TrainingEvent], ProjectionOutcome]) -> None:
         self._project = project
 
     def __call__(self, message: InboundMessage) -> None:
@@ -82,7 +96,7 @@ class ProjectionMessageHandler:
             return
         fields |= {
             "event_id": str(event.event_id),
-            "plan_id": str(event.plan.plan_id),
+            "aggregate_id": str(_aggregate_id(event)),
             "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         }
         try:
@@ -104,6 +118,34 @@ class ProjectionMessageHandler:
         message.nack()
 
 
+class StreamingPull(Protocol):
+    def result(self) -> object: ...
+
+
+def await_subscription(streaming: StreamingPull, stop_requested: threading.Event) -> int:
+    """Espera la suscripción y devuelve el código de salida del proceso.
+
+    `0` si se detuvo por una señal. `1` si la suscripción terminó por sí sola (p. ej.
+    `NotFound` porque el emulador perdió sus recursos): se registra en `ERROR` para que
+    la causa sea visible y Kubernetes lo trate como fallo, en lugar de ocultarlo.
+    """
+    try:
+        streaming.result()
+    except Exception as error:
+        if stop_requested.is_set():
+            _logger.info("projector.stopping")
+            return 0
+        _logger.error(
+            "projector.subscription_failed",
+            extra={"fields": {"error_type": type(error).__name__}},
+        )
+        return 1
+    if stop_requested.is_set():
+        return 0
+    _logger.error("projector.subscription_failed", extra={"fields": {"error_type": None}})
+    return 1
+
+
 def main() -> None:
     settings = load_settings(ReadProjectorSettings)
     configure_logging(
@@ -113,7 +155,7 @@ def main() -> None:
         level=settings.log_level,
     )
     engine = create_database_engine(settings.database_read_url, settings)
-    project = ProjectPlanCreated(
+    project = TrainingProjector(
         unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(sessionmaker(engine)),
         clock=SystemClock(),
     )
@@ -126,17 +168,22 @@ def main() -> None:
         callback=ProjectionMessageHandler(project),
         flow_control=pubsub_v1.types.FlowControl(max_messages=settings.consumer_max_messages),
     )
-    signal.signal(signal.SIGTERM, lambda *_: streaming.cancel())
-    signal.signal(signal.SIGINT, lambda *_: streaming.cancel())
+    stop_requested = threading.Event()
+
+    def stop(*_: object) -> None:
+        stop_requested.set()
+        streaming.cancel()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     _logger.info("projector.started", extra={"fields": {"subscription": subscription}})
     try:
-        streaming.result()
-    except Exception:
-        _logger.info("projector.stopping")
+        exit_code = await_subscription(streaming, stop_requested)
     finally:
         subscriber.close()
         engine.dispose()
         _logger.info("projector.stopped")
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

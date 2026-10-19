@@ -129,6 +129,10 @@ steps:
       - pipefail
       - -c
       - |
+        # Las pruebas de scripts/release.py crean repositorios temporales con git, que
+        # python:3.13-slim no trae (en GitHub Actions lo aporta el runner).
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends git > /dev/null
         python scripts/release.py wait-tcp sportapp-test-postgres:5432 sportapp-pubsub-emulator:8085
         /tools/uv/bin/uv run python scripts/task.py coverage-erase
         for suite in unit integration contract component; do

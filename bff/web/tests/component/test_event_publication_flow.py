@@ -13,7 +13,6 @@ import time
 import unittest
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -91,7 +90,9 @@ def calendar_capability(request: httpx.Request) -> httpx.Response:
     )
 
 
-class EventPublicationFlowTest(unittest.TestCase):
+class EventFlowCase(unittest.TestCase):
+    """Usuarios, Eventos (escritura y lectura) y BFF web reales; base de HU024 y HU023."""
+
     def setUp(self) -> None:
         users_url = self.enterContext(temporary_database("hu024_flow_users"))
         self.write_url = self.enterContext(temporary_database("hu024_flow_events_w"))
@@ -133,7 +134,15 @@ class EventPublicationFlowTest(unittest.TestCase):
                 base_url="http://events-management",
             )
         )
-        self.bff = self.enterContext(
+        self.users = users
+        self.bff = self.bff_with(self.events)
+        write_engine, read_engine = create_engine(self.write_url), create_engine(read_url)
+        self.addCleanup(write_engine.dispose)
+        self.addCleanup(read_engine.dispose)
+        self.writes, self.reads = sessionmaker(write_engine), sessionmaker(read_engine)
+
+    def bff_with(self, events_http: httpx.Client) -> TestClient:
+        return self.enterContext(
             TestClient(
                 create_bff(
                     BffWebSettings(
@@ -145,17 +154,13 @@ class EventPublicationFlowTest(unittest.TestCase):
                         events_management_base_url="http://events-management",  # type: ignore[arg-type]
                         cors_allowed_origins=(ORIGIN,),
                     ),
-                    users_http=users,
-                    events_http=self.events,
+                    users_http=self.users,
+                    events_http=events_http,
                 ),
                 base_url="https://bff-web",
                 headers={"Origin": ORIGIN},
             )
         )
-        write_engine, read_engine = create_engine(self.write_url), create_engine(read_url)
-        self.addCleanup(write_engine.dispose)
-        self.addCleanup(read_engine.dispose)
-        self.writes, self.reads = sessionmaker(write_engine), sessionmaker(read_engine)
 
     def session_for(self, actor_type: str) -> dict[str, str]:
         email = f"{actor_type}-{uuid.uuid4().hex[:8]}@example.com"
@@ -174,10 +179,10 @@ class EventPublicationFlowTest(unittest.TestCase):
         login = self.bff.post("/v1/sessions", json={"email": email, "password": PASSWORD})
         return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
-    def draft(self, organizer: dict[str, str]) -> str:
+    def draft(self, organizer: dict[str, str], **overrides: Any) -> str:
         created = self.bff.post(
             "/v1/events",
-            json=EVENT_REQUEST,
+            json={**EVENT_REQUEST, **overrides},
             headers={**organizer, "Idempotency-Key": str(uuid.uuid4())},
         )
         self.assertEqual(created.status_code, 201, created.text)
@@ -229,6 +234,8 @@ class EventPublicationFlowTest(unittest.TestCase):
                 streaming.result(timeout=10)
         self.assertTrue(done, f"el proyector no llegó a {processed} mensajes")
 
+
+class EventPublicationFlowTest(EventFlowCase):
     @unittest.skipUnless(os.environ.get("PUBSUB_EMULATOR_HOST"), "requiere el emulador de Pub/Sub")
     def test_publication_flow_through_the_web_channel(self) -> None:
         """CA1, CA3, CA4, CA5 y CA6 de punta a punta en el backend."""
@@ -288,10 +295,10 @@ class EventPublicationFlowTest(unittest.TestCase):
         self.assertEqual(listed.json()["items"][0]["published_at"], body["published_at"])
         public = self.bff.get(f"/v1/events/{event_id}", headers=athlete)
         self.assertEqual((public.status_code, public.json()["status"]), (200, "PUBLISHED"))
-        now = datetime.now(UTC)
+        # Periodo de hasta 92 días (ADR-040) alrededor del evento del 2099-11-15.
         calendar = self.events.get(
             "/v1/events",
-            params={"from": now.isoformat(), "to": (now + timedelta(days=365 * 80)).isoformat()},
+            params={"from": "2099-11-14T00:00:00Z", "to": "2099-11-17T00:00:00Z"},
             headers=athlete,
         )
         self.assertEqual(calendar.status_code, 200, calendar.text)

@@ -54,6 +54,9 @@ class PublishedEventsQuery:
     ends_at_or_after: datetime  # `from` del periodo
     after: EventPosition | None
     limit: int
+    # HU023 (ADR-040): términos ya normalizados (`normalize_term`); `None` = sin filtro.
+    discipline: str | None = None
+    city: str | None = None
 
 
 @dataclass(frozen=True)

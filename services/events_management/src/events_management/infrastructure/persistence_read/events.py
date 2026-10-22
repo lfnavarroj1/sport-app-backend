@@ -8,10 +8,10 @@ autenticado.
 
 from datetime import datetime
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, or_, select, tuple_, update
+from sqlalchemy import ColumnElement, func, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -37,6 +37,7 @@ from events_management.domain.sport_events.model import (
     Location,
     SportEvent,
 )
+from events_management.domain.sport_events.terms import ACCENTED, PLAIN
 from events_management.infrastructure.persistence_read.models import (
     EVENT_READ_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
@@ -148,8 +149,15 @@ class SqlAlchemyOwnEventReader:
             return [_event(item) for item in session.scalars(statement)]
 
 
+def _normalized(column: Any) -> ColumnElement[str]:
+    """`normalize_term` en SQL: la misma tabla de equivalencias y luego minúsculas."""
+    result: ColumnElement[str] = func.lower(func.translate(column, ACCENTED, PLAIN))
+    return result
+
+
 class SqlAlchemyPublishedEventReader:
-    """HU035: eventos publicados que se superponen con un periodo (ADR-031)."""
+    """Eventos publicados que se superponen con un periodo (ADR-031, HU035), con los filtros
+    normalizados de disciplina y ciudad (ADR-040, HU023)."""
 
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -161,6 +169,10 @@ class SqlAlchemyPublishedEventReader:
             row.starts_at <= query.starts_before_or_at,
             row.ends_at >= query.ends_at_or_after,
         )
+        if query.discipline is not None:
+            statement = statement.where(_normalized(row.discipline) == query.discipline)
+        if query.city is not None:
+            statement = statement.where(_normalized(row.location_city) == query.city)
         if query.after is not None:
             statement = statement.where(
                 tuple_(row.starts_at, row.event_id)

@@ -43,7 +43,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "events-management"
-API_VERSION = "0.5.0"
+API_VERSION = "0.6.0"
 
 
 def create_app(
@@ -110,6 +110,7 @@ def create_app(
                 list_events=ListPublishedEvents(
                     reader=SqlAlchemyPublishedEventReader(reads),
                     capabilities=AffiliationCapabilityChecker(affiliation_http),
+                    permissions=permissions,
                 ),
             ),
             build_registrations_router(

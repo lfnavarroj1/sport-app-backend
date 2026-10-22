@@ -47,10 +47,14 @@ READ_HISTORY = "events_management.infrastructure.persistence_read:migrations"
 
 
 class OrganizerOnly:
-    """`actor-permissions.v1` del organizador web: `events.create` y `events.publish`."""
+    """`actor-permissions.v1` del organizador web: crear, publicar y ver el calendario."""
 
     def allows(self, actor_type: str, permission: str) -> bool:
-        return actor_type == "organizer" and permission in {"events.create", "events.publish"}
+        return actor_type == "organizer" and permission in {
+            "events.create",
+            "events.publish",
+            "events.calendar.view",
+        }
 
 
 @dataclass

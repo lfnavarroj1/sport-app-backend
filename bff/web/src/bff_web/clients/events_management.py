@@ -1,4 +1,4 @@
-"""Cliente HTTP de `events_management` según su OpenAPI 0.5.0 (HU021, HU024).
+"""Cliente HTTP de `events_management` según su OpenAPI 0.6.0 (HU021, HU024, HU023).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad, permiso y
 propiedad.
@@ -41,6 +41,10 @@ class EventsManagementClient:
     def list_my_events(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU024: eventos propios del organizador del token."""
         return self._send("GET", "/v1/me/events", access_token, params=params)
+
+    def list_events(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU023 (ADR-040): eventos publicados por periodo con filtros opcionales."""
+        return self._send("GET", "/v1/events", access_token, params=params)
 
     def get_event(self, access_token: str, event_id: UUID) -> httpx.Response:
         """ADR-033: detalle visible para quien llama (`DRAFT` solo para su organizador)."""

@@ -826,7 +826,7 @@
   },
   "info": {
     "title": "SportApp - Eventos",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -884,6 +884,7 @@
     },
     "/v1/events": {
       "get": {
+        "description": "`athlete` con `calendar.sport.view` (Afiliación) u `organizer` con `events.calendar.view`. Periodo de hasta 92 días; para el organizador `from` debe ser anterior a `to`. Orden `starts_at`, `event_id` ascendente; el cursor se reenvía con los mismos filtros.",
         "operationId": "published_events_v1_events_get",
         "parameters": [
           {
@@ -908,6 +909,42 @@
               "format": "date-time",
               "title": "To",
               "type": "string"
+            }
+          },
+          {
+            "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+            "in": "query",
+            "name": "discipline",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+              "title": "Discipline"
+            }
+          },
+          {
+            "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+            "in": "query",
+            "name": "city",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+              "title": "City"
             }
           },
           {
@@ -985,7 +1022,7 @@
                 }
               }
             },
-            "description": "`permission_required` (no es deportista) o `capability_required` (`calendar.sport.view`)."
+            "description": "`permission_required` (otro actor, u organizador sin `events.calendar.view`) o `capability_required` (`calendar.sport.view`)."
           },
           "422": {
             "content": {
@@ -995,7 +1032,7 @@
                 }
               }
             },
-            "description": "`validation_error`: periodo, límite o cursor inválidos."
+            "description": "`validation_error` en `query.<parámetro>`: `invalid_datetime`, `ends_before_starts`, `out_of_range` (más de 92 días o límite), `invalid_length` (filtro) o `invalid_cursor`."
           },
           "503": {
             "content": {
@@ -1008,7 +1045,7 @@
             "description": "`upstream_unavailable`: no se pudo verificar la identidad."
           }
         },
-        "summary": "Eventos publicados por periodo (HU035, interno)",
+        "summary": "Eventos publicados por periodo (HU035 deportista, HU023 organizador)",
         "tags": [
           "events"
         ]

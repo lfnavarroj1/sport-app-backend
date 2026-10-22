@@ -24,6 +24,7 @@ from events_management.application.queries.published_events import (
     InvalidEventsQuery,
     ListPublishedEvents,
 )
+from events_management.domain.sport_events.terms import normalize_term
 from sportapp_platform.app import create_service_app
 from sportapp_platform.config import ServiceSettings
 
@@ -44,8 +45,18 @@ class Capabilities:
         return user_id in self.granted
 
 
+class OrganizerCalendar:
+    """`actor-permissions.v1`: el organizador tiene `events.calendar.view` (HU023)."""
+
+    def __init__(self, granted: bool = True) -> None:
+        self.granted = granted
+
+    def allows(self, actor_type: str, permission: str) -> bool:
+        return self.granted and actor_type == "organizer" and permission == "events.calendar.view"
+
+
 class InMemoryPublishedReader:
-    """Mismas reglas que la consulta SQL: superposición, orden y keyset."""
+    """Mismas reglas que la consulta SQL: superposición, filtros normalizados, orden y keyset."""
 
     def __init__(self, events: list[CalendarEventView]) -> None:
         self.events = events
@@ -58,6 +69,10 @@ class InMemoryPublishedReader:
                 if event.status == "PUBLISHED"
                 and event.starts_at <= query.starts_before_or_at
                 and event.ends_at >= query.ends_at_or_after
+                and (
+                    query.discipline is None or normalize_term(event.discipline) == query.discipline
+                )
+                and (query.city is None or normalize_term(event.location_city) == query.city)
                 and (
                     query.after is None
                     or (event.starts_at, event.event_id)
@@ -101,7 +116,9 @@ class ListPublishedEventsTest(unittest.TestCase):
             event(datetime(2026, 11, 20, 12, tzinfo=UTC), status="DRAFT"),
         ]
         self.list = ListPublishedEvents(
-            reader=InMemoryPublishedReader(self.events), capabilities=self.capabilities
+            reader=InMemoryPublishedReader(self.events),
+            capabilities=self.capabilities,
+            permissions=OrganizerCalendar(),
         )
 
     def test_overlapping_published_events_in_order(self) -> None:
@@ -124,9 +141,11 @@ class ListPublishedEventsTest(unittest.TestCase):
         self.assertIsNone(second.next_cursor)
 
     def test_authorization(self) -> None:
-        """CA5: solo deportista con `calendar.sport.view`; Afiliación caída no concede nada."""
+        """CA5: deportista con `calendar.sport.view`; Afiliación caída no concede nada. Desde
+        HU023 el organizador también entra (con `events.calendar.view`, ver test_event_calendar);
+        cualquier otro actor sigue rechazado."""
         with self.assertRaises(PermissionRequired):
-            self.list(Caller(uuid4(), "organizer"), EventsFilters(NOV_1, NOV_30))
+            self.list(Caller(uuid4(), "service_provider"), EventsFilters(NOV_1, NOV_30))
         with self.assertRaises(CapabilityRequired):
             self.list(Caller(uuid4(), "athlete"), EventsFilters(NOV_1, NOV_30))
         self.capabilities.unavailable = True
@@ -162,6 +181,7 @@ class PublishedEventsApiTest(unittest.TestCase):
                     list_events=ListPublishedEvents(
                         reader=InMemoryPublishedReader(self.events),
                         capabilities=self.capabilities,
+                        permissions=OrganizerCalendar(),
                     ),
                 )
             ],

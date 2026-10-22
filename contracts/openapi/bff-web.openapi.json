@@ -667,6 +667,89 @@
         "title": "EventAggregateResponse",
         "type": "object"
       },
+      "EventConflict": {
+        "properties": {
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "discipline": {
+            "title": "Discipline",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reasons": {
+            "description": "Uno o ambos, en el orden `SAME_DISCIPLINE`, `SAME_CITY`.",
+            "items": {
+              "enum": [
+                "SAME_DISCIPLINE",
+                "SAME_CITY"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "name",
+          "discipline",
+          "city",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "reasons"
+        ],
+        "title": "EventConflict",
+        "type": "object"
+      },
+      "EventConflictsResponse": {
+        "properties": {
+          "conflicts": {
+            "description": "Orden `starts_at`, `event_id` ascendente.",
+            "items": {
+              "$ref": "#/components/schemas/EventConflict"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "evaluated_at": {
+            "description": "Instante de la evaluación, en UTC.",
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conflicts",
+          "evaluated_at"
+        ],
+        "title": "EventConflictsResponse",
+        "type": "object"
+      },
       "EventDetailLocation": {
         "properties": {
           "city": {
@@ -1525,6 +1608,114 @@
         "title": "PublishServiceResponse",
         "type": "object"
       },
+      "PublishedEventItem": {
+        "properties": {
+          "discipline": {
+            "title": "Discipline",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/PublishedEventLocation"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "const": "PUBLISHED",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "name",
+          "discipline",
+          "location",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "status",
+          "version"
+        ],
+        "title": "PublishedEventItem",
+        "type": "object"
+      },
+      "PublishedEventLocation": {
+        "properties": {
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "city",
+          "country_code"
+        ],
+        "title": "PublishedEventLocation",
+        "type": "object"
+      },
+      "PublishedEventsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PublishedEventItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "PublishedEventsResponse",
+        "type": "object"
+      },
       "RegisterUserRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2178,7 +2369,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.16.0"
+    "version": "0.17.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2420,6 +2611,181 @@
       }
     },
     "/v1/events": {
+      "get": {
+        "description": "`organizer` con `events.calendar.view`. Solo `PUBLISHED`, sin `organizer_id`. Periodo de hasta 92 días con `from` anterior a `to`; `discipline` y `city` sin distinguir mayúsculas ni acentos. Orden `starts_at`, `event_id` ascendente; el cursor se reenvía con los mismos filtros.",
+        "operationId": "calendar_v1_events_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase UTC explícito.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "description": "Instante ISO 8601 con desfase UTC explícito.",
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase UTC explícito.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "description": "Instante ISO 8601 con desfase UTC explícito.",
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+            "in": "query",
+            "name": "discipline",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+              "title": "Discipline"
+            }
+          },
+          {
+            "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+            "in": "query",
+            "name": "city",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+              "title": "City"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedEventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`organizer` con `events.calendar.view`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` en `query.<parámetro>`: `invalid_datetime`, `ends_before_starts`, `out_of_range` (más de 92 días o límite), `invalid_length` (filtro) o `invalid_cursor`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Calendario de eventos publicados (HU023)",
+        "tags": [
+          "events"
+        ]
+      },
       "post": {
         "operationId": "create_v1_events_post",
         "parameters": [
@@ -3366,6 +3732,116 @@
           }
         },
         "summary": "Mis eventos como organizador (HU024)",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/v1/me/events/{event_id}/conflicts": {
+      "get": {
+        "description": "Eventos publicados cuyo periodo se solapa con el del evento propio (`DRAFT` o `PUBLISHED`) y que comparten disciplina o ciudad normalizadas. Un borde común (`ends_at == starts_at`) no coincide; el propio evento se excluye. Es información de apoyo: no bloquea publicar ni reserva fechas.",
+        "operationId": "conflicts_v1_me_events__event_id__conflicts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventConflictsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`organizer` con `events.calendar.view`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: inexistente o de otro organizador."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Coincidencias de un evento propio con eventos publicados (HU023)",
         "tags": [
           "events"
         ]

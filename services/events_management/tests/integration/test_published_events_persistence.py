@@ -9,7 +9,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from support import event_databases
+from support import OrganizerOnly, event_databases
 
 from events_management.application.ports import Caller
 from events_management.application.queries.published_events import (
@@ -36,7 +36,9 @@ class PublishedEventsPersistenceTest(unittest.TestCase):
         self.db = self.enterContext(event_databases("hu035_events"))
         self.athlete = Caller(uuid4(), "athlete")
         self.list = ListPublishedEvents(
-            reader=SqlAlchemyPublishedEventReader(self.db.reads), capabilities=Granted()
+            reader=SqlAlchemyPublishedEventReader(self.db.reads),
+            capabilities=Granted(),
+            permissions=OrganizerOnly(),
         )
 
     def add(self, starts_at: datetime, hours: int = 2, status: str = "PUBLISHED") -> UUID:

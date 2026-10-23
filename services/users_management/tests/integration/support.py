@@ -25,6 +25,7 @@ from users_management.application.commands.update_demographic_profile import (
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.ports import Clock, RegistrationUnitOfWork
 from users_management.domain.account.model import AccountStatus, ActorType
 from users_management.domain.authentication.model import LoginThrottlePolicy
@@ -115,6 +116,9 @@ class WriteDatabase:
 
     def update_demographic(self, clock: Clock | None = None) -> UpdateDemographicProfile:
         return UpdateDemographicProfile(unit_of_work=self.profile, clock=clock or SystemClock())
+
+    def update_sport_habits(self, clock: Clock | None = None) -> UpdateSportHabits:
+        return UpdateSportHabits(unit_of_work=self.profile, clock=clock or SystemClock())
 
     def update_physiological(self, clock: Clock | None = None) -> UpdatePhysiologicalProfile:
         return UpdatePhysiologicalProfile(

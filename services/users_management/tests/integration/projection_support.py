@@ -106,6 +106,22 @@ def _payload(section: ProfileSection, user_id: UUID, version: int) -> dict[str, 
             "occupation": None,
             "income_range": "PREFER_NOT_TO_SAY",
         }
+    if section is ProfileSection.SPORT_HABITS:
+        return {
+            **common,
+            "sports": [
+                {
+                    "sport": "running",
+                    "frequency_per_week": 1 + version % 7,
+                    "session_duration_minutes": 45,
+                    "intensity": "MODERATE",
+                    "level": "INTERMEDIATE",
+                    "years_practicing": None,
+                }
+            ],
+            "availability": {"days": ["MON", "SAT"], "time_slots": ["MORNING"]},
+            "primary_goal": None,
+        }
     return {
         **common,
         "consent": {"version": "health-test.v1", "accepted_at": "2026-10-16T12:00:00Z"},

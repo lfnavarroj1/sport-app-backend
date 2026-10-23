@@ -1,4 +1,4 @@
-"""Unidad de trabajo SQLAlchemy de los comandos de perfil (HU005, ADR-034).
+"""Unidad de trabajo SQLAlchemy de los comandos de perfil (HU005 y HU006, ADR-034).
 
 La sección, `outbox_event` e `idempotency_key` se confirman en una transacción. El
 documento de la sección (respuesta y payload) se traduce a columnas tipadas y de vuelta
@@ -27,17 +27,25 @@ from users_management.infrastructure.persistence_write.models import (
     DEMOGRAPHIC_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
     PHYSIOLOGICAL_PRIMARY_KEY,
+    SPORT_HABITS_PRIMARY_KEY,
     DemographicProfileRow,
     IdempotencyKeyRow,
     OutboxEventRow,
     PhysiologicalProfileRow,
+    SportHabitsRow,
 )
 
-SectionRow = DemographicProfileRow | PhysiologicalProfileRow
+SectionRow = DemographicProfileRow | PhysiologicalProfileRow | SportHabitsRow
 _ROW_BY_SECTION: dict[ProfileSection, type[SectionRow]] = {
     ProfileSection.DEMOGRAPHIC: DemographicProfileRow,
     ProfileSection.PHYSIOLOGICAL: PhysiologicalProfileRow,
+    ProfileSection.SPORT_HABITS: SportHabitsRow,
 }
+_SECTION_PRIMARY_KEYS = (
+    DEMOGRAPHIC_PRIMARY_KEY,
+    PHYSIOLOGICAL_PRIMARY_KEY,
+    SPORT_HABITS_PRIMARY_KEY,
+)
 
 
 class ProfileWriteFailed(RuntimeError):
@@ -101,6 +109,18 @@ def physiological_document(row: PhysiologicalProfileRow) -> dict[str, Any]:
     }
 
 
+def sport_habits_document(row: SportHabitsRow) -> dict[str, Any]:
+    return {
+        "user_id": str(row.user_id),
+        "version": row.version,
+        "sports": row.sports,
+        "availability": row.availability,
+        "primary_goal": row.primary_goal,
+        "created_at": format_instant(row.created_at),
+        "updated_at": format_instant(row.updated_at),
+    }
+
+
 def _demographic_columns(document: dict[str, Any]) -> dict[str, Any]:
     return {
         "version": document["version"],
@@ -136,19 +156,34 @@ def _physiological_columns(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _sport_habits_columns(document: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "version": document["version"],
+        "sports": document["sports"],
+        "availability": document["availability"],
+        "primary_goal": document["primary_goal"],
+        "created_at": datetime.fromisoformat(document["created_at"]),
+        "updated_at": datetime.fromisoformat(document["updated_at"]),
+    }
+
+
 def section_document(row: SectionRow) -> dict[str, Any]:
     if isinstance(row, DemographicProfileRow):
         return demographic_document(row)
+    if isinstance(row, SportHabitsRow):
+        return sport_habits_document(row)
     return physiological_document(row)
 
 
 def _section_columns(section: ProfileSection, document: dict[str, Any]) -> dict[str, Any]:
     if section is ProfileSection.DEMOGRAPHIC:
         return _demographic_columns(document)
+    if section is ProfileSection.SPORT_HABITS:
+        return _sport_habits_columns(document)
     return _physiological_columns(document)
 
 
-def _locked[RowT: (DemographicProfileRow, PhysiologicalProfileRow)](
+def _locked[RowT: (DemographicProfileRow, PhysiologicalProfileRow, SportHabitsRow)](
     model: type[RowT], user_id: UUID
 ) -> Select[RowT]:
     return (
@@ -213,6 +248,8 @@ class SqlAlchemyProfileUnitOfWork:
         row: SectionRow | None
         if section is ProfileSection.DEMOGRAPHIC:
             row = self.session.scalar(_locked(DemographicProfileRow, user_id))
+        elif section is ProfileSection.SPORT_HABITS:
+            row = self.session.scalar(_locked(SportHabitsRow, user_id))
         else:
             row = self.session.scalar(_locked(PhysiologicalProfileRow, user_id))
         if row is None:
@@ -275,7 +312,7 @@ class SqlAlchemyProfileUnitOfWork:
         except DBAPIError as error:
             self.session.rollback()
             constraint = _violated_constraint(error)
-            if constraint in (DEMOGRAPHIC_PRIMARY_KEY, PHYSIOLOGICAL_PRIMARY_KEY):
+            if constraint in _SECTION_PRIMARY_KEYS:
                 raise SectionAlreadyExists() from None
             if constraint == IDEMPOTENCY_PRIMARY_KEY:
                 raise IdempotencyKeyConflict() from None

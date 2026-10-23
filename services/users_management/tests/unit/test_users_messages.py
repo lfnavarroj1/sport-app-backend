@@ -194,12 +194,10 @@ class ParseEnvelopeTest(unittest.TestCase):
     def test_other_event_types_are_unsupported(self) -> None:
         with self.assertRaises(UnsupportedEvent) as raised:
             parse_users_event(
-                profile_envelope(
-                    ProfileSection.DEMOGRAPHIC, event_type="habitos.deportivos_actualizados.v1"
-                )
+                profile_envelope(ProfileSection.DEMOGRAPHIC, event_type="evento.no_proyectado.v1")
             )
 
-        self.assertEqual(raised.exception.event_type, "habitos.deportivos_actualizados.v1")
+        self.assertEqual(raised.exception.event_type, "evento.no_proyectado.v1")
 
 
 if __name__ == "__main__":

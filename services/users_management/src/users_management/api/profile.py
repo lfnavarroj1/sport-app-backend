@@ -1,7 +1,8 @@
-"""HU005: perfil demográfico y fisiológico del deportista (contrato de ADR-034).
+"""HU005 y HU006: perfil del deportista (contrato de ADR-034).
 
-- `PUT /v1/me/demographic-profile` y `PUT /v1/me/physiological-profile`: registran
-  (`201`) o reemplazan (`200`) la sección completa.
+- `PUT /v1/me/demographic-profile` y `PUT /v1/me/physiological-profile` (HU005) y
+  `PUT /v1/me/sport-habits` (HU006): registran (`201`) o reemplazan (`200`) la sección
+  completa.
 - `GET /v1/me/profile`: lee la proyección `athlete_profile_view` (consulta eventual).
 
 El cuerpo de los `PUT` se lee como JSON sin validación automática para responder con
@@ -29,7 +30,11 @@ from users_management.api.identity import (
     authenticate_athlete,
     correlation_uuid,
 )
-from users_management.api.profile_payload import parse_demographic, parse_physiological
+from users_management.api.profile_payload import (
+    parse_demographic,
+    parse_physiological,
+    parse_sport_habits,
+)
 from users_management.application.commands.profile_section import (
     ProfileSectionCommand,
     ProfileSectionResult,
@@ -41,6 +46,7 @@ from users_management.application.commands.update_demographic_profile import (
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.errors import IdempotencyKeyReused, ReadModelUnavailable
 from users_management.application.queries.get_profile import GetAthleteProfile
 from users_management.domain.profile.demographic import (
@@ -63,6 +69,23 @@ from users_management.domain.profile.physiological import (
     SYSTOLIC_MIN,
 )
 from users_management.domain.profile.section import VersionConflict
+from users_management.domain.profile.sport_habits import (
+    DAYS_MAX,
+    DURATION_MAX,
+    DURATION_MIN,
+    FREQUENCY_MAX,
+    FREQUENCY_MIN,
+    SPORTS_MAX,
+    TIME_SLOTS_MAX,
+    YEARS_MAX,
+    YEARS_MIN,
+    Day,
+    Intensity,
+    Level,
+    PrimaryGoal,
+    Sport,
+    TimeSlot,
+)
 from users_management.domain.profile.validation import InvalidProfileSection, Issue, Violation
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
@@ -166,6 +189,45 @@ class PhysiologicalProfileRequest(BaseModel):
     ] = None
 
 
+class SportHabit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sport: Annotated[Sport, Field(description="Catálogo de deportes de HU010; sin repetir.")]
+    frequency_per_week: Annotated[int, Field(ge=FREQUENCY_MIN, le=FREQUENCY_MAX)]
+    session_duration_minutes: Annotated[int, Field(ge=DURATION_MIN, le=DURATION_MAX)]
+    intensity: Intensity
+    level: Level
+    years_practicing: Annotated[int | None, Field(ge=YEARS_MIN, le=YEARS_MAX)] = None
+
+
+class SportAvailability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: Annotated[
+        list[Day], Field(min_length=1, max_length=DAYS_MAX, description="Valores únicos.")
+    ]
+    time_slots: Annotated[
+        list[TimeSlot],
+        Field(min_length=1, max_length=TIME_SLOTS_MAX, description="Valores únicos."),
+    ]
+
+
+class SportHabitsRequest(BaseModel):
+    """Hábitos deportivos completos (HU006). `user_id` y cualquier campo no listado →
+    `field_not_allowed`. Los errores de una lista nombran la posición recibida
+    (`sports[1].sport`, `availability.days[0]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: Annotated[
+        int | None,
+        Field(ge=1, description="Se omite al crear; igual a la versión vigente al reemplazar."),
+    ] = None
+    sports: Annotated[list[SportHabit], Field(min_length=1, max_length=SPORTS_MAX)]
+    availability: SportAvailability
+    primary_goal: PrimaryGoal | None = None
+
+
 # --- Respuestas ---
 
 
@@ -221,6 +283,35 @@ class PhysiologicalProfileResponse(PhysiologicalSectionView, _UserIdentity):
     pass
 
 
+class SportHabitView(BaseModel):
+    sport: Sport
+    frequency_per_week: int
+    session_duration_minutes: int
+    intensity: Intensity
+    level: Level
+    years_practicing: int | None
+
+
+class SportAvailabilityView(BaseModel):
+    days: Annotated[list[Day], Field(description="En el orden del catálogo (`MON`…`SUN`).")]
+    time_slots: Annotated[list[TimeSlot], Field(description="En el orden del catálogo.")]
+
+
+class SportHabitsSectionView(BaseModel):
+    version: int
+    sports: Annotated[
+        list[SportHabitView], Field(description="En el orden del catálogo de deportes.")
+    ]
+    availability: SportAvailabilityView
+    primary_goal: PrimaryGoal | None
+    created_at: Annotated[datetime, Field(description=INSTANT_DESCRIPTION)]
+    updated_at: Annotated[datetime, Field(description=INSTANT_DESCRIPTION)]
+
+
+class SportHabitsResponse(SportHabitsSectionView, _UserIdentity):
+    pass
+
+
 class ProfileVersions(BaseModel):
     demographic: int | None
     physiological: int | None
@@ -232,7 +323,7 @@ class AthleteProfileResponse(BaseModel):
     demographic: DemographicSectionView | None
     physiological: PhysiologicalSectionView | None
     sport_habits: Annotated[
-        dict[str, Any] | None, Field(description="HU006; `null` mientras no exista.")
+        SportHabitsSectionView | None, Field(description="HU006; `null` mientras no exista.")
     ]
     versions: ProfileVersions
     projected_at: Annotated[
@@ -402,6 +493,7 @@ def build_profile_router(
     verify_token: TokenVerifier,
     update_demographic: UpdateDemographicProfile,
     update_physiological: UpdatePhysiologicalProfile,
+    update_sport_habits: UpdateSportHabits,
     get_profile: GetAthleteProfile,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1/me", tags=["profile"])
@@ -451,10 +543,33 @@ def build_profile_router(
             authorization=authorization,
         )
 
+    @router.put(
+        "/sport-habits",
+        response_model=SportHabitsResponse,
+        summary="Registrar o reemplazar los hábitos deportivos (HU006)",
+        description="Registrar hábitos no crea planes ni recomendaciones.",
+        openapi_extra=_request_body(SportHabitsRequest),
+        responses=_command_responses(SportHabitsResponse),
+    )
+    async def put_sport_habits(
+        request: Request,
+        idempotency_key: Annotated[str | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            _put_section,
+            verify_token,
+            update_sport_habits,
+            parse=parse_sport_habits,
+            raw_body=await request.body(),
+            raw_key=idempotency_key,
+            authorization=authorization,
+        )
+
     @router.get(
         "/profile",
         response_model=AthleteProfileResponse,
-        summary="Consultar el perfil propio desde la proyección (HU005)",
+        summary="Consultar el perfil propio desde la proyección (HU005 y HU006)",
         responses={
             **AUTH_RESPONSES,
             HTTPStatus.SERVICE_UNAVAILABLE.value: {

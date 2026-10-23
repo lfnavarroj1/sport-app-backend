@@ -131,6 +131,8 @@ class LoginFailureWindowRow(WriteBase):
 # HU005 (ADR-034): una fila vigente por deportista y sección, con versión propia.
 DEMOGRAPHIC_PRIMARY_KEY = "pk_demographic_profile"
 PHYSIOLOGICAL_PRIMARY_KEY = "pk_physiological_profile"
+# HU006: tercera sección del perfil.
+SPORT_HABITS_PRIMARY_KEY = "pk_sport_habits"
 
 
 class DemographicProfileRow(WriteBase):
@@ -218,3 +220,33 @@ class PhysiologicalProfileRow(WriteBase):
 
     def __repr__(self) -> str:
         return f"PhysiologicalProfileRow(user_id={self.user_id}, version={self.version})"
+
+
+class SportHabitsRow(WriteBase):
+    """Sección de hábitos deportivos (HU006). Datos personales: `__repr__` sin valores."""
+
+    __tablename__ = "sport_habits"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint(
+            "jsonb_typeof(sports) = 'array' AND jsonb_array_length(sports) BETWEEN 1 AND 5",
+            name="sports",
+        ),
+        CheckConstraint("jsonb_typeof(availability) = 'object'", name="availability"),
+        CheckConstraint(
+            "primary_goal IS NULL OR primary_goal IN ('HEALTH', 'PERFORMANCE', "
+            "'WEIGHT_MANAGEMENT', 'RECREATION', 'COMPETITION')",
+            name="primary_goal",
+        ),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_account.user_id"), primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger)
+    sports: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    availability: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    primary_goal: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"SportHabitsRow(user_id={self.user_id}, version={self.version})"

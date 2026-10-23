@@ -137,6 +137,7 @@ class TrainingMetricsFlowTest(unittest.TestCase):
                         app_env="test",  # type: ignore[arg-type]
                         database_url=self.urls["affiliation"],  # type: ignore[arg-type]
                         affiliation_expected_catalog_version=CATALOG,
+                        users_management_base_url="http://users-management",  # type: ignore[arg-type]
                     )
                 ),
                 base_url="http://affiliation-management",

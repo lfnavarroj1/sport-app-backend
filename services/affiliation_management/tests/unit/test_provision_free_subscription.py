@@ -23,7 +23,12 @@ from affiliation_management.application.messages import (
     parse_user_registered,
 )
 from affiliation_management.application.ports import InboxResult
+from affiliation_management.domain.subscriptions.change import (
+    MovementType,
+    free_activated_movement_id,
+)
 from affiliation_management.domain.subscriptions.model import (
+    Periodicity,
     SubscriptionOrigin,
     SubscriptionStatus,
     receives_free_plan,
@@ -107,6 +112,28 @@ class ProvisionFreeSubscriptionTest(unittest.TestCase):
         )
         self.assertEqual(
             self.store.inbox[incoming.event_id].result, InboxResult.SUBSCRIPTION_CREATED
+        )
+
+    def test_free_activation_records_the_none_offer_and_the_movement(self) -> None:
+        """HU016 (ADR-036): el alta guarda la oferta `NONE`, el periodo y `FREE_ACTIVATED`."""
+        self.store.none_offer = uuid.uuid4()
+        incoming = event()
+
+        self.provision(incoming)
+
+        [subscription] = self.store.subscriptions.values()
+        self.assertEqual(
+            (subscription.periodicity, subscription.plan_offer_id, subscription.period_end),
+            (Periodicity.NONE, self.store.none_offer, None),
+        )
+        self.assertEqual(subscription.period_start, subscription.started_at)
+        [movement] = self.store.movements
+        self.assertEqual(
+            (movement.movement_type, movement.subscription_id, movement.plan_code),
+            (MovementType.FREE_ACTIVATED, subscription.subscription_id, "FREE"),
+        )
+        self.assertEqual(
+            movement.movement_id, free_activated_movement_id(subscription.subscription_id)
         )
 
     def test_organizer_and_service_provider_get_no_subscription(self) -> None:

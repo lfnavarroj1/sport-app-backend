@@ -3,7 +3,7 @@
 import socket
 from typing import Annotated
 
-from pydantic import Field
+from pydantic import AnyHttpUrl, Field
 
 from sportapp_platform.config import DatabasePoolSettings, PostgresUrl, ServiceSettings
 
@@ -26,6 +26,13 @@ class AffiliationManagementSettings(ServiceSettings, DatabasePoolSettings):
     database_url: PostgresUrl
     # Versión de catálogo que debe estar instalada para quedar listo (ADR-024).
     affiliation_expected_catalog_version: CatalogVersion
+    # HU016: el servicio verifica el access token del deportista con el JWKS de
+    # users-management (decisión del responsable del 2026-10-23); el contrato interno de
+    # capacidades sigue sin token.
+    users_management_base_url: AnyHttpUrl
+    upstream_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
+    jwt_audience: str = Field(default="sportapp", min_length=1, max_length=128)
 
 
 class FreePlanConsumerSettings(ServiceSettings, DatabasePoolSettings):

@@ -2,9 +2,8 @@
 (capacidad médica) → PostgreSQL migrado (requiere `TEST_DATABASE_URL`).
 
 Los servicios se crean y publican con las operaciones reales de HU015 y HU019 por el BFF.
-El deportista `FREE` usa la Afiliación real con su alta gratuita; `PREMIUM` todavía no se
-puede obtener (HU016), así que ese caso usa una Afiliación simulada que responde la
-capacidad, igual que la caída de Afiliación.
+El deportista `FREE` usa la Afiliación real con su alta gratuita y, desde HU016, puede pasar
+a `PREMIUM` con el cambio de plan real; la caída de Afiliación usa una Afiliación simulada.
 """
 
 import unittest
@@ -106,7 +105,9 @@ class ServiceAvailabilityFlowTest(unittest.TestCase):
                         app_env="test",  # type: ignore[arg-type]
                         database_url=affiliation_url,  # type: ignore[arg-type]
                         affiliation_expected_catalog_version=CATALOG,
-                    )
+                        users_management_base_url="http://users-management",  # type: ignore[arg-type]
+                    ),
+                    users_http=self.users,
                 ),
                 base_url="http://affiliation-management",
             )
@@ -272,6 +273,38 @@ class ServiceAvailabilityFlowTest(unittest.TestCase):
         self.assertEqual(
             (provider_view.status_code, provider_view.json()["code"]), (403, "permission_required")
         )
+
+    def test_athlete_who_switches_to_premium_gains_sports_medicine(self) -> None:
+        """HU016 CA8 y CA9 con la Afiliación real: el cambio a `PREMIUM` por el BFF habilita la
+        capacidad médica sin comparar nombres de plan; al volver a `FREE` se restringe de nuevo."""
+        provider = self.session_for("service_provider")
+        self.publish(provider, offer("Valoración médica", "SPORTS_MEDICINE"))
+        athlete = self.session_for("athlete", free_plan=True)
+
+        def change(plan: str, periodicity: str, version: int) -> None:
+            changed = self.bff.post(
+                "/v1/me/subscription/changes",
+                json={
+                    "plan_code": plan,
+                    "periodicity": periodicity,
+                    "expected_subscription_version": version,
+                },
+                headers={**athlete, "Idempotency-Key": str(uuid.uuid4())},
+            )
+            self.assertEqual(changed.status_code, 200, changed.text)
+
+        before = self.catalog(athlete, "&category=SPORTS_MEDICINE").json()
+        change("PREMIUM", "MONTHLY", 1)
+        premium = self.catalog(athlete, "&category=SPORTS_MEDICINE").json()
+        change("FREE", "NONE", 2)
+        back = self.catalog(athlete, "&category=SPORTS_MEDICINE").json()
+
+        self.assertEqual(
+            (before["items"], before["restricted_categories"]), ([], ["SPORTS_MEDICINE"])
+        )
+        self.assertEqual([item["name"] for item in premium["items"]], ["Valoración médica"])
+        self.assertEqual(premium["restricted_categories"], [])
+        self.assertEqual((back["items"], back["restricted_categories"]), ([], ["SPORTS_MEDICINE"]))
 
 
 if __name__ == "__main__":

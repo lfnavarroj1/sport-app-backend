@@ -1,4 +1,4 @@
-"""Cliente HTTP de `training_management` según su OpenAPI 0.2.0 (HU010).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011 y HU014).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad,
 permiso, capacidad y autorización del deportista.
@@ -13,6 +13,7 @@ from bff_web.clients.users_management import UpstreamTimeout, UpstreamUnavailabl
 from sportapp_platform.correlation import CORRELATION_HEADER, current_correlation_id
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+IF_NONE_MATCH_HEADER = "If-None-Match"
 
 
 class TrainingManagementClient:
@@ -51,6 +52,31 @@ class TrainingManagementClient:
     def get_authorized_athletes(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU011 (CA5): deportistas con autorización vigente hacia el profesional del token."""
         return self._send("GET", "/v1/me/authorized-athletes", access_token, params=params)
+
+    def create_nutrition_plan(
+        self, access_token: str, payload: dict[str, Any], idempotency_key: UUID
+    ) -> httpx.Response:
+        """HU014: crear y asignar un plan de alimentación (ADR-037)."""
+        return self._send(
+            "POST",
+            "/v1/nutrition-plans",
+            access_token,
+            json=payload,
+            headers={IDEMPOTENCY_HEADER: str(idempotency_key)},
+        )
+
+    def get_nutrition_plan(self, access_token: str, plan_id: UUID) -> httpx.Response:
+        """HU014: detalle de un plan de alimentación (lectura CQRS)."""
+        return self._send("GET", f"/v1/nutrition-plans/{plan_id}", access_token)
+
+    def list_my_nutrition_plans(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU014: planes de alimentación propios del deportista del token."""
+        return self._send("GET", "/v1/me/nutrition-plans", access_token, params=params)
+
+    def food_catalog(self, access_token: str, if_none_match: str | None) -> httpx.Response:
+        """HU014: catálogo cerrado de alimentos con `ETag`; `304` si `If-None-Match` coincide."""
+        headers = {IF_NONE_MATCH_HEADER: if_none_match} if if_none_match is not None else None
+        return self._send("GET", "/v1/food-catalog", access_token, headers=headers)
 
     def _send(
         self,

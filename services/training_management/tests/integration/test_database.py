@@ -15,11 +15,11 @@ from training_management.settings import TrainingManagementSettings
 HISTORIES = {
     "write": (
         "training_management.infrastructure.persistence_write:migrations",
-        "0005_training_metrics",
+        "0006_nutrition_plans",
     ),
     "read": (
         "training_management.infrastructure.persistence_read:migrations",
-        "0007_authorized_athletes_index",
+        "0008_nutrition_plan_view",
     ),
 }
 
@@ -72,9 +72,18 @@ class DatabaseIntegrationTest(unittest.TestCase):
                 affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
             )
             with TestClient(create_app(settings)) as client:
+                # HU014: sin el catálogo de alimentos migrado el servicio no queda listo.
+                with self.assertLogs("sportapp.catalog", level="WARNING"):
+                    before = client.get("/health/ready")
+                upgrade(HISTORIES["write"][0], url)
                 response = client.get("/health/ready")
 
+        self.assertEqual(before.status_code, 503)
+        self.assertEqual(
+            before.json()["checks"], {"database_write": "ok", "food_catalog": "failed"}
+        )
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["checks"], {"database_write": "ok", "food_catalog": "ok"})
 
 
 if __name__ == "__main__":

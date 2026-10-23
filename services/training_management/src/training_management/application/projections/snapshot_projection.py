@@ -13,6 +13,8 @@ salvo que la sesión ya figure en el historial o con una versión igual o mayor;
 transacción, aunque llegue antes que el inicio.
 
 HU034 (ADR-030): `indicador.calculado.v1` se despacha a `ProjectMetricCalculated`.
+
+HU014 (ADR-037): `plan.alimentacion_creado.v1` se despacha a `ProjectNutritionPlanCreated`.
 """
 
 from collections.abc import Callable
@@ -20,6 +22,7 @@ from collections.abc import Callable
 from training_management.application.messages import (
     AuthorizationChangedEvent,
     MetricCalculatedEvent,
+    NutritionPlanCreatedEvent,
     PlanCreatedEvent,
     SessionFinishedEvent,
     SessionStartedEvent,
@@ -28,6 +31,9 @@ from training_management.application.messages import (
 from training_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
 from training_management.application.projections.metric_projection import (
     ProjectMetricCalculated,
+)
+from training_management.application.projections.nutrition_projection import (
+    ProjectNutritionPlanCreated,
 )
 from training_management.application.projections.plan_projection import (
     ProjectionOutcome,
@@ -129,6 +135,7 @@ class TrainingProjector:
         self._sessions = ProjectSessionFinished(unit_of_work=unit_of_work, clock=clock)
         self._started = ProjectSessionStarted(unit_of_work=unit_of_work, clock=clock)
         self._metrics = ProjectMetricCalculated(unit_of_work=unit_of_work, clock=clock)
+        self._nutrition = ProjectNutritionPlanCreated(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
@@ -139,4 +146,6 @@ class TrainingProjector:
             return self._started(event)
         if isinstance(event, MetricCalculatedEvent):
             return self._metrics(event)
+        if isinstance(event, NutritionPlanCreatedEvent):
+            return self._nutrition(event)
         return self._sessions(event)

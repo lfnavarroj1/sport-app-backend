@@ -1,5 +1,5 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
-HU034)."""
+HU034, HU014)."""
 
 from types import TracebackType
 from typing import Self
@@ -27,6 +27,7 @@ from training_management.domain.metrics.model import (
     MetricResult,
     TrainingMetricCalculation,
 )
+from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import PlanStatus, Sport, TrainingPlan
 from training_management.domain.sessions.model import TrainingSession, TrainingSessionStatus
 from training_management.infrastructure.persistence_write.models import (
@@ -38,6 +39,9 @@ from training_management.infrastructure.persistence_write.models import (
     TRAINING_SESSION_PRIMARY_KEY,
     CommandIdempotencyRow,
     IdempotencyKeyRow,
+    NutritionPlanItemRow,
+    NutritionPlanMealRow,
+    NutritionPlanRow,
     OutboxEventRow,
     TrainingAuthorizationRow,
     TrainingMetricCalculationRow,
@@ -453,3 +457,47 @@ class SqlAlchemyMetricUnitOfWork(_CommandUnitOfWork):
             if conflict is not None:
                 raise conflict() from None
             raise
+
+
+class SqlAlchemyNutritionUnitOfWork(SqlAlchemyPlanningUnitOfWork):
+    """HU014: plan de alimentación, comidas, ítems, outbox e idempotencia (`idempotency_key`
+    de HU010) en una transacción de escritura; misma autorización `FOR SHARE`."""
+
+    def add_nutrition_plan(self, plan: NutritionPlan) -> None:
+        self.session.add(
+            NutritionPlanRow(
+                plan_id=plan.plan_id,
+                athlete_id=plan.athlete_id,
+                professional_id=plan.professional_id,
+                title=plan.title,
+                objectives=list(plan.objectives),
+                start_date=plan.start_date,
+                end_date=plan.end_date,
+                status=plan.status.value,
+                catalog_version=plan.catalog_version,
+                created_at=plan.created_at,
+                updated_at=plan.created_at,
+                version=plan.version,
+            )
+        )
+        # El plan y sus comidas deben existir antes que los ítems (claves foráneas locales).
+        self.session.flush()
+        self.session.add_all(
+            NutritionPlanMealRow(
+                plan_id=plan.plan_id, position=position, meal_type=meal.meal_type.value
+            )
+            for position, meal in enumerate(plan.meals)
+        )
+        self.session.flush()
+        self.session.add_all(
+            NutritionPlanItemRow(
+                plan_id=plan.plan_id,
+                meal_position=meal_position,
+                position=position,
+                food_code=item.food_code,
+                quantity=item.quantity,
+                unit=item.unit,
+            )
+            for meal_position, meal in enumerate(plan.meals)
+            for position, item in enumerate(meal.items)
+        )

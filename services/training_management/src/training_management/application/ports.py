@@ -8,6 +8,8 @@ from uuid import UUID
 
 from training_management.domain.authorizations.model import TrainingAuthorization
 from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.nutrition.catalog import FoodCatalog
+from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
 from training_management.domain.plans.model import Sport, TrainingPlan
 from training_management.domain.sessions.model import TrainingSession
 
@@ -506,10 +508,83 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         self, calculation: TrainingMetricCalculation, projected_at: datetime
     ) -> None: ...
 
+    def nutrition_plan_version(self, plan_id: UUID) -> int | None:
+        """HU014: versión proyectada del plan de alimentación; bloquea la fila."""
+        ...
+
+    def save_nutrition_plan_view(self, plan: NutritionPlan, projected_at: datetime) -> None:
+        """HU014: inserta o reemplaza el estado completo del plan en `nutrition_plan_view`."""
+        ...
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None: ...
 
     def commit(self) -> None:
         """Traduce un `event_id` ya registrado por otra entrega a `DuplicateDelivery`."""
+        ...
+
+
+class FoodCatalogReader(Protocol):
+    """HU014: catálogo de alimentos vigente (`food_catalog_item`, dato de referencia de la
+    base de escritura). Se lee fuera de cualquier transacción del comando."""
+
+    def load(self) -> FoodCatalog: ...
+
+
+class NutritionRestrictionsReader(Protocol):
+    """HU014: restricciones del deportista en Usuarios (ADR-035), fuera de la transacción.
+
+    Lanza `NutritionRestrictionsUnavailable` ante caída, timeout o respuesta inesperada.
+    """
+
+    def get(self, athlete_id: UUID) -> NutritionRestrictions: ...
+
+
+class NutritionUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU014: plan de alimentación, outbox e idempotencia juntas."""
+
+    def find_idempotency(self, key: UUID) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, key: UUID) -> None: ...
+
+    def has_active_authorization(self, athlete_id: UUID, professional_id: UUID) -> bool:
+        """Bloquea la autorización en modo compartido hasta el fin de la transacción (como en
+        HU010): una revocación concurrente espera al plan o se confirma antes y lo rechaza."""
+        ...
+
+    def add_nutrition_plan(self, plan: NutritionPlan) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class NutritionPlanPosition:
+    """Posición del cursor: último plan entregado en el orden `created_at`, `plan_id` desc."""
+
+    created_at: datetime
+    plan_id: UUID
+
+
+@dataclass(frozen=True)
+class NutritionPlanQuery:
+    athlete_id: UUID
+    after: NutritionPlanPosition | None
+    limit: int
+
+
+class NutritionPlanReader(Protocol):
+    """Proyección `nutrition_plan_view` (HU014, lectura CQRS)."""
+
+    def get(self, plan_id: UUID) -> NutritionPlan | None: ...
+
+    def list(self, query: NutritionPlanQuery) -> list[NutritionPlan]:
+        """Hasta `limit` planes del deportista, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`created_at`, `plan_id`) desc."""
         ...

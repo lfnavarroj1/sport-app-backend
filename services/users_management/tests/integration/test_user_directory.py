@@ -106,6 +106,20 @@ class UserDirectoryIntegrationTest(unittest.TestCase):
         self.assertEqual(disabled.status_code, 404, "una cuenta deshabilitada no se resuelve")
         self.assertEqual(missing.status_code, 404)
 
+    def test_nutrition_restrictions_read_the_directory(self) -> None:
+        """ADR-035 (HU014): una cuenta activa sin hábitos (HU009 aún no los registra) responde
+        listas vacías y `null`; deshabilitada o inexistente → `404 user_not_found`."""
+        found = self.client.get(f"/v1/users/{self.active_id}/nutrition-restrictions")
+        disabled = self.client.get(f"/v1/users/{self.disabled_id}/nutrition-restrictions")
+        missing = self.client.get(f"/v1/users/{uuid.uuid4()}/nutrition-restrictions")
+
+        self.assertEqual(
+            found.json(),
+            {"restrictions": [], "allergies": [], "diet_pattern": None, "version": None},
+        )
+        self.assertEqual((disabled.status_code, disabled.json()["code"]), (404, "user_not_found"))
+        self.assertEqual(missing.status_code, 404)
+
     def test_registration_alone_does_not_fill_the_directory(self) -> None:
         """Sin `usuarios-read-projector` el registro no aparece en la lectura (deuda de HU001)."""
         registered = self.client.post(

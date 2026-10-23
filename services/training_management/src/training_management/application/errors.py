@@ -87,3 +87,17 @@ class CalculationIdReused(Exception):
 
 class CalculationIdConflict(Exception):
     """Otra solicitud concurrente insertó primero el mismo `calculation_id`."""
+
+
+class NutritionPlanNotFound(Exception):
+    """HU014: el plan de alimentación no existe, no es visible para quien consulta o aún no
+    está proyectado."""
+
+    code = "nutrition_plan_not_found"
+
+
+class NutritionRestrictionsUnavailable(Exception):
+    """HU014: Usuarios no entregó las restricciones (caída, timeout o respuesta inesperada);
+    el plan nunca se crea sin validarlas."""
+
+    code = "upstream_unavailable"

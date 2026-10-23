@@ -29,6 +29,7 @@ PLAN_VIEW_PRIMARY_KEY = "pk_training_plan_view"
 AUTHORIZATION_VIEW_PRIMARY_KEY = "pk_training_authorization_view"
 SESSION_HISTORY_PRIMARY_KEY = "pk_training_session_history"
 METRIC_RESULT_ORDER_INDEX = "ix_training_metric_result_athlete_order"
+NUTRITION_PLAN_ORDER_INDEX = "ix_nutrition_plan_view_athlete_order"
 
 
 class ReadBase(DeclarativeBase):
@@ -170,6 +171,32 @@ class TrainingMetricResultRow(ReadBase):
     status: Mapped[str] = mapped_column(String(16))
     disclaimer_key: Mapped[str] = mapped_column(String(64))
     version: Mapped[int] = mapped_column(BigInteger)
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NutritionPlanViewRow(ReadBase):
+    """Plan de alimentación (HU014) a partir de `plan.alimentacion_creado.v1`; reconstruible.
+
+    `document` es el estado completo del plan (el mismo de la respuesta, sin `warnings`).
+    """
+
+    __tablename__ = "nutrition_plan_view"
+    __table_args__ = (
+        # Orden estable de la lista y del cursor: `created_at` desc, `plan_id` desc.
+        Index(
+            NUTRITION_PLAN_ORDER_INDEX,
+            "athlete_id",
+            text("created_at DESC"),
+            text("plan_id DESC"),
+        ),
+    )
+
+    plan_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID]
+    professional_id: Mapped[UUID]
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

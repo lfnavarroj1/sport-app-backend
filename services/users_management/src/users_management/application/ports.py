@@ -158,6 +158,22 @@ class UserDirectory(Protocol):
     def find_active_by_email(self, email: str) -> UserReference | None: ...
 
 
+class ActiveUserCheck(Protocol):
+    """¿El identificador corresponde a una cuenta activa del directorio? (ADR-035)."""
+
+    def is_active(self, user_id: UUID) -> bool: ...
+
+
+@dataclass(frozen=True)
+class NutritionRestrictions:
+    """Contrato interno de ADR-035: datos de salud que solo recibe `training-management`."""
+
+    restrictions: tuple[str, ...]
+    allergies: tuple[str, ...]
+    diet_pattern: str | None
+    version: int | None
+
+
 @dataclass(frozen=True)
 class UserDisplay:
     """Nombre y correo de una cuenta activa (HU011, CA5). Datos personales: solo los recibe el

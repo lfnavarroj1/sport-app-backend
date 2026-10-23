@@ -15,10 +15,18 @@ ATHLETE = "athlete"
 PLAN_AUTHOR_PERMISSION = "training.plan.author"
 PLAN_MANAGE_CAPABILITY = "training.plan.manage"
 METRICS_CAPABILITY = "training.metrics.ftp_vo2max"
+NUTRITION_PLAN_AUTHOR_PERMISSION = "nutrition.plan.author"
 
 
 def require_plan_author(caller: Caller, permissions: PermissionPolicy) -> None:
     if not permissions.allows(caller.actor_type, PLAN_AUTHOR_PERMISSION):
+        raise PermissionRequired()
+
+
+def require_nutrition_plan_author(caller: Caller, permissions: PermissionPolicy) -> None:
+    """HU014 (ADR-037): crear o consultar como autor un plan de alimentación exige el permiso
+    por actor `nutrition.plan.author`."""
+    if not permissions.allows(caller.actor_type, NUTRITION_PLAN_AUTHOR_PERMISSION):
         raise PermissionRequired()
 
 

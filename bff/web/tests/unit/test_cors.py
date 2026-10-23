@@ -146,6 +146,22 @@ class CorsMiddlewareTest(unittest.TestCase):
         for header in ("location", "idempotent-replayed", "x-correlation-id"):
             self.assertIn(header, exposed)
 
+    def test_food_catalog_revalidation_headers_are_allowed_and_exposed(self) -> None:
+        """HU014: la web puede enviar `If-None-Match` y leer `ETag` del catálogo."""
+        preflight = self.client.options(
+            "/v1/food-catalog",
+            headers={
+                "Origin": WEB_DEV_SERVER,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization, if-none-match",
+            },
+        )
+        response = self.client.get("/v1/food-catalog", headers={"Origin": WEB_DEV_SERVER})
+
+        self.assertEqual(preflight.status_code, 200)
+        self.assertIn("if-none-match", preflight.headers["access-control-allow-headers"].lower())
+        self.assertIn("etag", response.headers["access-control-expose-headers"].lower())
+
     def test_unknown_origin_gets_no_cors_headers_on_actual_request(self) -> None:
         response = self.client.get("/health/live", headers={"Origin": OTHER_ORIGIN})
 

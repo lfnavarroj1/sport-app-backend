@@ -8,6 +8,7 @@ from bff_web.api.capabilities import build_capabilities_router
 from bff_web.api.event_calendar import build_event_calendar_router
 from bff_web.api.event_publication import build_event_publication_router
 from bff_web.api.events import build_events_router
+from bff_web.api.nutrition import build_nutrition_router
 from bff_web.api.profile import build_profile_router
 from bff_web.api.registration import (
     IDEMPOTENCY_HEADER,
@@ -21,7 +22,7 @@ from bff_web.api.training_history import build_training_history_router
 from bff_web.clients.affiliation_management import AffiliationManagementClient
 from bff_web.clients.complementary_services import ComplementaryServicesClient
 from bff_web.clients.events_management import EventsManagementClient
-from bff_web.clients.training_management import TrainingManagementClient
+from bff_web.clients.training_management import IF_NONE_MATCH_HEADER, TrainingManagementClient
 from bff_web.clients.users_management import UsersManagementClient
 from bff_web.settings import BffWebSettings
 from sportapp_platform.app import create_service_app
@@ -31,7 +32,7 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.17.0"
+API_VERSION = "0.18.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
@@ -41,8 +42,16 @@ CORS_ALLOWED_HEADERS = (
     "Content-Type",
     IDEMPOTENCY_HEADER,
     CORRELATION_HEADER,
+    IF_NONE_MATCH_HEADER,
 )
-CORS_EXPOSED_HEADERS = ("Location", REPLAYED_HEADER, RETRY_AFTER_HEADER, CORRELATION_HEADER)
+# `ETag` e `If-None-Match`: revalidación del catálogo de alimentos con `304` (HU014).
+CORS_EXPOSED_HEADERS = (
+    "Location",
+    REPLAYED_HEADER,
+    RETRY_AFTER_HEADER,
+    CORRELATION_HEADER,
+    "ETag",
+)
 
 
 def create_app(
@@ -106,6 +115,13 @@ def create_app(
             ),
             build_profile_router(verify_token=verifier.verify, users=users),
             build_training_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                users=users,
+                training=training,
+                channel=CHANNEL,
+            ),
+            build_nutrition_router(
                 verify_token=verifier.verify,
                 permissions=permissions,
                 users=users,

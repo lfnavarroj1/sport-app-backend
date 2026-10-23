@@ -15,6 +15,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -241,3 +242,84 @@ class TrainingMetricInputRow(WriteBase):
     position: Mapped[int] = mapped_column(SmallInteger)
     value: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     unit: Mapped[str] = mapped_column(String(32))
+
+
+class FoodCatalogItemRow(WriteBase):
+    """Alimento del catálogo cerrado de HU014/HU043 (ADR-037); lo precarga la migración."""
+
+    __tablename__ = "food_catalog_item"
+
+    food_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label_key: Mapped[str] = mapped_column(String(80))
+    category: Mapped[str] = mapped_column(String(16))
+    default_unit: Mapped[str] = mapped_column(String(8))
+    allowed_units: Mapped[list[str]] = mapped_column(JSONB)
+    allergens: Mapped[list[str]] = mapped_column(JSONB)
+    incompatible_with: Mapped[list[str]] = mapped_column(JSONB)
+    catalog_version: Mapped[str] = mapped_column(String(64))
+
+
+class NutritionPlanRow(WriteBase):
+    """Plan de alimentación asignado (HU014); inmutable en versión 1."""
+
+    __tablename__ = "nutrition_plan"
+    __table_args__ = (
+        CheckConstraint("status IN ('ASSIGNED')", name="status"),
+        CheckConstraint("version = 1", name="version"),
+        CheckConstraint("start_date <= end_date", name="period"),
+    )
+
+    plan_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    professional_id: Mapped[UUID] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    objectives: Mapped[list[str]] = mapped_column(JSONB)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(16))
+    catalog_version: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+
+
+class NutritionPlanMealRow(WriteBase):
+    """Comida del menú diario del plan, en el orden del profesional."""
+
+    __tablename__ = "nutrition_plan_meal"
+    __table_args__ = (
+        CheckConstraint(
+            "meal_type IN ('BREAKFAST', 'LUNCH', 'DINNER', 'SNACK', 'HYDRATION')",
+            name="meal_type",
+        ),
+    )
+
+    plan_id: Mapped[UUID] = mapped_column(
+        ForeignKey("nutrition_plan.plan_id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    meal_type: Mapped[str] = mapped_column(String(16))
+
+
+class NutritionPlanItemRow(WriteBase):
+    """Alimento de una comida: cantidad con un decimal y unidad permitida del catálogo."""
+
+    __tablename__ = "nutrition_plan_item"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "meal_position"],
+            ["nutrition_plan_meal.plan_id", "nutrition_plan_meal.position"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("quantity BETWEEN 0.1 AND 5000.0", name="quantity"),
+        CheckConstraint("unit IN ('G', 'ML', 'UNIT', 'CUP', 'TBSP')", name="unit"),
+    )
+
+    plan_id: Mapped[UUID] = mapped_column(primary_key=True)
+    meal_position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    food_code: Mapped[str] = mapped_column(
+        String(64), ForeignKey("food_catalog_item.food_code", ondelete="RESTRICT")
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(5, 1))
+    unit: Mapped[str] = mapped_column(String(8))

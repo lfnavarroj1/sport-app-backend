@@ -1,4 +1,4 @@
-"""Lectura del directorio de identidad (`user_directory`) para HU010 y HU011."""
+"""Lectura del directorio de identidad (`user_directory`) para HU010, HU011 y HU014."""
 
 from uuid import UUID
 
@@ -25,6 +25,16 @@ class SqlAlchemyUserDirectory:
         if row is None:
             return None
         return UserReference(user_id=row[0], actor_type=ActorType(row[1]))
+
+    def is_active(self, user_id: UUID) -> bool:
+        with self._session_factory() as session:
+            found = session.scalar(
+                select(UserDirectoryRow.user_id).where(
+                    UserDirectoryRow.user_id == user_id,
+                    UserDirectoryRow.status == AccountStatus.ACTIVE.value,
+                )
+            )
+        return found is not None
 
     def find_active_by_ids(self, user_ids: tuple[UUID, ...]) -> list[UserDisplay]:
         with self._session_factory() as session:

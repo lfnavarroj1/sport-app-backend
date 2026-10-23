@@ -2,13 +2,15 @@
 
 Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
-(HU011), `entrenamiento.iniciado.v1` (HU032) e `indicador.calculado.v1` (HU034). Cada
+(HU011), `entrenamiento.iniciado.v1` (HU032), `indicador.calculado.v1` (HU034) y
+`plan.alimentacion_creado.v1` (HU014). Cada
 uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
 no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
 tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
 efectos.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -40,6 +42,26 @@ from training_management.domain.metrics.model import (
     MetricInput,
     MetricResult,
     TrainingMetricCalculation,
+)
+from training_management.domain.nutrition.catalog import FoodUnit
+from training_management.domain.nutrition.events import (
+    EVENT_TYPE as NUTRITION_PLAN_CREATED,
+)
+from training_management.domain.nutrition.events import (
+    SCHEMA_VERSION as NUTRITION_PLAN_SCHEMA,
+)
+from training_management.domain.nutrition.model import (
+    ITEMS_PER_MEAL_MAX,
+    MEALS_MAX,
+    OBJECTIVE_MAX_LENGTH,
+    OBJECTIVES_MAX,
+    TITLE_MAX_LENGTH,
+    Meal,
+    MealType,
+    NutritionPlan,
+    NutritionPlanStatus,
+    PlanItem,
+    quantity_in_range,
 )
 from training_management.domain.plans.events import EVENT_TYPE as PLAN_CREATED
 from training_management.domain.plans.events import SCHEMA_VERSION as PLAN_CREATED_SCHEMA
@@ -111,12 +133,20 @@ class MetricCalculatedEvent:
     calculation: TrainingMetricCalculation
 
 
+@dataclass(frozen=True)
+class NutritionPlanCreatedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    plan: NutritionPlan
+
+
 TrainingEvent = (
     PlanCreatedEvent
     | AuthorizationChangedEvent
     | SessionFinishedEvent
     | SessionStartedEvent
     | MetricCalculatedEvent
+    | NutritionPlanCreatedEvent
 )
 
 
@@ -416,6 +446,87 @@ def _metric_calculated(envelope: dict[str, Any]) -> MetricCalculatedEvent:
     )
 
 
+_QUANTITY_PATTERN = re.compile(r"[0-9]{1,4}\.[0-9]")
+_FOOD_CODE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{1,63}")
+
+
+def _bounded_list(value: object, field: str, maximum: int) -> list[Any]:
+    if not isinstance(value, list) or not 1 <= len(value) <= maximum:
+        raise InvalidEvent(f"{field}_invalid")
+    return value
+
+
+def _nutrition_item(raw: object) -> PlanItem:
+    if not isinstance(raw, dict):
+        raise InvalidEvent("items_invalid")
+    food_code, quantity, unit = raw.get("food_code"), raw.get("quantity"), raw.get("unit")
+    if not isinstance(food_code, str) or not _FOOD_CODE_PATTERN.fullmatch(food_code):
+        raise InvalidEvent("food_code_invalid")
+    if not isinstance(quantity, str) or not _QUANTITY_PATTERN.fullmatch(quantity):
+        raise InvalidEvent("quantity_invalid")
+    value = Decimal(quantity)
+    if not quantity_in_range(value):
+        raise InvalidEvent("quantity_invalid")
+    if unit not in {item.value for item in FoodUnit}:
+        raise InvalidEvent("unit_invalid")
+    return PlanItem(food_code=food_code, quantity=value, unit=str(unit))
+
+
+def _nutrition_meal(raw: object) -> Meal:
+    if not isinstance(raw, dict):
+        raise InvalidEvent("meals_invalid")
+    meal_type = raw.get("meal_type")
+    if meal_type not in {item.value for item in MealType}:
+        raise InvalidEvent("meal_type_invalid")
+    items = _bounded_list(raw.get("items"), "items", ITEMS_PER_MEAL_MAX)
+    return Meal(
+        meal_type=MealType(str(meal_type)), items=tuple(_nutrition_item(item) for item in items)
+    )
+
+
+def _nutrition_plan_created(envelope: dict[str, Any]) -> NutritionPlanCreatedEvent:
+    payload = _payload(envelope, NUTRITION_PLAN_SCHEMA)
+    version = _envelope_version(envelope)
+    plan_id = _uuid(payload.get("plan_id"), "plan_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != plan_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if payload.get("version") != version:
+        raise InvalidEvent("plan_version_mismatch")
+    if payload.get("status") not in {item.value for item in NutritionPlanStatus}:
+        raise InvalidEvent("unknown_status")
+    title = payload.get("title")
+    if not isinstance(title, str) or not 1 <= len(title) <= TITLE_MAX_LENGTH:
+        raise InvalidEvent("title_invalid")
+    objectives = _bounded_list(payload.get("objectives"), "objectives", OBJECTIVES_MAX)
+    if not all(
+        isinstance(item, str) and 1 <= len(item) <= OBJECTIVE_MAX_LENGTH for item in objectives
+    ):
+        raise InvalidEvent("objectives_invalid")
+    start_date = _date(payload.get("start_date"), "start_date")
+    end_date = _date(payload.get("end_date"), "end_date")
+    if end_date < start_date:
+        raise InvalidEvent("end_date_before_start_date")
+    meals = _bounded_list(payload.get("meals"), "meals", MEALS_MAX)
+    return NutritionPlanCreatedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        plan=NutritionPlan(
+            plan_id=plan_id,
+            athlete_id=_uuid(payload.get("athlete_id"), "athlete_id"),
+            professional_id=_uuid(payload.get("professional_id"), "professional_id"),
+            title=title,
+            objectives=tuple(objectives),
+            start_date=start_date,
+            end_date=end_date,
+            status=NutritionPlanStatus(str(payload["status"])),
+            version=version,
+            catalog_version=_text(payload.get("catalog_version"), "catalog_version"),
+            meals=tuple(_nutrition_meal(meal) for meal in meals),
+            created_at=_datetime(payload.get("created_at"), "created_at"),
+        ),
+    )
+
+
 def parse_training_event(envelope: object) -> TrainingEvent:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -432,4 +543,6 @@ def parse_training_event(envelope: object) -> TrainingEvent:
         return _session_started(envelope)
     if event_type == METRIC_CALCULATED:
         return _metric_calculated(envelope)
+    if event_type == NUTRITION_PLAN_CREATED:
+        return _nutrition_plan_created(envelope)
     raise UnsupportedEvent(event_type)

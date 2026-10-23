@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -20,6 +21,12 @@ from training_management.application.commands.calculate_training_metric import (
     CalculateTrainingMetric,
     CalculateTrainingMetricCommand,
 )
+from training_management.application.commands.create_nutrition_plan import (
+    CreateNutritionPlan,
+    CreateNutritionPlanCommand,
+    ItemInput,
+    MealInput,
+)
 from training_management.application.commands.create_training_plan import (
     CreateTrainingPlan,
     CreateTrainingPlanCommand,
@@ -31,11 +38,13 @@ from training_management.application.commands.training_sessions import (
     StartTrainingSession,
     StartTrainingSessionCommand,
 )
+from training_management.application.errors import NutritionRestrictionsUnavailable
 from training_management.application.ports import Caller
 from training_management.application.projections.snapshot_projection import TrainingProjector
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.application.queries.training_metrics import ListTrainingMetricResults
 from training_management.domain.metrics.catalog import TRAINING_METRICS_CATALOG
+from training_management.domain.nutrition.model import MealType, NutritionRestrictions
 from training_management.domain.plans.model import Sport
 from training_management.domain.sessions.model import StartInput
 from training_management.infrastructure.clock import SystemClock
@@ -47,13 +56,20 @@ from training_management.infrastructure.persistence_read.history import (
 from training_management.infrastructure.persistence_read.metrics import (
     SqlAlchemyMetricResultReader,
 )
+from training_management.infrastructure.persistence_read.nutrition import (
+    SqlAlchemyNutritionPlanReader,
+)
 from training_management.infrastructure.persistence_read.plans import (
     SqlAlchemyPlanReader,
     SqlAlchemyProjectionUnitOfWork,
 )
+from training_management.infrastructure.persistence_write.food_catalog import (
+    SqlAlchemyFoodCatalogReader,
+)
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
     SqlAlchemyMetricUnitOfWork,
+    SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemySessionUnitOfWork,
 )
@@ -77,6 +93,26 @@ class HistoryViewer:
 class AuthorOnly:
     def allows(self, actor_type: str, permission: str) -> bool:
         return actor_type == "service_provider" and permission == "training.plan.author"
+
+
+class NutritionAuthorOnly:
+    def allows(self, actor_type: str, permission: str) -> bool:
+        return actor_type == "service_provider" and permission == "nutrition.plan.author"
+
+
+class StaticRestrictions:
+    """Respuesta de Usuarios (ADR-035) sustituida en la prueba; por defecto, sin hábitos."""
+
+    def __init__(self, result: NutritionRestrictions | None = None) -> None:
+        self.result = result or NutritionRestrictions((), (), None, None)
+        self.unavailable = False
+        self.calls: list[UUID] = []
+
+    def get(self, athlete_id: UUID) -> NutritionRestrictions:
+        self.calls.append(athlete_id)
+        if self.unavailable:
+            raise NutritionRestrictionsUnavailable()
+        return self.result
 
 
 @dataclass
@@ -158,6 +194,18 @@ class TrainingDatabases:
 
     def reader(self) -> SqlAlchemyPlanReader:
         return SqlAlchemyPlanReader(self.reads)
+
+    def create_nutrition_plan(self, restrictions: "StaticRestrictions") -> CreateNutritionPlan:
+        return CreateNutritionPlan(
+            unit_of_work=lambda: SqlAlchemyNutritionUnitOfWork(self.writes),
+            permissions=NutritionAuthorOnly(),
+            catalog=SqlAlchemyFoodCatalogReader(self.writes),
+            restrictions=restrictions,
+            clock=SystemClock(),
+        )
+
+    def nutrition_reader(self) -> SqlAlchemyNutritionPlanReader:
+        return SqlAlchemyNutritionPlanReader(self.reads)
 
     def discard_pending_outbox(self) -> None:
         """Marca como publicados los eventos pendientes (p. ej., los de autorizaciones de HU011)
@@ -266,3 +314,25 @@ def metric_command(
         idempotency_key=str(key or uuid4()),
         correlation_id=uuid4(),
     )
+
+
+def nutrition_command(athlete_id: UUID, **overrides: Any) -> CreateNutritionPlanCommand:
+    """Plan de alimentación de HU014 con datos sintéticos."""
+    values: dict[str, Any] = {
+        "athlete_id": athlete_id,
+        "title": "Plan de recuperación",
+        "objectives": ("Hidratación diaria",),
+        "start_date": date(2026, 11, 2),
+        "end_date": date(2026, 11, 29),
+        "meals": (
+            MealInput(
+                MealType.BREAKFAST,
+                (ItemInput("OATS", Decimal("80"), "G"), ItemInput("MILK", Decimal("200"), "ML")),
+            ),
+            MealInput(MealType.LUNCH, (ItemInput("CHICKEN_BREAST", Decimal("150.5"), "G"),)),
+        ),
+        "idempotency_key": uuid4(),
+        "correlation_id": uuid4(),
+    }
+    values.update(overrides)
+    return CreateNutritionPlanCommand(**values)

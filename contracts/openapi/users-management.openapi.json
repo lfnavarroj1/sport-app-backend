@@ -566,6 +566,83 @@
         "title": "MaritalStatus",
         "type": "string"
       },
+      "NutritionRestrictionsResponse": {
+        "properties": {
+          "allergies": {
+            "items": {
+              "enum": [
+                "PEANUTS",
+                "TREE_NUTS",
+                "MILK",
+                "EGGS",
+                "WHEAT",
+                "SOY",
+                "FISH",
+                "SHELLFISH",
+                "SESAME"
+              ],
+              "type": "string"
+            },
+            "title": "Allergies",
+            "type": "array"
+          },
+          "diet_pattern": {
+            "anyOf": [
+              {
+                "enum": [
+                  "OMNIVORE",
+                  "VEGETARIAN",
+                  "VEGAN",
+                  "PESCATARIAN",
+                  "FLEXITARIAN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` si el usuario no registró hábitos alimenticios.",
+            "title": "Diet Pattern"
+          },
+          "restrictions": {
+            "items": {
+              "enum": [
+                "GLUTEN_FREE",
+                "LACTOSE_FREE",
+                "LOW_SODIUM",
+                "LOW_SUGAR",
+                "KETO",
+                "HALAL",
+                "KOSHER"
+              ],
+              "type": "string"
+            },
+            "title": "Restrictions",
+            "type": "array"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Versión de los hábitos alimenticios; `null` si no los registró (en ese caso las listas van vacías).",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "restrictions",
+          "allergies",
+          "diet_pattern",
+          "version"
+        ],
+        "title": "NutritionRestrictionsResponse",
+        "type": "object"
+      },
       "PhysiologicalProfileResponse": {
         "properties": {
           "blood_pressure": {
@@ -1076,7 +1153,7 @@
   },
   "info": {
     "title": "SportApp - Usuarios",
-    "version": "0.7.0"
+    "version": "0.8.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2073,6 +2150,60 @@
           }
         },
         "summary": "Nombre y correo de un lote de cuentas activas (interno, HU011)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/{user_id}/nutrition-restrictions": {
+      "get": {
+        "description": "Solo para `training-management` (HU014). Sin hábitos registrados: listas vacías y `diet_pattern`/`version` en `null`.",
+        "operationId": "nutrition_restrictions_v1_users__user_id__nutrition_restrictions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NutritionRestrictionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`user_not_found`: no hay una cuenta activa con ese identificador."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restricciones y alergias alimenticias de un usuario (interno, ADR-035)",
         "tags": [
           "users"
         ]

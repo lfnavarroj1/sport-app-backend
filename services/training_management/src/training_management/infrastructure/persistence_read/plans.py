@@ -1,6 +1,6 @@
 """Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
 proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011), sesión
-activa (HU032) y resultados de indicadores (HU034)."""
+activa (HU032), resultados de indicadores (HU034) y planes de alimentación (HU014)."""
 
 from datetime import date, datetime
 from types import TracebackType
@@ -21,6 +21,7 @@ from training_management.application.ports import (
     SessionView,
 )
 from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.events import planned_session_id
 from training_management.infrastructure.persistence_read.metrics import (
     metric_result,
@@ -30,6 +31,7 @@ from training_management.infrastructure.persistence_read.models import (
     PLAN_VIEW_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     ActiveTrainingSessionRow,
+    NutritionPlanViewRow,
     ProcessedEventRow,
     TrainingAuthorizationViewRow,
     TrainingMetricResultRow,
@@ -37,6 +39,7 @@ from training_management.infrastructure.persistence_read.models import (
     TrainingPlanViewRow,
     TrainingSessionHistoryRow,
 )
+from training_management.infrastructure.persistence_read.nutrition import nutrition_plan_values
 
 
 def _sessions_document(view: PlanView) -> list[dict[str, Any]]:
@@ -282,6 +285,24 @@ class SqlAlchemyProjectionUnitOfWork:
         self, calculation: TrainingMetricCalculation, projected_at: datetime
     ) -> None:
         self.session.add(TrainingMetricResultRow(**metric_result_values(calculation, projected_at)))
+
+    def nutrition_plan_version(self, plan_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(NutritionPlanViewRow.version)
+            .where(NutritionPlanViewRow.plan_id == plan_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_nutrition_plan_view(self, plan: NutritionPlan, projected_at: datetime) -> None:
+        values = nutrition_plan_values(plan, projected_at)
+        statement = insert(NutritionPlanViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["plan_id"],
+                set_={key: statement.excluded[key] for key in values if key != "plan_id"},
+            )
+        )
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

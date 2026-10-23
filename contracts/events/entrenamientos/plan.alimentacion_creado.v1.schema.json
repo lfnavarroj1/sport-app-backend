@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/plan.alimentacion_creado.v1.schema.json",
+  "title": "plan.alimentacion_creado.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = plan_id (= aggregate_id) cuando un profesional autorizado crea y asigna un plan de alimentación (HU014, ADR-037). Estado completo del plan para entrenamientos-read-projector (nutrition_plan_view). No transporta las alergias ni las restricciones consultadas en Usuarios, ni avisos, nombres, correos o texto libre clínico.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "plan.alimentacion_creado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "training-management"},
+    "aggregate_type": {"const": "nutrition_plan"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "plan_id del plan de alimentación."
+    },
+    "aggregate_version": {"type": "integer", "minimum": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "Idempotency-Key del comando que creó el plan."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id",
+        "athlete_id",
+        "professional_id",
+        "title",
+        "objectives",
+        "start_date",
+        "end_date",
+        "status",
+        "version",
+        "catalog_version",
+        "meals",
+        "created_at"
+      ],
+      "properties": {
+        "plan_id": {"type": "string", "format": "uuid"},
+        "athlete_id": {"type": "string", "format": "uuid"},
+        "professional_id": {"type": "string", "format": "uuid"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "objectives": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "start_date": {"type": "string", "format": "date"},
+        "end_date": {"type": "string", "format": "date"},
+        "status": {"const": "ASSIGNED"},
+        "version": {"type": "integer", "minimum": 1},
+        "catalog_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Versión del catálogo de alimentos con la que se validó el plan (food-catalog-2026-10-13.v1)."
+        },
+        "meals": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "Menú diario del periodo, en el orden en que lo definió el profesional.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["meal_type", "items"],
+            "properties": {
+              "meal_type": {"enum": ["BREAKFAST", "LUNCH", "DINNER", "SNACK", "HYDRATION"]},
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 15,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["food_code", "quantity", "unit"],
+                  "properties": {
+                    "food_code": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+                      "description": "Código del catálogo de alimentos; el catálogo se amplía solo por migración."
+                    },
+                    "quantity": {
+                      "type": "string",
+                      "pattern": "^[0-9]{1,4}\\.[0-9]$",
+                      "description": "Cadena decimal con un decimal entre 0.1 y 5000.0."
+                    },
+                    "unit": {"enum": ["G", "ML", "UNIT", "CUP", "TBSP"]}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

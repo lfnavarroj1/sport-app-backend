@@ -13,7 +13,9 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 from training_management.api.authorizations import build_authorizations_router
 from training_management.api.authorized_athletes import build_authorized_athletes_router
+from training_management.api.food_catalog import build_food_catalog_router
 from training_management.api.history import build_history_router
+from training_management.api.nutrition_plans import build_nutrition_plans_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
 from training_management.api.training_metrics import build_training_metrics_router
@@ -25,6 +27,7 @@ from training_management.application.commands.authorizations import (
 from training_management.application.commands.calculate_training_metric import (
     CalculateTrainingMetric,
 )
+from training_management.application.commands.create_nutrition_plan import CreateNutritionPlan
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
 from training_management.application.commands.training_sessions import (
     FinishTrainingSession,
@@ -32,7 +35,12 @@ from training_management.application.commands.training_sessions import (
 )
 from training_management.application.queries.active_session import GetActiveTrainingSession
 from training_management.application.queries.authorized_athletes import GetAuthorizedAthletes
+from training_management.application.queries.food_catalog import GetFoodCatalog
 from training_management.application.queries.get_training_plan import GetTrainingPlan
+from training_management.application.queries.nutrition_plans import (
+    GetNutritionPlan,
+    ListMyNutritionPlans,
+)
 from training_management.application.queries.planned_sessions import GetPlannedSessions
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.application.queries.training_metrics import (
@@ -45,6 +53,7 @@ from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
 )
+from training_management.infrastructure.integrations.users import UsersNutritionRestrictions
 from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyActiveSessionReader,
     SqlAlchemyAuthorizationReader,
@@ -55,17 +64,25 @@ from training_management.infrastructure.persistence_read.history import (
 from training_management.infrastructure.persistence_read.metrics import (
     SqlAlchemyMetricResultReader,
 )
+from training_management.infrastructure.persistence_read.nutrition import (
+    SqlAlchemyNutritionPlanReader,
+)
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
+from training_management.infrastructure.persistence_write.food_catalog import (
+    FoodCatalogReadinessCheck,
+    SqlAlchemyFoodCatalogReader,
+)
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
     SqlAlchemyMetricUnitOfWork,
+    SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemySessionUnitOfWork,
 )
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.8.0"
+API_VERSION = "0.9.0"
 
 
 def create_app(
@@ -102,14 +119,20 @@ def create_app(
     )
     clock = SystemClock()
     capabilities = AffiliationCapabilityChecker(affiliation_http)
+    food_catalog = SqlAlchemyFoodCatalogReader(writes)
+    authorization_views = SqlAlchemyAuthorizationReader(reads)
     return create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - Entrenamientos",
         api_version=API_VERSION,
         settings=settings,
         # Solo la base de escritura condiciona readiness: si la lectura cae,
-        # los comandos continúan y las consultas se degradan de forma controlada.
-        readiness_checks=[DatabaseReadinessCheck("database_write", engine)],
+        # los comandos continúan y las consultas se degradan de forma controlada. HU014: el
+        # catálogo de alimentos de la base de escritura debe estar completo en su versión.
+        readiness_checks=[
+            DatabaseReadinessCheck("database_write", engine),
+            FoodCatalogReadinessCheck(engine),
+        ],
         routers=[
             build_authorizations_router(
                 verify_token=verifier.verify,
@@ -139,7 +162,7 @@ def create_app(
                 verify_token=verifier.verify,
                 get_history=GetTrainingHistory(
                     reader=SqlAlchemyHistoryReader(reads),
-                    authorizations=SqlAlchemyAuthorizationReader(reads),
+                    authorizations=authorization_views,
                     permissions=permissions,
                 ),
             ),
@@ -181,6 +204,25 @@ def create_app(
                     capabilities=capabilities,
                     catalog=TRAINING_METRICS_CATALOG,
                 ),
+            ),
+            build_nutrition_plans_router(
+                verify_token=verifier.verify,
+                create_plan=CreateNutritionPlan(
+                    unit_of_work=lambda: SqlAlchemyNutritionUnitOfWork(writes),
+                    permissions=permissions,
+                    catalog=food_catalog,
+                    restrictions=UsersNutritionRestrictions(users_http),
+                    clock=clock,
+                ),
+                get_plan=GetNutritionPlan(
+                    reader=SqlAlchemyNutritionPlanReader(reads),
+                    authorizations=authorization_views,
+                    permissions=permissions,
+                ),
+                list_plans=ListMyNutritionPlans(reader=SqlAlchemyNutritionPlanReader(reads)),
+            ),
+            build_food_catalog_router(
+                verify_token=verifier.verify, get_catalog=GetFoodCatalog(catalog=food_catalog)
             ),
         ],
         shutdown_hooks=[

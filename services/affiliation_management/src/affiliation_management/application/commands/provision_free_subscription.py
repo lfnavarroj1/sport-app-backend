@@ -5,7 +5,9 @@ En una sola transacción local:
 2. si el actor no es `athlete`, registra el evento sin suscripción (CA7);
 3. si el usuario ya tiene una suscripción activa, registra el evento sin crear otra (CA9);
 4. en otro caso crea la suscripción `FREE` con origen `AUTO_REGISTRATION`, deja
-   `suscripcion.activada.v1` en la outbox y registra el evento en la inbox (CA6).
+   `suscripcion.activada.v1` en la outbox y registra el evento en la inbox (CA6). Desde
+   HU016 (ADR-036) la suscripción guarda la oferta `NONE` y el periodo, y el alta deja el
+   movimiento `FREE_ACTIVATED` en `subscription_history`.
 
 El consumidor confirma (ACK) el mensaje solo después de que este caso de uso
 termina; un error deja el mensaje sin confirmar para que Pub/Sub lo reintente.
@@ -26,6 +28,11 @@ from affiliation_management.application.ports import (
     InboxResult,
     OutboxMessage,
     ProvisioningUnitOfWork,
+)
+from affiliation_management.domain.subscriptions.change import (
+    Movement,
+    MovementType,
+    free_activated_movement_id,
 )
 from affiliation_management.domain.subscriptions.events import (
     AGGREGATE_TYPE,
@@ -99,9 +106,24 @@ class ProvisionFreeSubscription:
                 raise CatalogUnavailable()
 
             subscription = Subscription.activate_free(
-                subscription_id=self._new_id(), user_id=event.user_id, plan=plan, now=now
+                subscription_id=self._new_id(),
+                user_id=event.user_id,
+                plan=plan,
+                now=now,
+                plan_offer_id=unit_of_work.none_offer_id(plan),
             )
             unit_of_work.add_subscription(subscription)
+            unit_of_work.add_movement(
+                Movement(
+                    movement_id=free_activated_movement_id(subscription.subscription_id),
+                    user_id=event.user_id,
+                    movement_type=MovementType.FREE_ACTIVATED,
+                    occurred_at=now,
+                    subscription_id=subscription.subscription_id,
+                    plan_code=plan.plan_code,
+                    periodicity=subscription.periodicity,
+                )
+            )
             unit_of_work.add_outbox(
                 OutboxMessage(
                     event_id=self._new_id(),

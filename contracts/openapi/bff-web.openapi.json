@@ -1881,6 +1881,109 @@
         "title": "PhysiologicalProfileSection",
         "type": "object"
       },
+      "PlanOfferResponse": {
+        "properties": {
+          "currency": {
+            "const": "COP",
+            "title": "Currency",
+            "type": "string"
+          },
+          "duration_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` en la oferta `NONE`.",
+            "title": "Duration Months"
+          },
+          "periodicity": {
+            "enum": [
+              "NONE",
+              "MONTHLY",
+              "QUARTERLY",
+              "ANNUAL"
+            ],
+            "title": "Periodicity",
+            "type": "string"
+          },
+          "price": {
+            "description": "Cadena decimal con dos decimales en COP, antes de impuestos (precio de referencia).",
+            "examples": [
+              "2400.00"
+            ],
+            "title": "Price",
+            "type": "string"
+          }
+        },
+        "required": [
+          "periodicity",
+          "price",
+          "currency",
+          "duration_months"
+        ],
+        "title": "PlanOfferResponse",
+        "type": "object"
+      },
+      "PlanResponse": {
+        "properties": {
+          "capabilities": {
+            "description": "Capacidades materializadas (incluye las heredadas).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "offers": {
+            "items": {
+              "$ref": "#/components/schemas/PlanOfferResponse"
+            },
+            "title": "Offers",
+            "type": "array"
+          },
+          "plan_code": {
+            "title": "Plan Code",
+            "type": "string"
+          },
+          "selectable": {
+            "description": "Los planes pagos; volver a `FREE` siempre está permitido.",
+            "title": "Selectable",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_code",
+          "name",
+          "description",
+          "level",
+          "version",
+          "selectable",
+          "capabilities",
+          "offers"
+        ],
+        "title": "PlanResponse",
+        "type": "object"
+      },
       "PlannedSession": {
         "additionalProperties": false,
         "properties": {
@@ -1921,6 +2024,40 @@
           "intensity_rpe"
         ],
         "title": "PlannedSession",
+        "type": "object"
+      },
+      "PlansResponse": {
+        "properties": {
+          "catalog_version": {
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "current_plan_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Plan vigente de quien consulta; `null` en `PROVISIONING`.",
+            "title": "Current Plan Code"
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/PlanResponse"
+            },
+            "title": "Plans",
+            "type": "array"
+          }
+        },
+        "required": [
+          "catalog_version",
+          "current_plan_code",
+          "plans"
+        ],
+        "title": "PlansResponse",
         "type": "object"
       },
       "ProfileResponse": {
@@ -2736,6 +2873,187 @@
         "title": "SportHabitsSection",
         "type": "object"
       },
+      "SubscriptionChangeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_subscription_version": {
+            "description": "`version` de la suscripción vigente.",
+            "minimum": 1.0,
+            "title": "Expected Subscription Version",
+            "type": "integer"
+          },
+          "periodicity": {
+            "description": "`NONE` para `FREE`; `MONTHLY`, `QUARTERLY` o `ANNUAL` para pagos.",
+            "enum": [
+              "NONE",
+              "MONTHLY",
+              "QUARTERLY",
+              "ANNUAL"
+            ],
+            "title": "Periodicity",
+            "type": "string"
+          },
+          "plan_code": {
+            "examples": [
+              "PREMIUM"
+            ],
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Plan Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_code",
+          "periodicity",
+          "expected_subscription_version"
+        ],
+        "title": "SubscriptionChangeRequest",
+        "type": "object"
+      },
+      "SubscriptionResponse": {
+        "description": "Suscripción vigente; en `PROVISIONING` todos los demás campos son `null`.",
+        "properties": {
+          "origin": {
+            "anyOf": [
+              {
+                "enum": [
+                  "AUTO_REGISTRATION",
+                  "USER_CHANGE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Instante en UTC con sufijo `Z`. `null` en `FREE`.",
+            "title": "Period End"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Instante en UTC con sufijo `Z`.",
+            "title": "Period Start"
+          },
+          "periodicity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "NONE",
+                  "MONTHLY",
+                  "QUARTERLY",
+                  "ANNUAL"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Periodicity"
+          },
+          "plan_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Code"
+          },
+          "plan_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Version"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cadena decimal con dos decimales en COP, antes de impuestos (precio de referencia). `null` si la versión del plan no tiene ofertas. SportApp no procesa el pago: el compromiso es informativo.",
+            "title": "Price"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "PROVISIONING"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Se envía como `expected_subscription_version`.",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "subscription_id",
+          "plan_code",
+          "plan_version",
+          "periodicity",
+          "price",
+          "period_start",
+          "period_end",
+          "status",
+          "origin",
+          "version"
+        ],
+        "title": "SubscriptionResponse",
+        "type": "object"
+      },
       "TrainingAthleteItem": {
         "properties": {
           "athlete_id": {
@@ -3065,7 +3383,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.19.0"
+    "version": "0.20.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5752,6 +6070,234 @@
         ]
       }
     },
+    "/v1/me/subscription": {
+      "get": {
+        "description": "En `PROVISIONING` (alta gratuita en curso) los demás campos son `null`.",
+        "operationId": "my_subscription_v1_me_subscription_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mi suscripción vigente (HU016)",
+        "tags": [
+          "subscriptions"
+        ]
+      }
+    },
+    "/v1/me/subscription/changes": {
+      "post": {
+        "description": "Cambio inmediato y sin prorrateo. Un plan pago registra un compromiso de pago informativo `PENDING_EXTERNAL`; volver a `FREE` condona los vigentes. SportApp no procesa el pago: el compromiso es informativo. Tras el `200`, el cliente vuelve a consultar `GET /v1/me/capabilities`.",
+        "operationId": "change_v1_me_subscription_changes_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`plan_not_found`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`plan_not_selectable`, `subscription_unchanged`, `subscription_provisioning` (recuperable), `version_conflict` (versión vigente en `details`) o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: forma del cuerpo o de `Idempotency-Key`, o periodicidad incoherente con el plan (`body.periodicity` `inconsistent_values`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Seleccionar o cambiar mi plan (HU016)",
+        "tags": [
+          "subscriptions"
+        ]
+      }
+    },
     "/v1/me/training-athletes": {
       "get": {
         "description": "Solo `service_provider` con `training.history.view_assigned` y solo autorizaciones vigentes; orden `authorized_at` y `athlete_id` descendentes. Una revocación retira al deportista cuando se proyecta. Si Usuarios no entrega nombre y correo de todos los deportistas de la página, responde `503`.",
@@ -6320,6 +6866,95 @@
         "summary": "Consultar un plan de alimentación (HU014)",
         "tags": [
           "nutrition"
+        ]
+      }
+    },
+    "/v1/plans": {
+      "get": {
+        "operationId": "plans_v1_plans_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlansResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Catálogo de planes con capacidades y ofertas (HU016)",
+        "tags": [
+          "subscriptions"
         ]
       }
     },

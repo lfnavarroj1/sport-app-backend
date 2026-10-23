@@ -102,7 +102,12 @@ _USERS = {
     "REGISTRATION_POLICIES_VERSION": "contract",
     "HEALTH_DATA_CONSENT_VERSION": "contract",
 }
-_AFFILIATION = {**_SINGLE, "AFFILIATION_EXPECTED_CATALOG_VERSION": "contract"}
+_AFFILIATION = {
+    **_SINGLE,
+    "AFFILIATION_EXPECTED_CATALOG_VERSION": "contract",
+    # HU016: JWKS de Usuarios para verificar el token del deportista.
+    "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
+}
 _BFF = {
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
     "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",

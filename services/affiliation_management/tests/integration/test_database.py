@@ -31,7 +31,7 @@ from sportapp_platform.migrations import current_revision, downgrade, upgrade
 from sportapp_platform.testing.postgres import temporary_database
 
 HISTORY = "affiliation_management.infrastructure.persistence:migrations"
-HEAD = "0003_plan_price_offers"
+HEAD = "0004_subscription_changes"
 CATALOG = "plans-2026-10-13.v1"
 PREVIOUS_CATALOG = "plans-2026-10-11.v1"
 seed_0002 = importlib.import_module(
@@ -341,6 +341,7 @@ class CatalogReadinessTest(unittest.TestCase):
             app_env="test",  # type: ignore[arg-type]
             database_url=url,  # type: ignore[arg-type]
             affiliation_expected_catalog_version=CATALOG,
+            users_management_base_url="http://users-management",  # type: ignore[arg-type]
         )
         with TestClient(create_app(settings)) as client:
             response = client.get("/health/ready")

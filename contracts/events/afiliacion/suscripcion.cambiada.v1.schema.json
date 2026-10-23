@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/afiliacion/suscripcion.cambiada.v1.schema.json",
+  "title": "suscripcion.cambiada.v1",
+  "description": "Publicado en sportapp.afiliacion.v1 con ordering_key = user_id (= aggregate_id) cuando el deportista cambia de plan (HU016, ADR-036): cambio inmediato y sin prorrateo. Sin consumidores aprobados. No transporta nombres, importes, compromisos de pago ni la lista de capacidades: el estado vigente se consulta por el contrato de capacidades.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "suscripcion.cambiada.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "affiliation-management"},
+    "aggregate_type": {"const": "user_subscription"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "user_id: una sola secuencia lógica de suscripción por usuario."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "Versión de la suscripción nueva: consecutiva a la del alta (1)."
+    },
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "Idempotency-Key del comando que originó el cambio."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscription_id",
+        "previous_subscription_id",
+        "user_id",
+        "previous_plan_code",
+        "plan_code",
+        "plan_version",
+        "periodicity",
+        "catalog_version",
+        "status",
+        "origin",
+        "period_start",
+        "period_end",
+        "changed_at"
+      ],
+      "properties": {
+        "subscription_id": {"type": "string", "format": "uuid"},
+        "previous_subscription_id": {"type": "string", "format": "uuid"},
+        "user_id": {"type": "string", "format": "uuid"},
+        "previous_plan_code": {"enum": ["FREE", "INTERMEDIATE", "PREMIUM"]},
+        "plan_code": {"enum": ["FREE", "INTERMEDIATE", "PREMIUM"]},
+        "plan_version": {"type": "integer", "minimum": 1},
+        "periodicity": {"enum": ["NONE", "MONTHLY", "QUARTERLY", "ANNUAL"]},
+        "catalog_version": {"type": "string", "minLength": 1, "maxLength": 40},
+        "status": {"const": "ACTIVE"},
+        "origin": {"const": "USER_CHANGE"},
+        "period_start": {"type": "string", "format": "date-time"},
+        "period_end": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "period_start + duración de la oferta; null en FREE."
+        },
+        "changed_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

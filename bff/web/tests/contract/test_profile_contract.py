@@ -1,5 +1,5 @@
-"""HU005 (ADR-034): `bff-web` expone las tres operaciones del perfil con el mismo contrato
-que `users-management`.
+"""HU005 y HU006 (ADR-034): `bff-web` expone las cuatro operaciones del perfil con el mismo
+contrato que `users-management`.
 
 Compara los OpenAPI versionados: cuerpo de las solicitudes y respuestas de éxito idénticos
 (sin títulos ni descripciones) y los mismos errores del servicio; el BFF solo agrega los
@@ -16,6 +16,7 @@ from sportapp_platform.testing.contracts import openapi_contract_path, repositor
 OPERATIONS = (
     ("/v1/me/demographic-profile", "put"),
     ("/v1/me/physiological-profile", "put"),
+    ("/v1/me/sport-habits", "put"),
     ("/v1/me/profile", "get"),
 )
 DOCUMENTATION_KEYS = {"title", "description", "examples"}
@@ -58,7 +59,7 @@ class ProfileContractEquivalenceTest(unittest.TestCase):
         return operation
 
     def test_request_bodies_are_identical(self) -> None:
-        for path, method in OPERATIONS[:2]:
+        for path, method in OPERATIONS[:3]:
             with self.subTest(path=path):
                 service = self.operation(self.service, path, method)["requestBody"]
                 bff = self.operation(self.bff, path, method)["requestBody"]

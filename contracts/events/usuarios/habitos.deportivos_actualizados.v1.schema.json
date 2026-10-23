@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/usuarios/habitos.deportivos_actualizados.v1.schema.json",
+  "title": "habitos.deportivos_actualizados.v1",
+  "description": "Publicado en sportapp.usuarios.v1 con ordering_key = user_id cuando el deportista registra o reemplaza sus hábitos deportivos (HU006, ADR-034); HU008 reutilizará el agregado. Estado completo de la sección, con deportes, días y franjas en el orden de su catálogo; sin datos demográficos ni fisiológicos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "habitos.deportivos_actualizados.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "gestion-usuarios"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "user_id del deportista; también ordering_key. aggregate_type = sport_habits (atributo del mensaje)."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Versión de la sección; igual a payload.version."
+    },
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "Idempotency-Key del comando que originó el evento."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "version",
+        "sports",
+        "availability",
+        "primary_goal",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "user_id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "sports": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "description": "Sin deporte repetido, en el orden del catálogo de HU010.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sport",
+              "frequency_per_week",
+              "session_duration_minutes",
+              "intensity",
+              "level",
+              "years_practicing"
+            ],
+            "properties": {
+              "sport": {"enum": ["running", "cycling", "swimming", "strength", "other"]},
+              "frequency_per_week": {"type": "integer", "minimum": 1, "maximum": 7},
+              "session_duration_minutes": {"type": "integer", "minimum": 10, "maximum": 600},
+              "intensity": {"enum": ["LOW", "MODERATE", "HIGH"]},
+              "level": {"enum": ["BEGINNER", "INTERMEDIATE", "ADVANCED"]},
+              "years_practicing": {"type": ["integer", "null"], "minimum": 0, "maximum": 80}
+            }
+          }
+        },
+        "availability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["days", "time_slots"],
+          "properties": {
+            "days": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 7,
+              "uniqueItems": true,
+              "items": {"enum": ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]}
+            },
+            "time_slots": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {"enum": ["MORNING", "AFTERNOON", "EVENING", "NIGHT"]}
+            }
+          }
+        },
+        "primary_goal": {
+          "enum": ["HEALTH", "PERFORMANCE", "WEIGHT_MANAGEMENT", "RECREATION", "COMPETITION", null]
+        },
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

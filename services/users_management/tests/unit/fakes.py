@@ -17,6 +17,7 @@ from users_management.application.commands.update_demographic_profile import (
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.errors import (
     IdempotencyKeyConflict,
     ReadModelUnavailable,
@@ -414,6 +415,44 @@ def update_physiological_with(
         clock=clock or FixedClock(),
         current_consent_version=CONSENT_VERSION,
     )
+
+
+def update_sport_habits_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> UpdateSportHabits:
+    return UpdateSportHabits(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+    )
+
+
+def sport_habits_body(**overrides: Any) -> dict[str, Any]:
+    """Cuerpo sintético del ejemplo de ADR-034 con dos deportes (sin `expected_version`)."""
+    values: dict[str, Any] = {
+        "sports": [
+            {
+                "sport": "swimming",
+                "frequency_per_week": 2,
+                "session_duration_minutes": 60,
+                "intensity": "LOW",
+                "level": "BEGINNER",
+            },
+            {
+                "sport": "running",
+                "frequency_per_week": 3,
+                "session_duration_minutes": 45,
+                "intensity": "MODERATE",
+                "level": "INTERMEDIATE",
+                "years_practicing": 4,
+            },
+        ],
+        "availability": {"days": ["SAT", "MON", "WED"], "time_slots": ["EVENING", "MORNING"]},
+        "primary_goal": "HEALTH",
+    }
+    values.update(overrides)
+    return values
 
 
 def demographic_body(**overrides: Any) -> dict[str, Any]:

@@ -1,12 +1,13 @@
 """Lectura validada de los eventos de `sportapp.usuarios.v1` para `usuarios-read-projector`.
 
-Se proyectan `usuario.registrado.v1` (HU001, directorio de identidad) y
-`perfil.demografico_actualizado.v1` / `perfil.fisiologico_actualizado.v1` (HU005,
-ADR-034). Cada evento se valida contra su esquema versionado en `contracts/events/usuarios/`
-campo a campo y el payload no admite campos fuera del contrato (minimización): un mensaje
-que no lo cumple es un `InvalidEvent`, no se confirma y, agotadas las entregas, termina en
-la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este proyector todavía no lo
-proyecta y se confirma sin efectos.
+Se proyectan `usuario.registrado.v1` (HU001, directorio de identidad),
+`perfil.demografico_actualizado.v1` / `perfil.fisiologico_actualizado.v1` (HU005) y
+`habitos.deportivos_actualizados.v1` (HU006), los dos últimos según ADR-034. Cada evento
+se valida campo a campo contra su esquema versionado en `contracts/events/usuarios/` y el
+payload no admite campos fuera del contrato (minimización): un mensaje que no lo cumple es
+un `InvalidEvent`, no se confirma y, agotadas las entregas, termina en la DLQ. Otro tipo de
+evento del tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma
+sin efectos.
 
 Los motivos de rechazo nombran el campo, nunca su valor: el payload contiene datos
 demográficos y de salud.
@@ -16,6 +17,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +29,23 @@ from users_management.domain.profile.events import (
 from users_management.domain.profile.events import (
     SECTION_BY_EVENT_TYPE,
     ProfileSection,
+)
+from users_management.domain.profile.sport_habits import (
+    DAYS_MAX,
+    DURATION_MAX,
+    DURATION_MIN,
+    FREQUENCY_MAX,
+    FREQUENCY_MIN,
+    SPORTS_MAX,
+    TIME_SLOTS_MAX,
+    YEARS_MAX,
+    YEARS_MIN,
+    Day,
+    Intensity,
+    Level,
+    PrimaryGoal,
+    Sport,
+    TimeSlot,
 )
 
 PRODUCER = "gestion-usuarios"
@@ -83,6 +102,20 @@ PHYSIOLOGICAL_FIELDS = frozenset(
         "updated_at",
     }
 )
+SPORT_HABITS_FIELDS = frozenset(
+    {"user_id", "version", "sports", "availability", "primary_goal", "created_at", "updated_at"}
+)
+_SPORT_FIELDS = frozenset(
+    {
+        "sport",
+        "frequency_per_week",
+        "session_duration_minutes",
+        "intensity",
+        "level",
+        "years_practicing",
+    }
+)
+_AVAILABILITY_FIELDS = frozenset({"days", "time_slots"})
 _CONSENT_FIELDS = frozenset({"version", "accepted_at"})
 _BLOOD_PRESSURE_FIELDS = frozenset({"systolic_mmhg", "diastolic_mmhg"})
 
@@ -319,9 +352,49 @@ def _validate_physiological(payload: dict[str, Any]) -> None:
     )
 
 
+def _catalog_list(value: object, field: str, catalog: type[StrEnum], maximum: int) -> list[str]:
+    """Lista de 1 a `maximum` valores únicos del catálogo en su orden canónico."""
+    order = [member.value for member in catalog]
+    if (
+        not isinstance(value, list)
+        or not 1 <= len(value) <= maximum
+        or any(not isinstance(item, str) or item not in order for item in value)
+        or value != sorted(set(value), key=order.index)
+    ):
+        raise InvalidEvent(f"{field}_invalid")
+    return value
+
+
+def _validate_sport(value: object) -> str:
+    sport = _object(value, "sport", _SPORT_FIELDS)
+    _int(sport["frequency_per_week"], "frequency_per_week", FREQUENCY_MIN, FREQUENCY_MAX)
+    _int(sport["session_duration_minutes"], "session_duration_minutes", DURATION_MIN, DURATION_MAX)
+    _choice(sport["intensity"], "intensity", frozenset(Intensity))
+    _choice(sport["level"], "level", frozenset(Level))
+    _optional(
+        sport["years_practicing"], lambda v: _int(v, "years_practicing", YEARS_MIN, YEARS_MAX)
+    )
+    return _choice(sport["sport"], "sport", frozenset(Sport))
+
+
+def _validate_sport_habits(payload: dict[str, Any]) -> None:
+    sports = payload["sports"]
+    if not isinstance(sports, list) or not 1 <= len(sports) <= SPORTS_MAX:
+        raise InvalidEvent("sports_invalid")
+    names = [_validate_sport(item) for item in sports]
+    order = [member.value for member in Sport]
+    if names != sorted(set(names), key=order.index):
+        raise InvalidEvent("sports_not_canonical")
+    availability = _object(payload["availability"], "availability", _AVAILABILITY_FIELDS)
+    _catalog_list(availability["days"], "days", Day, DAYS_MAX)
+    _catalog_list(availability["time_slots"], "time_slots", TimeSlot, TIME_SLOTS_MAX)
+    _optional(payload["primary_goal"], lambda v: _choice(v, "primary_goal", frozenset(PrimaryGoal)))
+
+
 _SECTION_RULES: dict[ProfileSection, tuple[frozenset[str], Callable[[dict[str, Any]], None]]] = {
     ProfileSection.DEMOGRAPHIC: (DEMOGRAPHIC_FIELDS, _validate_demographic),
     ProfileSection.PHYSIOLOGICAL: (PHYSIOLOGICAL_FIELDS, _validate_physiological),
+    ProfileSection.SPORT_HABITS: (SPORT_HABITS_FIELDS, _validate_sport_habits),
 }
 
 

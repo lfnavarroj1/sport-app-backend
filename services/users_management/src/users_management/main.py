@@ -22,6 +22,7 @@ from users_management.application.commands.update_demographic_profile import (
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.queries.get_profile import GetAthleteProfile
 from users_management.application.queries.lookup_user import LookupUserByEmail
 from users_management.application.queries.lookup_users_batch import LookupUsersByIds
@@ -44,7 +45,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.8.0"
+API_VERSION = "0.9.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -100,6 +101,9 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
             unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions),
             clock=clock,
             current_consent_version=settings.health_data_consent_version,
+        ),
+        update_sport_habits=UpdateSportHabits(
+            unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions), clock=clock
         ),
         get_profile=GetAthleteProfile(SqlAlchemyAthleteProfileReader(read_sessions)),
     )

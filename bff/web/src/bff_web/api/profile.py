@@ -1,4 +1,4 @@
-"""HU005 en el canal web: perfil demográfico y fisiológico del deportista (ADR-034).
+"""HU005 y HU006 en el canal web: perfil del deportista (ADR-034).
 
 El BFF autentica, aplica el filtro de borde por actor (`athlete`, sin capacidad de plan)
 y reenvía el cuerpo, la clave de idempotencia y el token sin reinterpretarlos: las reglas
@@ -51,6 +51,13 @@ MaritalStatus = Literal[
     "SINGLE", "MARRIED", "DOMESTIC_PARTNERSHIP", "DIVORCED", "WIDOWED", "PREFER_NOT_TO_SAY"
 ]
 IncomeRange = Literal["LT_1_SMMLV", "1_2_SMMLV", "2_4_SMMLV", "GT_4_SMMLV", "PREFER_NOT_TO_SAY"]
+# HU006: catálogos cerrados de ADR-034 (deportes del catálogo de HU010).
+Sport = Literal["running", "cycling", "swimming", "strength", "other"]
+Intensity = Literal["LOW", "MODERATE", "HIGH"]
+Level = Literal["BEGINNER", "INTERMEDIATE", "ADVANCED"]
+Day = Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+TimeSlot = Literal["MORNING", "AFTERNOON", "EVENING", "NIGHT"]
+PrimaryGoal = Literal["HEALTH", "PERFORMANCE", "WEIGHT_MANAGEMENT", "RECREATION", "COMPETITION"]
 
 ExpectedVersion = Annotated[
     int | None,
@@ -157,6 +164,38 @@ class PhysiologicalProfileRequest(BaseModel):
     ] = None
 
 
+class SportHabit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sport: Annotated[Sport, Field(description="Catálogo de deportes de HU010; sin repetir.")]
+    frequency_per_week: Annotated[int, Field(ge=1, le=7)]
+    session_duration_minutes: Annotated[int, Field(ge=10, le=600)]
+    intensity: Intensity
+    level: Level
+    years_practicing: Annotated[int | None, Field(ge=0, le=80)] = None
+
+
+class SportAvailability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: Annotated[list[Day], Field(min_length=1, max_length=7, description="Valores únicos.")]
+    time_slots: Annotated[
+        list[TimeSlot], Field(min_length=1, max_length=4, description="Valores únicos.")
+    ]
+
+
+class SportHabitsRequest(BaseModel):
+    """Hábitos deportivos completos (HU006). Los errores de una lista nombran la posición
+    recibida (`sports[1].sport`, `availability.days[0]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: ExpectedVersion = None
+    sports: Annotated[list[SportHabit], Field(min_length=1, max_length=5)]
+    availability: SportAvailability
+    primary_goal: PrimaryGoal | None = None
+
+
 class _Owner(BaseModel):
     user_id: UUID
 
@@ -219,6 +258,35 @@ class PhysiologicalProfileResponse(PhysiologicalProfileSection, _Owner):
     """Respuesta del comando: la sección con el `user_id` del token."""
 
 
+class SportHabitView(BaseModel):
+    sport: Sport
+    frequency_per_week: int
+    session_duration_minutes: int
+    intensity: Intensity
+    level: Level
+    years_practicing: int | None
+
+
+class SportAvailabilityView(BaseModel):
+    days: Annotated[list[Day], Field(description="En el orden del catálogo (`MON`…`SUN`).")]
+    time_slots: Annotated[list[TimeSlot], Field(description="En el orden del catálogo.")]
+
+
+class SportHabitsSection(BaseModel):
+    """Hábitos normalizados: deportes, días y franjas en el orden de su catálogo."""
+
+    version: int
+    sports: list[SportHabitView]
+    availability: SportAvailabilityView
+    primary_goal: PrimaryGoal | None
+    created_at: Annotated[datetime, Field(description=UTC_INSTANT)]
+    updated_at: Annotated[datetime, Field(description=UTC_INSTANT)]
+
+
+class SportHabitsResponse(SportHabitsSection, _Owner):
+    """Respuesta del comando: la sección con el `user_id` del token."""
+
+
 class ProfileVersions(BaseModel):
     demographic: int | None
     physiological: int | None
@@ -232,7 +300,7 @@ class ProfileResponse(BaseModel):
     demographic: DemographicProfileSection | None
     physiological: PhysiologicalProfileSection | None
     sport_habits: Annotated[
-        dict[str, Any] | None, Field(description="HU006; siempre `null` en esta versión.")
+        SportHabitsSection | None, Field(description="HU006; `null` mientras no exista.")
     ]
     versions: ProfileVersions
     projected_at: Annotated[
@@ -424,10 +492,44 @@ def build_profile_router(
             authorization,
         )
 
+    @router.put(
+        "/v1/me/sport-habits",
+        response_model=SportHabitsResponse,
+        summary="Registrar o reemplazar mis hábitos deportivos (HU006, ADR-034)",
+        description="Registrar hábitos no crea planes ni recomendaciones.",
+        openapi_extra=_request_body(SportHabitsRequest),
+        responses={
+            HTTPStatus.OK.value: {
+                "description": "Sección reemplazada (o reintento de un reemplazo).",
+                "headers": _COMMAND_HEADERS_DOC,
+            },
+            HTTPStatus.CREATED.value: {
+                "model": SportHabitsResponse,
+                "description": "Sección creada (o reintento de la creación).",
+                "headers": _COMMAND_HEADERS_DOC,
+            },
+            **_COMMAND_ERRORS,
+        },
+    )
+    async def put_sport_habits(
+        request: Request,
+        idempotency_key: Annotated[
+            str | None, Header(alias=IDEMPOTENCY_HEADER, description=_IDEMPOTENCY_DESCRIPTION)
+        ] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            put_section,
+            users.put_sport_habits,
+            await request.body(),
+            idempotency_key,
+            authorization,
+        )
+
     @router.get(
         "/v1/me/profile",
         response_model=ProfileResponse,
-        summary="Mi perfil de deportista (HU005, ADR-034)",
+        summary="Mi perfil de deportista (HU005 y HU006, ADR-034)",
         description="Consulta la proyección: es eventual. Tras un comando, si la versión "
         "proyectada es menor que la confirmada, el cliente conserva la respuesta del comando y "
         "reintenta la consulta.",

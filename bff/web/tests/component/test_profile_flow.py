@@ -110,7 +110,9 @@ class _Capture(logging.Handler):
 
 
 @unittest.skipUnless(os.environ.get("PUBSUB_EMULATOR_HOST"), "requiere el emulador de Pub/Sub")
-class ProfileFlowTest(unittest.TestCase):
+class ProfileFlowCase(unittest.TestCase):
+    """Usuarios y BFF reales, Pub/Sub del emulador; base de HU005 y HU006 (sin pruebas)."""
+
     def setUp(self) -> None:
         write_url = self.enterContext(temporary_database("bff_web_hu005_write"))
         read_url = self.enterContext(temporary_database("bff_web_hu005_read"))
@@ -242,6 +244,8 @@ class ProfileFlowTest(unittest.TestCase):
             with contextlib.suppress(Exception):
                 streaming.result(timeout=10)
 
+
+class ProfileFlowTest(ProfileFlowCase):
     def test_athlete_registers_both_sections_and_reads_them_from_the_projection(self) -> None:
         """CA1, CA4 y CA7 de punta a punta; los consumidores de Afiliación no reciben `perfil.*`."""
         empty = self.profile()

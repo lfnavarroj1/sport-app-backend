@@ -55,9 +55,33 @@ def physiological_payload(user_id: UUID, version: int = 1, **overrides: Any) -> 
     return values
 
 
+def sport_habits_payload(user_id: UUID, version: int = 1, **overrides: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "user_id": str(user_id),
+        "version": version,
+        "sports": [
+            {
+                "sport": "running",
+                "frequency_per_week": 3,
+                "session_duration_minutes": 45,
+                "intensity": "MODERATE",
+                "level": "INTERMEDIATE",
+                "years_practicing": 4,
+            }
+        ],
+        "availability": {"days": ["MON", "WED", "SAT"], "time_slots": ["MORNING"]},
+        "primary_goal": "HEALTH",
+        "created_at": "2026-10-16T12:00:00Z",
+        "updated_at": "2026-10-16T12:00:00Z",
+    }
+    values.update(overrides)
+    return values
+
+
 PAYLOAD_BY_SECTION = {
     ProfileSection.DEMOGRAPHIC: demographic_payload,
     ProfileSection.PHYSIOLOGICAL: physiological_payload,
+    ProfileSection.SPORT_HABITS: sport_habits_payload,
 }
 
 

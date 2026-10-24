@@ -11,13 +11,18 @@ from types import TracebackType
 from typing import Any, Self
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from users_management.application.projections.users_projection import DirectoryEntry
+from users_management.application.projections.users_projection import (
+    DirectoryEmailInUse,
+    DirectoryEntry,
+)
 from users_management.domain.profile.events import ProfileSection
 from users_management.infrastructure.persistence_read.models import (
+    DIRECTORY_EMAIL_UNIQUE_CONSTRAINT,
     AthleteProfileViewRow,
     ProcessedEventRow,
     UserDirectoryRow,
@@ -97,6 +102,28 @@ class SqlAlchemyProjectionUnitOfWork:
             .returning(UserDirectoryRow.user_id)
         )
         return inserted is not None
+
+    def update_directory_entry(self, entry: DirectoryEntry, projected_at: datetime) -> None:
+        # La fila ya está bloqueada por `directory_version`; solo se reemplaza su estado.
+        try:
+            self.session.execute(
+                update(UserDirectoryRow)
+                .where(UserDirectoryRow.user_id == entry.user_id)
+                .values(
+                    full_name=entry.full_name,
+                    email=entry.email,
+                    actor_type=entry.actor_type,
+                    status=entry.status,
+                    aggregate_version=entry.aggregate_version,
+                    projected_at=projected_at,
+                )
+            )
+        except IntegrityError as error:
+            diagnostics = getattr(error.orig, "diag", None)
+            if getattr(diagnostics, "constraint_name", None) == DIRECTORY_EMAIL_UNIQUE_CONSTRAINT:
+                # Sin la sentencia ni sus parámetros (correo): la transacción se revierte.
+                raise DirectoryEmailInUse() from None
+            raise
 
     def profile_section_version(self, user_id: UUID, section: ProfileSection) -> int | None:
         column = getattr(AthleteProfileViewRow, f"{section.value}_version")

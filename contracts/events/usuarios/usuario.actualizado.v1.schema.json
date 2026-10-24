@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/usuarios/usuario.actualizado.v1.schema.json",
+  "title": "usuario.actualizado.v1",
+  "description": "Publicado en sportapp.usuarios.v1 con ordering_key = aggregate_id = user_id cuando el titular edita su nombre o correo (HU002, ADR-035). Lleva el estado completo de la cuenta editable; aggregate_type = user_account y aggregate_version = versión de la cuenta. Nunca contiene contraseña, hash ni políticas. Un correo igual al actual no crea versión ni evento.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "usuario.actualizado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "gestion-usuarios"},
+    "aggregate_id": {"type": "string", "format": "uuid"},
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "Versión de user_account; la 1 la crea usuario.registrado.v1."
+    },
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "Clave de idempotencia del comando que originó el evento."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "full_name", "email", "actor_type", "status", "version", "updated_at"],
+      "properties": {
+        "user_id": {"type": "string", "format": "uuid"},
+        "full_name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "email": {"type": "string", "minLength": 3, "maxLength": 254},
+        "actor_type": {"enum": ["athlete", "organizer", "service_provider"]},
+        "status": {"enum": ["active", "disabled"]},
+        "version": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "Igual a aggregate_version."
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+          "description": "Instante del cambio en UTC con sufijo Z."
+        }
+      }
+    }
+  }
+}

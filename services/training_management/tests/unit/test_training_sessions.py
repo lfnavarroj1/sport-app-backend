@@ -33,7 +33,11 @@ from training_management.application.errors import (
 )
 from training_management.application.ports import Caller
 from training_management.domain.plans.model import Sport
-from training_management.domain.sessions.model import TrainingSessionStatus, validate_start
+from training_management.domain.sessions.model import (
+    SessionEndReason,
+    TrainingSessionStatus,
+    validate_start,
+)
 from training_management.domain.sessions.validation import InvalidTrainingSession
 
 RECORD = "training.session.record"
@@ -341,6 +345,35 @@ class FinishTrainingSessionTest(unittest.TestCase):
         self.assertEqual(retry.session, first.session)
         with self.assertRaises(IdempotencyKeyReused):
             self.finish(self.athlete, self.command("2026-10-12T11:50:00Z", key=key))
+
+    def test_risk_stop_finishes_once(self) -> None:
+        """HU036 CA4: `RISK_STOP` se guarda, se repite sin otro evento y no admite otro motivo."""
+        first = self.finish(self.athlete, self.command(reason="RISK_STOP"))
+        self.assertIs(first.session.end_reason, SessionEndReason.RISK_STOP)
+        self.assertEqual(first.session.status, TrainingSessionStatus.FINISHED)
+        events = len(self.store.outbox)
+        again = self.finish(self.athlete, self.command(reason="RISK_STOP"))
+        self.assertTrue(again.replayed)
+        self.assertIs(again.session.end_reason, SessionEndReason.RISK_STOP)
+        self.assertEqual(len(self.store.outbox), events)
+        with self.assertRaises(TrainingSessionAlreadyFinished):
+            self.finish(self.athlete, self.command())
+        # El payload aprobado de `entrenamiento.finalizado.v1` no cambia.
+        self.assertNotIn("end_reason", self.store.outbox[-1].payload)
+
+    def test_same_key_with_another_reason_is_reused(self) -> None:
+        key = uuid4()
+        self.finish(self.athlete, self.command(key=key))
+        with self.assertRaises(IdempotencyKeyReused):
+            self.finish(self.athlete, self.command(key=key, reason="RISK_STOP"))
+
+    def test_unknown_reason_is_rejected(self) -> None:
+        with self.assertRaises(InvalidTrainingSession) as caught:
+            self.finish(self.athlete, self.command(reason="TIRED"))
+        self.assertEqual(
+            {(item.field, item.issue.value) for item in caught.exception.violations},
+            {("reason", "unknown_value")},
+        )
 
     def test_finishing_does_not_require_the_capability(self) -> None:
         self.capabilities.granted.clear()

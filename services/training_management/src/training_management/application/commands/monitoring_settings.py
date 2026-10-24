@@ -65,7 +65,7 @@ class UpdateMonitoringSettings:
         except _REJECTIONS as error:
             self._audit(caller, {"result": "rejected", "reason": getattr(error, "code", "")})
             raise
-        self._audit(caller, {"result": "updated", "version": settings.version})
+        self._audit(caller, {"result": "updated", "settings_version": settings.version})
         return Threshold(settings.max_heart_rate_alert_bpm, ThresholdSource.CUSTOM, settings)
 
     @staticmethod

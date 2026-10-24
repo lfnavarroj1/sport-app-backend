@@ -16,6 +16,7 @@ from bff_web.api.registration import (
     REPLAYED_HEADER,
     build_registration_router,
 )
+from bff_web.api.service_associations import build_service_associations_router
 from bff_web.api.services import build_service_availability_router, build_services_router
 from bff_web.api.sessions import RETRY_AFTER_HEADER, RefreshCookie, build_sessions_router
 from bff_web.api.subscriptions import build_subscriptions_router
@@ -36,7 +37,7 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.24.0"
+API_VERSION = "0.25.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
@@ -159,6 +160,11 @@ def create_app(
             ),
             build_service_availability_router(
                 verify_token=verifier.verify,
+                services=ComplementaryServicesClient(services_http),
+            ),
+            build_service_associations_router(
+                verify_token=verifier.verify,
+                affiliation=affiliation,
                 services=ComplementaryServicesClient(services_http),
             ),
             build_events_router(

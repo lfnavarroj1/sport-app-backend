@@ -20,6 +20,46 @@
         "title": "AppliedFee",
         "type": "object"
       },
+      "AssociatedServiceSummary": {
+        "description": "Resumen del servicio; la tarifa es informativa: asociar no contrata ni paga.",
+        "properties": {
+          "category": {
+            "enum": [
+              "SPORTS_MEDICINE",
+              "COACHING",
+              "NUTRITION",
+              "TRANSPORT",
+              "ACCOMPANIMENT"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "fee": {
+            "$ref": "#/components/schemas/ServicePrice"
+          },
+          "modality": {
+            "enum": [
+              "IN_PERSON",
+              "VIRTUAL",
+              "HYBRID"
+            ],
+            "title": "Modality",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "category",
+          "modality",
+          "fee"
+        ],
+        "title": "AssociatedServiceSummary",
+        "type": "object"
+      },
       "AttendeeItem": {
         "properties": {
           "applied_fee": {
@@ -3170,6 +3210,92 @@
         "title": "RoutesResponse",
         "type": "object"
       },
+      "ServiceAssociationResponse": {
+        "properties": {
+          "associated_at": {
+            "format": "date-time",
+            "title": "Associated At",
+            "type": "string"
+          },
+          "association_id": {
+            "format": "uuid",
+            "title": "Association Id",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "UTC (`Z`); `null` mientras está activa.",
+            "title": "Ended At"
+          },
+          "service": {
+            "$ref": "#/components/schemas/AssociatedServiceSummary"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "association_id",
+          "service_id",
+          "service",
+          "status",
+          "associated_at",
+          "ended_at",
+          "version"
+        ],
+        "title": "ServiceAssociationResponse",
+        "type": "object"
+      },
+      "ServiceAssociationsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceAssociationResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ServiceAssociationsResponse",
+        "type": "object"
+      },
       "ServiceAvailabilityResponse": {
         "properties": {
           "items": {
@@ -4371,7 +4497,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.24.0"
+    "version": "0.25.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7046,6 +7172,416 @@
         "summary": "Mis rutas (HU026, lectura CQRS)",
         "tags": [
           "routes"
+        ]
+      }
+    },
+    "/v1/me/service-associations": {
+      "get": {
+        "description": "Del más reciente al más antiguo, con el resumen del servicio.",
+        "operationId": "list_mine_v1_me_service_associations_get",
+        "parameters": [
+          {
+            "description": "`ACTIVE` (por defecto), `INACTIVE` o `ALL` (con el historial).",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`ACTIVE` (por defecto), `INACTIVE` o `ALL` (con el historial).",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Entero de 1 a 100; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 100; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` de la página anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` de la página anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAssociationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista; `capability_required`: su plan no incluye `services.sports_medicine.access`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` en `query.status`, `query.limit` o `query.cursor`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: Afiliación no permitió verificar la capacidad (también por timeout) o un servicio interno no está disponible."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mis servicios asociados (HU017, ADR-038)",
+        "tags": [
+          "service-associations"
+        ]
+      },
+      "post": {
+        "description": "Solo crea la relación: no comparte datos de salud con el profesional, no contrata, no reserva ni paga. Una asociación activa por deportista y servicio.",
+        "operationId": "associate_v1_me_service_associations_post",
+        "parameters": [
+          {
+            "description": "UUID; obligatorio (lo valida el servicio).",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "UUID; obligatorio (lo valida el servicio).",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el servicio.",
+                "properties": {
+                  "service_id": {
+                    "description": "Servicio `PUBLISHED` de categoría `SPORTS_MEDICINE`.",
+                    "format": "uuid",
+                    "title": "Service Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "service_id"
+                ],
+                "title": "AssociateServiceRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAssociationResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista; `capability_required`: su plan no incluye `services.sports_medicine.access`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`service_not_found`: no existe, está en borrador o no es de `SPORTS_MEDICINE`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`association_exists` con `details: [{field: \"association_id\", issue: <identificador de la activa>}]`, o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `service_id`, campos de más, cuerpo ausente o `Idempotency-Key` ausente o inválida."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: Afiliación no permitió verificar la capacidad (también por timeout) o un servicio interno no está disponible."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Asociar un servicio médico deportivo (HU017, ADR-038)",
+        "tags": [
+          "service-associations"
+        ]
+      }
+    },
+    "/v1/me/service-associations/{association_id}": {
+      "delete": {
+        "description": "Pasa a `INACTIVE` con `ended_at` y se conserva en el historial; repetirlo responde `204`.",
+        "operationId": "dissociate_v1_me_service_associations__association_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "association_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Association Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista; `capability_required`: su plan no incluye `services.sports_medicine.access`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`association_not_found`: no existe o es de otro deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `path.association_id` no es un UUID."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: Afiliación no permitió verificar la capacidad (también por timeout) o un servicio interno no está disponible."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Quitar una asociación propia (HU017, ADR-038)",
+        "tags": [
+          "service-associations"
         ]
       }
     },

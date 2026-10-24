@@ -3,7 +3,8 @@
 Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
 (HU011), `entrenamiento.iniciado.v1` (HU032), `indicador.calculado.v1` (HU034) y
-`plan.alimentacion_creado.v1` (HU014). Cada
+`plan.alimentacion_creado.v1` (HU014), `ruta.publicada.v1` y `ruta.retirada.v1`
+(HU026). Cada
 uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
 no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
 tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
@@ -23,6 +24,10 @@ from training_management.application.ports import (
     PlanView,
     SessionHistoryEntry,
     SessionView,
+)
+from training_management.application.route_documents import (
+    InvalidRouteDocument,
+    route_from_document,
 )
 from training_management.domain.authorizations.events import (
     GRANTED,
@@ -73,6 +78,17 @@ from training_management.domain.plans.model import (
     PlanStatus,
     Sport,
 )
+from training_management.domain.routes.events import (
+    EVENT_TYPE_BY_STATUS as ROUTE_EVENT_BY_STATUS,
+)
+from training_management.domain.routes.events import (
+    PUBLISHED_EVENT_TYPE as ROUTE_PUBLISHED,
+)
+from training_management.domain.routes.events import (
+    RETIRED_EVENT_TYPE as ROUTE_RETIRED,
+)
+from training_management.domain.routes.events import SCHEMA_VERSION as ROUTE_SCHEMA
+from training_management.domain.routes.model import Route
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
 from training_management.domain.sessions.events import SCHEMA_VERSION as SESSION_SCHEMA
 from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
@@ -140,6 +156,14 @@ class NutritionPlanCreatedEvent:
     plan: NutritionPlan
 
 
+@dataclass(frozen=True)
+class RouteChangedEvent:
+    event_id: UUID
+    event_type: str
+    correlation_id: UUID | None
+    route: Route
+
+
 TrainingEvent = (
     PlanCreatedEvent
     | AuthorizationChangedEvent
@@ -147,6 +171,7 @@ TrainingEvent = (
     | SessionStartedEvent
     | MetricCalculatedEvent
     | NutritionPlanCreatedEvent
+    | RouteChangedEvent
 )
 
 
@@ -527,6 +552,27 @@ def _nutrition_plan_created(envelope: dict[str, Any]) -> NutritionPlanCreatedEve
     )
 
 
+def _route_changed(envelope: dict[str, Any], event_type: str) -> RouteChangedEvent:
+    payload = _payload(envelope, ROUTE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        route = route_from_document(payload)
+    except InvalidRouteDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != route.route_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if route.version != version:
+        raise InvalidEvent("route_version_mismatch")
+    if ROUTE_EVENT_BY_STATUS[route.status] != event_type:
+        raise InvalidEvent("status_mismatch")
+    return RouteChangedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        event_type=event_type,
+        correlation_id=_correlation(envelope),
+        route=route,
+    )
+
+
 def parse_training_event(envelope: object) -> TrainingEvent:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -541,8 +587,15 @@ def parse_training_event(envelope: object) -> TrainingEvent:
         return _session_finished(envelope)
     if event_type == SESSION_STARTED:
         return _session_started(envelope)
+    return _parse_snapshot(envelope, event_type)
+
+
+def _parse_snapshot(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
+    """Eventos de estado completo de HU034, HU014 y HU026."""
     if event_type == METRIC_CALCULATED:
         return _metric_calculated(envelope)
     if event_type == NUTRITION_PLAN_CREATED:
         return _nutrition_plan_created(envelope)
+    if event_type in (ROUTE_PUBLISHED, ROUTE_RETIRED):
+        return _route_changed(envelope, event_type)
     raise UnsupportedEvent(event_type)

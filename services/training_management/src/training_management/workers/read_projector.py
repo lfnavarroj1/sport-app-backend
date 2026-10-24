@@ -31,6 +31,7 @@ from training_management.application.messages import (
     MetricCalculatedEvent,
     NutritionPlanCreatedEvent,
     PlanCreatedEvent,
+    RouteChangedEvent,
     TrainingEvent,
     UnsupportedEvent,
     parse_training_event,
@@ -70,6 +71,8 @@ def _aggregate_id(event: TrainingEvent) -> object:
         return event.calculation.calculation_id
     if isinstance(event, NutritionPlanCreatedEvent):
         return event.plan.plan_id
+    if isinstance(event, RouteChangedEvent):
+        return event.route.route_id
     return event.session.session_id
 
 

@@ -14,6 +14,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Double,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -323,3 +324,44 @@ class NutritionPlanItemRow(WriteBase):
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(5, 1))
     unit: Mapped[str] = mapped_column(String(8))
+
+
+class RouteRow(WriteBase):
+    """Ruta sugerible publicada por un organizador (HU026, ADR-041); al retirarse se conserva.
+
+    `organizer_id` es un identificador de Usuarios, sin clave foránea entre bases.
+    """
+
+    __tablename__ = "route"
+    __table_args__ = (
+        CheckConstraint("status IN ('PUBLISHED', 'RETIRED')", name="status"),
+        CheckConstraint(
+            "sport IN ('running', 'cycling', 'swimming', 'strength', 'other')", name="sport"
+        ),
+        CheckConstraint("difficulty IN ('LOW', 'MODERATE', 'HIGH')", name="difficulty"),
+        CheckConstraint("distance_km BETWEEN 0.1 AND 500.0", name="distance_km"),
+        CheckConstraint("start_lat BETWEEN -90 AND 90", name="start_lat"),
+        CheckConstraint("start_lng BETWEEN -180 AND 180", name="start_lng"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'RETIRED') = (retired_at IS NOT NULL)", name="retired_at"),
+    )
+
+    route_id: Mapped[UUID] = mapped_column(primary_key=True)
+    organizer_id: Mapped[UUID] = mapped_column(index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(String(2000))
+    sport: Mapped[str] = mapped_column(String(16))
+    distance_km: Mapped[Decimal] = mapped_column(Numeric(4, 1))
+    difficulty: Mapped[str] = mapped_column(String(16))
+    city: Mapped[str] = mapped_column(String(80))
+    country_code: Mapped[str] = mapped_column(String(2))
+    start_lat: Mapped[float] = mapped_column(Double)
+    start_lng: Mapped[float] = mapped_column(Double)
+    # Hasta 200 puntos `{lat, lng}` en el orden del organizador.
+    waypoints: Mapped[list[dict[str, float]]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -30,6 +30,9 @@ AUTHORIZATION_VIEW_PRIMARY_KEY = "pk_training_authorization_view"
 SESSION_HISTORY_PRIMARY_KEY = "pk_training_session_history"
 METRIC_RESULT_ORDER_INDEX = "ix_training_metric_result_athlete_order"
 NUTRITION_PLAN_ORDER_INDEX = "ix_nutrition_plan_view_athlete_order"
+ROUTE_SUGGESTION_INDEX = "ix_route_view_status_sport_city"
+ROUTE_ORGANIZER_ORDER_INDEX = "ix_route_view_organizer_order"
+ROUTE_LATEST_INDEX = "ix_route_view_status_published"
 
 
 class ReadBase(DeclarativeBase):
@@ -209,3 +212,40 @@ class ProcessedEventRow(ReadBase):
     event_type: Mapped[str] = mapped_column(String(128))
     aggregate_id: Mapped[UUID]
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RouteViewRow(ReadBase):
+    """Ruta (HU026) a partir de `ruta.publicada.v1`/`ruta.retirada.v1`; reconstruible.
+
+    `document` es el estado completo de la ruta (el mismo de la respuesta). `city_key` es la
+    ciudad recortada y sin mayúsculas ni acentos (`domain.routes.suggestions.city_key`), para
+    la coincidencia de ciudad de las sugerencias.
+    """
+
+    __tablename__ = "route_view"
+    __table_args__ = (
+        # ADR-041: sugerencias por estado, deporte y ciudad.
+        Index(ROUTE_SUGGESTION_INDEX, "status", "sport", "city_key"),
+        # Orden estable de `GET /v1/me/routes`: `created_at` desc, `route_id` desc.
+        Index(
+            ROUTE_ORGANIZER_ORDER_INDEX,
+            "organizer_id",
+            text("created_at DESC"),
+            text("route_id DESC"),
+        ),
+        # Sugerencia no personalizada: las últimas publicadas.
+        Index(ROUTE_LATEST_INDEX, "status", text("published_at DESC"), text("route_id DESC")),
+    )
+
+    route_id: Mapped[UUID] = mapped_column(primary_key=True)
+    organizer_id: Mapped[UUID]
+    status: Mapped[str] = mapped_column(String(16))
+    sport: Mapped[str] = mapped_column(String(16))
+    city_key: Mapped[str] = mapped_column(String(160))
+    country_code: Mapped[str] = mapped_column(String(2))
+    distance_km: Mapped[Decimal] = mapped_column(Numeric(4, 1))
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -7,6 +7,7 @@ from sportapp_platform.app import create_service_app
 from sportapp_platform.config import load_settings
 from sportapp_platform.database import DatabaseReadinessCheck, create_database_engine
 from sportapp_platform.tokens import AccessTokenVerifier
+from users_management.api.athlete_context import build_athlete_context_router
 from users_management.api.lookup import build_lookup_router
 from users_management.api.nutrition_restrictions import build_nutrition_restrictions_router
 from users_management.api.profile import build_profile_router
@@ -24,6 +25,7 @@ from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
 from users_management.application.commands.update_sport_habits import UpdateSportHabits
+from users_management.application.queries.athlete_context import GetAthleteContext
 from users_management.application.queries.directory_lookup import LookupDirectoryNames
 from users_management.application.queries.get_profile import GetAthleteProfile
 from users_management.application.queries.lookup_user import LookupUserByEmail
@@ -33,6 +35,9 @@ from users_management.application.queries.nutrition_restrictions import (
 )
 from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
+from users_management.infrastructure.persistence_read.athlete_context import (
+    SqlAlchemyAthleteContextReader,
+)
 from users_management.infrastructure.persistence_read.directory import SqlAlchemyUserDirectory
 from users_management.infrastructure.persistence_read.nutrition_restrictions import (
     SqlAlchemyNutritionRestrictionsReader,
@@ -50,7 +55,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.11.0"
+API_VERSION = "0.12.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -138,6 +143,9 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
             build_lookup_router(lookup_user, lookup_batch, LookupDirectoryNames(lookup_batch)),
             build_nutrition_restrictions_router(
                 GetNutritionRestrictions(SqlAlchemyNutritionRestrictionsReader(read_sessions))
+            ),
+            build_athlete_context_router(
+                GetAthleteContext(SqlAlchemyAthleteContextReader(read_sessions))
             ),
             profile_router,
         ],

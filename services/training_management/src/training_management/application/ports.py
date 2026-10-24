@@ -16,6 +16,8 @@ from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.catalog import FoodCatalog
 from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
 from training_management.domain.plans.model import Sport, TrainingPlan
+from training_management.domain.routes.model import Route
+from training_management.domain.routes.suggestions import SuggestionContext
 from training_management.domain.sessions.model import TrainingSession
 
 
@@ -32,7 +34,7 @@ class Caller:
 
 
 class PermissionPolicy(Protocol):
-    """Contrato versionado `actor-permissions.v1` (ADR-025)."""
+    """Contrato versionado `actor-permissions` (ADR-025; v2 desde HU026)."""
 
     def allows(self, actor_type: str, permission: str) -> bool: ...
 
@@ -521,6 +523,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         """HU014: inserta o reemplaza el estado completo del plan en `nutrition_plan_view`."""
         ...
 
+    def route_version(self, route_id: UUID) -> int | None:
+        """HU026: versión proyectada de la ruta; bloquea la fila."""
+        ...
+
+    def save_route_view(self, route: Route, projected_at: datetime) -> None:
+        """HU026: inserta o reemplaza el estado completo de la ruta en `route_view`."""
+        ...
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None: ...
@@ -609,4 +619,64 @@ class DashboardReader(Protocol):
 
     def latest_metrics(self, athlete_id: UUID, period: DashboardPeriod) -> list[LatestMetric]:
         """Último resultado por indicador con `measured_at` en `[from, to)`."""
+        ...
+
+
+class RouteUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU026: ruta, outbox e idempotencia (`command_idempotency`)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_route_for_update(self, route_id: UUID) -> Route | None:
+        """Bloquea la fila hasta el fin de la transacción (retiro)."""
+        ...
+
+    def add_route(self, route: Route) -> None: ...
+
+    def update_route(self, route: Route) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class RoutePosition:
+    """Última ruta entregada en el orden `created_at` desc, `route_id` desc."""
+
+    created_at: datetime
+    route_id: UUID
+
+
+@dataclass(frozen=True)
+class MyRoutesQuery:
+    organizer_id: UUID
+    limit: int
+    after: RoutePosition | None
+
+
+@dataclass(frozen=True)
+class RouteSuggestionQuery:
+    context: SuggestionContext
+    limit: int
+
+
+class RouteReader(Protocol):
+    """Proyección `route_view` (HU026, lectura CQRS)."""
+
+    def list_by_organizer(self, query: MyRoutesQuery) -> list[Route]:
+        """Rutas del organizador en cualquier estado, en orden `created_at` desc, `route_id`
+        desc, estrictamente después de `after`."""
+        ...
+
+    def suggest(self, query: RouteSuggestionQuery) -> list[Route]:
+        """Rutas `PUBLISHED`. Con deportes: las de esos deportes, ciudad coincidente primero,
+        luego `distance_km` y `route_id` ascendentes. Sin deportes: las últimas publicadas
+        (`published_at` desc, `route_id` desc). Como mucho `limit`."""
         ...

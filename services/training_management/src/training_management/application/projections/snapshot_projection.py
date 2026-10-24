@@ -15,6 +15,7 @@ transacción, aunque llegue antes que el inicio.
 HU034 (ADR-030): `indicador.calculado.v1` se despacha a `ProjectMetricCalculated`.
 
 HU014 (ADR-037): `plan.alimentacion_creado.v1` se despacha a `ProjectNutritionPlanCreated`.
+HU026 (ADR-041): `ruta.publicada.v1` y `ruta.retirada.v1` se despachan a `ProjectRouteChanged`.
 """
 
 from collections.abc import Callable
@@ -24,6 +25,7 @@ from training_management.application.messages import (
     MetricCalculatedEvent,
     NutritionPlanCreatedEvent,
     PlanCreatedEvent,
+    RouteChangedEvent,
     SessionFinishedEvent,
     SessionStartedEvent,
     TrainingEvent,
@@ -39,6 +41,7 @@ from training_management.application.projections.plan_projection import (
     ProjectionOutcome,
     ProjectPlanCreated,
 )
+from training_management.application.projections.route_projection import ProjectRouteChanged
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
 from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
 
@@ -136,6 +139,7 @@ class TrainingProjector:
         self._started = ProjectSessionStarted(unit_of_work=unit_of_work, clock=clock)
         self._metrics = ProjectMetricCalculated(unit_of_work=unit_of_work, clock=clock)
         self._nutrition = ProjectNutritionPlanCreated(unit_of_work=unit_of_work, clock=clock)
+        self._routes = ProjectRouteChanged(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
@@ -144,8 +148,15 @@ class TrainingProjector:
             return self._authorizations(event)
         if isinstance(event, SessionStartedEvent):
             return self._started(event)
+        return self._project_snapshot(event)
+
+    def _project_snapshot(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, MetricCalculatedEvent):
             return self._metrics(event)
         if isinstance(event, NutritionPlanCreatedEvent):
             return self._nutrition(event)
-        return self._sessions(event)
+        if isinstance(event, RouteChangedEvent):
+            return self._routes(event)
+        if isinstance(event, SessionFinishedEvent):
+            return self._sessions(event)
+        raise TypeError(type(event).__name__)

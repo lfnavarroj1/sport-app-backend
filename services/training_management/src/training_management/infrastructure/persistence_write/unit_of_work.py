@@ -1,5 +1,5 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
-HU034, HU014)."""
+HU034, HU014, HU026)."""
 
 from types import TracebackType
 from typing import Self
@@ -29,6 +29,12 @@ from training_management.domain.metrics.model import (
 )
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import PlanStatus, Sport, TrainingPlan
+from training_management.domain.routes.model import (
+    Difficulty,
+    GeoPoint,
+    Route,
+    RouteStatus,
+)
 from training_management.domain.sessions.model import TrainingSession, TrainingSessionStatus
 from training_management.infrastructure.persistence_write.models import (
     ACTIVE_SESSION_INDEX,
@@ -43,6 +49,7 @@ from training_management.infrastructure.persistence_write.models import (
     NutritionPlanMealRow,
     NutritionPlanRow,
     OutboxEventRow,
+    RouteRow,
     TrainingAuthorizationRow,
     TrainingMetricCalculationRow,
     TrainingMetricInputRow,
@@ -501,3 +508,77 @@ class SqlAlchemyNutritionUnitOfWork(SqlAlchemyPlanningUnitOfWork):
             for meal_position, meal in enumerate(plan.meals)
             for position, item in enumerate(meal.items)
         )
+
+
+def _route(row: RouteRow) -> Route:
+    return Route(
+        route_id=row.route_id,
+        organizer_id=row.organizer_id,
+        name=row.name,
+        description=row.description,
+        sport=Sport(row.sport),
+        distance_km=row.distance_km,
+        difficulty=Difficulty(row.difficulty),
+        city=row.city,
+        country_code=row.country_code,
+        start_point=GeoPoint(lat=row.start_lat, lng=row.start_lng),
+        waypoints=tuple(GeoPoint(lat=item["lat"], lng=item["lng"]) for item in row.waypoints),
+        status=RouteStatus(row.status),
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        published_at=row.published_at,
+        retired_at=row.retired_at,
+    )
+
+
+class SqlAlchemyRouteUnitOfWork(_CommandUnitOfWork):
+    """HU026: ruta, outbox e idempotencia (`command_idempotency`) en una transacción."""
+
+    def get_route_for_update(self, route_id: UUID) -> Route | None:
+        row = self.session.scalar(
+            select(RouteRow).where(RouteRow.route_id == route_id).with_for_update()
+        )
+        return _route(row) if row is not None else None
+
+    def add_route(self, route: Route) -> None:
+        self.session.add(
+            RouteRow(
+                route_id=route.route_id,
+                organizer_id=route.organizer_id,
+                name=route.name,
+                description=route.description,
+                sport=route.sport.value,
+                distance_km=route.distance_km,
+                difficulty=route.difficulty.value,
+                city=route.city,
+                country_code=route.country_code,
+                start_lat=route.start_point.lat,
+                start_lng=route.start_point.lng,
+                waypoints=[{"lat": point.lat, "lng": point.lng} for point in route.waypoints],
+                status=route.status.value,
+                version=route.version,
+                created_at=route.created_at,
+                updated_at=route.updated_at,
+                published_at=route.published_at,
+                retired_at=route.retired_at,
+            )
+        )
+
+    def update_route(self, route: Route) -> None:
+        row = self.session.get(RouteRow, route.route_id)
+        if row is None:
+            raise RuntimeError("La ruta a actualizar no está cargada.")
+        row.status = route.status.value
+        row.version = route.version
+        row.updated_at = route.updated_at
+        row.retired_at = route.retired_at
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            if _violated_constraint(error) == COMMAND_IDEMPOTENCY_PRIMARY_KEY:
+                raise IdempotencyKeyConflict() from None
+            raise

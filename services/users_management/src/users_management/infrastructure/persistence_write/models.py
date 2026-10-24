@@ -133,6 +133,8 @@ DEMOGRAPHIC_PRIMARY_KEY = "pk_demographic_profile"
 PHYSIOLOGICAL_PRIMARY_KEY = "pk_physiological_profile"
 # HU006: tercera sección del perfil.
 SPORT_HABITS_PRIMARY_KEY = "pk_sport_habits"
+# HU009 (ADR-035): cuarta sección del perfil.
+NUTRITION_HABITS_PRIMARY_KEY = "pk_nutrition_habits"
 
 
 class DemographicProfileRow(WriteBase):
@@ -250,3 +252,45 @@ class SportHabitsRow(WriteBase):
 
     def __repr__(self) -> str:
         return f"SportHabitsRow(user_id={self.user_id}, version={self.version})"
+
+
+class NutritionHabitsRow(WriteBase):
+    """Sección de hábitos alimenticios (HU009). Alergias y restricciones son datos de salud:
+    `__repr__` sin valores."""
+
+    __tablename__ = "nutrition_habits"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint(
+            "diet_pattern IN ('OMNIVORE', 'VEGETARIAN', 'VEGAN', 'PESCATARIAN', 'FLEXITARIAN')",
+            name="diet_pattern",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(restrictions) = 'array' AND jsonb_array_length(restrictions) <= 7",
+            name="restrictions",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(allergies) = 'array' AND jsonb_array_length(allergies) <= 9",
+            name="allergies",
+        ),
+        CheckConstraint("meals_per_day BETWEEN 1 AND 8", name="meals_per_day"),
+        CheckConstraint(
+            "hydration_liters_per_day IS NULL OR hydration_liters_per_day BETWEEN 0.5 AND 10.0",
+            name="hydration",
+        ),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_account.user_id"), primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger)
+    health_consent_version: Mapped[str] = mapped_column(String(64))
+    health_consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    diet_pattern: Mapped[str] = mapped_column(String(16))
+    restrictions: Mapped[list[str]] = mapped_column(JSONB)
+    allergies: Mapped[list[str]] = mapped_column(JSONB)
+    meals_per_day: Mapped[int] = mapped_column(Integer)
+    hydration_liters_per_day: Mapped[Decimal | None] = mapped_column(Numeric(3, 1))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"NutritionHabitsRow(user_id={self.user_id}, version={self.version})"

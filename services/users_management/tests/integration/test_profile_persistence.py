@@ -329,7 +329,7 @@ class AthleteProfileMigrationTest(unittest.TestCase):
 
             upgrade(WRITE_HISTORY, url)
 
-            self.assertEqual(current_revision(url), "0005_sport_habits")
+            self.assertEqual(current_revision(url), "0006_nutrition_habits")
 
 
 if __name__ == "__main__":

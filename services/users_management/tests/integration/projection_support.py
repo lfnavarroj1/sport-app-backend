@@ -19,6 +19,9 @@ from users_management.infrastructure.persistence_read.models import (
     ProcessedEventRow,
     UserDirectoryRow,
 )
+from users_management.infrastructure.persistence_read.nutrition_restrictions import (
+    SqlAlchemyNutritionRestrictionsReader,
+)
 from users_management.infrastructure.persistence_read.profile import (
     SqlAlchemyAthleteProfileReader,
 )
@@ -47,6 +50,9 @@ class ReadDatabase:
     def reader(self) -> SqlAlchemyAthleteProfileReader:
         return SqlAlchemyAthleteProfileReader(self.sessions)
 
+    def restrictions(self) -> SqlAlchemyNutritionRestrictionsReader:
+        return SqlAlchemyNutritionRestrictionsReader(self.sessions)
+
     def count(
         self, model: type[ProcessedEventRow | AthleteProfileViewRow | UserDirectoryRow]
     ) -> int:
@@ -67,6 +73,8 @@ class ReadDatabase:
                     "demographic": row.demographic,
                     "physiological": row.physiological,
                     "sport_habits": row.sport_habits,
+                    "nutrition_habits": row.nutrition_habits,
+                    "nutrition_habits_version": row.nutrition_habits_version,
                     "versions": (
                         row.demographic_version,
                         row.physiological_version,
@@ -121,6 +129,16 @@ def _payload(section: ProfileSection, user_id: UUID, version: int) -> dict[str, 
             ],
             "availability": {"days": ["MON", "SAT"], "time_slots": ["MORNING"]},
             "primary_goal": None,
+        }
+    if section is ProfileSection.NUTRITION_HABITS:
+        return {
+            **common,
+            "consent": {"version": "health-test.v1", "accepted_at": "2026-10-16T12:00:00Z"},
+            "diet_pattern": "VEGETARIAN",
+            "restrictions": ["GLUTEN_FREE"],
+            "allergies": ["PEANUTS", "SESAME"],
+            "meals_per_day": 1 + version % 8,
+            "hydration_liters_per_day": "2.5",
         }
     return {
         **common,

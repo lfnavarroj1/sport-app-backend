@@ -124,14 +124,6 @@ class ProfileFlowCase(unittest.TestCase):
         self.addCleanup(self.read_engine.dispose)
         self.write_url = write_url
 
-        self.capture = _Capture()
-        root = logging.getLogger()
-        previous_level = root.level
-        root.addHandler(self.capture)
-        root.setLevel(logging.DEBUG)
-        self.addCleanup(root.setLevel, previous_level)
-        self.addCleanup(root.removeHandler, self.capture)
-
         users = self.enterContext(
             TestClient(
                 create_users(
@@ -147,6 +139,8 @@ class ProfileFlowCase(unittest.TestCase):
                 base_url="http://users-management",
             )
         )
+        # HU009: el contrato interno de restricciones se consulta directamente en Usuarios.
+        self.users = users
         settings = BffWebSettings(
             app_env="test",  # type: ignore[arg-type]
             users_management_base_url="http://users-management",  # type: ignore[arg-type]
@@ -163,6 +157,16 @@ class ProfileFlowCase(unittest.TestCase):
                 headers={"Origin": ORIGIN},
             )
         )
+
+        # La captura se instala después de crear las apps: `create_service_app` reconfigura el
+        # log raíz (`configure_logging` reemplaza sus manejadores) y la descartaría.
+        self.capture = _Capture()
+        root = logging.getLogger()
+        previous_level = root.level
+        root.addHandler(self.capture)
+        root.setLevel(logging.DEBUG)
+        self.addCleanup(root.setLevel, previous_level)
+        self.addCleanup(root.removeHandler, self.capture)
 
         self.project = f"sportapp-test-{uuid.uuid4().hex[:8]}"
         ensure_users_resources(self.project)
@@ -271,6 +275,7 @@ class ProfileFlowTest(ProfileFlowCase):
                     "demographic": 1,
                     "physiological": 1,
                     "sport_habits": None,
+                    "nutrition_habits": None,
                 }
             )
         )

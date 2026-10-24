@@ -78,10 +78,28 @@ def sport_habits_payload(user_id: UUID, version: int = 1, **overrides: Any) -> d
     return values
 
 
+def nutrition_habits_payload(user_id: UUID, version: int = 1, **overrides: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "user_id": str(user_id),
+        "version": version,
+        "consent": {"version": "health-test.v1", "accepted_at": "2026-10-24T12:00:00Z"},
+        "diet_pattern": "VEGETARIAN",
+        "restrictions": ["GLUTEN_FREE", "LOW_SUGAR"],
+        "allergies": ["PEANUTS", "SESAME"],
+        "meals_per_day": 4,
+        "hydration_liters_per_day": "2.5",
+        "created_at": "2026-10-24T12:00:00Z",
+        "updated_at": "2026-10-24T12:00:00Z",
+    }
+    values.update(overrides)
+    return values
+
+
 PAYLOAD_BY_SECTION = {
     ProfileSection.DEMOGRAPHIC: demographic_payload,
     ProfileSection.PHYSIOLOGICAL: physiological_payload,
     ProfileSection.SPORT_HABITS: sport_habits_payload,
+    ProfileSection.NUTRITION_HABITS: nutrition_habits_payload,
 }
 
 

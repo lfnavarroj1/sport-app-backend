@@ -1,4 +1,4 @@
-"""HU005 y HU006 en el canal web: perfil del deportista (ADR-034).
+"""HU005, HU006 y HU009 en el canal web: perfil del deportista (ADR-034 y ADR-035).
 
 El BFF autentica, aplica el filtro de borde por actor (`athlete`, sin capacidad de plan)
 y reenvía el cuerpo, la clave de idempotencia y el token sin reinterpretarlos: las reglas
@@ -58,6 +58,14 @@ Level = Literal["BEGINNER", "INTERMEDIATE", "ADVANCED"]
 Day = Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 TimeSlot = Literal["MORNING", "AFTERNOON", "EVENING", "NIGHT"]
 PrimaryGoal = Literal["HEALTH", "PERFORMANCE", "WEIGHT_MANAGEMENT", "RECREATION", "COMPETITION"]
+# HU009: catálogos cerrados de ADR-035 (sin texto libre).
+DietPattern = Literal["OMNIVORE", "VEGETARIAN", "VEGAN", "PESCATARIAN", "FLEXITARIAN"]
+Restriction = Literal[
+    "GLUTEN_FREE", "LACTOSE_FREE", "LOW_SODIUM", "LOW_SUGAR", "KETO", "HALAL", "KOSHER"
+]
+Allergy = Literal[
+    "PEANUTS", "TREE_NUTS", "MILK", "EGGS", "WHEAT", "SOY", "FISH", "SHELLFISH", "SESAME"
+]
 
 ExpectedVersion = Annotated[
     int | None,
@@ -196,6 +204,33 @@ class SportHabitsRequest(BaseModel):
     primary_goal: PrimaryGoal | None = None
 
 
+class NutritionHabitsRequest(BaseModel):
+    """Hábitos alimenticios completos (HU009, ADR-035), con el consentimiento de datos de
+    salud vigente. Sin texto libre: solo valores de los catálogos. Los errores de una lista
+    nombran la posición recibida (`allergies[1]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: ExpectedVersion = None
+    consent: HealthConsentRequest
+    diet_pattern: DietPattern
+    restrictions: Annotated[
+        list[Restriction], Field(max_length=7, description="Valores únicos; puede ir vacía.")
+    ]
+    allergies: Annotated[
+        list[Allergy], Field(max_length=9, description="Valores únicos; puede ir vacía.")
+    ]
+    meals_per_day: Annotated[int, Field(ge=1, le=8)]
+    hydration_liters_per_day: Annotated[
+        str | None,
+        Field(
+            pattern=REQUEST_DECIMAL,
+            description="Cadena decimal con hasta un decimal, de 0.5 a 10.0 litros.",
+            examples=["2.5"],
+        ),
+    ] = None
+
+
 class _Owner(BaseModel):
     user_id: UUID
 
@@ -287,10 +322,32 @@ class SportHabitsResponse(SportHabitsSection, _Owner):
     """Respuesta del comando: la sección con el `user_id` del token."""
 
 
+class NutritionHabitsSection(BaseModel):
+    """Hábitos alimenticios normalizados: restricciones y alergias en el orden de su
+    catálogo. No prescriben ni diagnostican."""
+
+    version: int
+    consent: HealthConsent
+    diet_pattern: DietPattern
+    restrictions: list[Restriction]
+    allergies: list[Allergy]
+    meals_per_day: int
+    hydration_liters_per_day: Annotated[
+        str | None, Field(pattern=RESPONSE_DECIMAL, description="Un decimal.", examples=["2.5"])
+    ]
+    created_at: Annotated[datetime, Field(description=UTC_INSTANT)]
+    updated_at: Annotated[datetime, Field(description=UTC_INSTANT)]
+
+
+class NutritionHabitsResponse(NutritionHabitsSection, _Owner):
+    """Respuesta del comando: la sección con el `user_id` del token."""
+
+
 class ProfileVersions(BaseModel):
     demographic: int | None
     physiological: int | None
     sport_habits: int | None
+    nutrition_habits: int | None
 
 
 class ProfileResponse(BaseModel):
@@ -301,6 +358,9 @@ class ProfileResponse(BaseModel):
     physiological: PhysiologicalProfileSection | None
     sport_habits: Annotated[
         SportHabitsSection | None, Field(description="HU006; `null` mientras no exista.")
+    ]
+    nutrition_habits: Annotated[
+        NutritionHabitsSection | None, Field(description="HU009; `null` mientras no exista.")
     ]
     versions: ProfileVersions
     projected_at: Annotated[
@@ -526,10 +586,45 @@ def build_profile_router(
             authorization,
         )
 
+    @router.put(
+        "/v1/me/nutrition-habits",
+        response_model=NutritionHabitsResponse,
+        summary="Registrar o reemplazar mis hábitos alimenticios (HU009, ADR-035)",
+        description="Exige el consentimiento vigente de datos de salud; sin él no se guarda "
+        "nada. Registrar hábitos no crea planes, consumos ni recomendaciones.",
+        openapi_extra=_request_body(NutritionHabitsRequest),
+        responses={
+            HTTPStatus.OK.value: {
+                "description": "Sección reemplazada (o reintento de un reemplazo).",
+                "headers": _COMMAND_HEADERS_DOC,
+            },
+            HTTPStatus.CREATED.value: {
+                "model": NutritionHabitsResponse,
+                "description": "Sección creada (o reintento de la creación).",
+                "headers": _COMMAND_HEADERS_DOC,
+            },
+            **_COMMAND_ERRORS,
+        },
+    )
+    async def put_nutrition_habits(
+        request: Request,
+        idempotency_key: Annotated[
+            str | None, Header(alias=IDEMPOTENCY_HEADER, description=_IDEMPOTENCY_DESCRIPTION)
+        ] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            put_section,
+            users.put_nutrition_habits,
+            await request.body(),
+            idempotency_key,
+            authorization,
+        )
+
     @router.get(
         "/v1/me/profile",
         response_model=ProfileResponse,
-        summary="Mi perfil de deportista (HU005 y HU006, ADR-034)",
+        summary="Mi perfil de deportista (HU005, HU006 y HU009; ADR-034 y ADR-035)",
         description="Consulta la proyección: es eventual. Tras un comando, si la versión "
         "proyectada es menor que la confirmada, el cliente conserva la respuesta del comando y "
         "reintenta la consulta.",

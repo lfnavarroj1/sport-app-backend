@@ -1,4 +1,7 @@
-"""Lectura del perfil propio (`athlete_profile_view`) para `GET /v1/me/profile` (HU005)."""
+"""Lectura del perfil propio (`athlete_profile_view`) para `GET /v1/me/profile` (HU005).
+
+Desde HU009 incluye `nutrition_habits` (ADR-035).
+"""
 
 from uuid import UUID
 
@@ -26,9 +29,11 @@ class SqlAlchemyAthleteProfileReader:
                     demographic=row.demographic,
                     physiological=row.physiological,
                     sport_habits=row.sport_habits,
+                    nutrition_habits=row.nutrition_habits,
                     demographic_version=row.demographic_version,
                     physiological_version=row.physiological_version,
                     sport_habits_version=row.sport_habits_version,
+                    nutrition_habits_version=row.nutrition_habits_version,
                     projected_at=row.projected_at,
                 )
         except (OperationalError, InterfaceError, PoolTimeoutError):

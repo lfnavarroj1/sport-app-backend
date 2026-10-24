@@ -20,8 +20,8 @@ READ_HISTORY = "users_management.infrastructure.persistence_read:migrations"
 class DatabaseIntegrationTest(unittest.TestCase):
     def test_each_history_migrates_from_empty_database_to_head(self) -> None:
         expected = {
-            WRITE_HISTORY: "0005_sport_habits",
-            READ_HISTORY: "0004_user_directory_full_name",
+            WRITE_HISTORY: "0006_nutrition_habits",
+            READ_HISTORY: "0005_nutrition_habits_view",
         }
         for script_location, revision in expected.items():
             with (

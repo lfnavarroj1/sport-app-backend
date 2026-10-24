@@ -1,8 +1,9 @@
 """Lectura validada de los eventos de `sportapp.usuarios.v1` para `usuarios-read-projector`.
 
 Se proyectan `usuario.registrado.v1` (HU001, directorio de identidad),
-`perfil.demografico_actualizado.v1` / `perfil.fisiologico_actualizado.v1` (HU005) y
-`habitos.deportivos_actualizados.v1` (HU006), los dos últimos según ADR-034. Cada evento
+`perfil.demografico_actualizado.v1` / `perfil.fisiologico_actualizado.v1` (HU005),
+`habitos.deportivos_actualizados.v1` (HU006), según ADR-034, y
+`habitos.alimenticios_actualizados.v1` (HU009, ADR-035). Cada evento
 se valida campo a campo contra su esquema versionado en `contracts/events/usuarios/` y el
 payload no admite campos fuera del contrato (minimización): un mensaje que no lo cumple es
 un `InvalidEvent`, no se confirma y, agotadas las entregas, termina en la DLQ. Otro tipo de
@@ -17,6 +18,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -29,6 +31,15 @@ from users_management.domain.profile.events import (
 from users_management.domain.profile.events import (
     SECTION_BY_EVENT_TYPE,
     ProfileSection,
+)
+from users_management.domain.profile.nutrition_habits import (
+    HYDRATION_MAX_LITERS,
+    HYDRATION_MIN_LITERS,
+    MEALS_PER_DAY_MAX,
+    MEALS_PER_DAY_MIN,
+    Allergy,
+    DietPattern,
+    Restriction,
 )
 from users_management.domain.profile.sport_habits import (
     DAYS_MAX,
@@ -104,6 +115,20 @@ PHYSIOLOGICAL_FIELDS = frozenset(
 )
 SPORT_HABITS_FIELDS = frozenset(
     {"user_id", "version", "sports", "availability", "primary_goal", "created_at", "updated_at"}
+)
+NUTRITION_HABITS_FIELDS = frozenset(
+    {
+        "user_id",
+        "version",
+        "consent",
+        "diet_pattern",
+        "restrictions",
+        "allergies",
+        "meals_per_day",
+        "hydration_liters_per_day",
+        "created_at",
+        "updated_at",
+    }
 )
 _SPORT_FIELDS = frozenset(
     {
@@ -336,9 +361,7 @@ def _validate_blood_pressure(value: object) -> None:
 
 
 def _validate_physiological(payload: dict[str, Any]) -> None:
-    consent = _object(payload["consent"], "consent", _CONSENT_FIELDS)
-    _text(consent["version"], "consent_version", 1, 64)
-    _instant(consent["accepted_at"], "consent_accepted_at")
+    _validate_consent(payload["consent"])
     _instant(payload["measured_at"], "measured_at", _UTC_SECONDS)
     _matches(payload["weight_kg"], "weight_kg", _ONE_DECIMAL)
     _int(payload["height_cm"], "height_cm", 100, 250)
@@ -391,10 +414,43 @@ def _validate_sport_habits(payload: dict[str, Any]) -> None:
     _optional(payload["primary_goal"], lambda v: _choice(v, "primary_goal", frozenset(PrimaryGoal)))
 
 
+def _validate_consent(value: object) -> None:
+    consent = _object(value, "consent", _CONSENT_FIELDS)
+    _text(consent["version"], "consent_version", 1, 64)
+    _instant(consent["accepted_at"], "consent_accepted_at")
+
+
+def _optional_catalog_list(value: object, field: str, catalog: type[StrEnum]) -> None:
+    """Lista de 0 a `len(catalog)` valores únicos del catálogo en su orden canónico."""
+    order = [member.value for member in catalog]
+    if (
+        not isinstance(value, list)
+        or any(not isinstance(item, str) or item not in order for item in value)
+        or value != sorted(set(value), key=order.index)
+    ):
+        raise InvalidEvent(f"{field}_invalid")
+
+
+def _hydration(value: object) -> None:
+    text = _matches(value, "hydration_liters_per_day", _ONE_DECIMAL)
+    if not HYDRATION_MIN_LITERS <= Decimal(text) <= HYDRATION_MAX_LITERS:
+        raise InvalidEvent("hydration_liters_per_day_out_of_range")
+
+
+def _validate_nutrition_habits(payload: dict[str, Any]) -> None:
+    _validate_consent(payload["consent"])
+    _choice(payload["diet_pattern"], "diet_pattern", frozenset(DietPattern))
+    _optional_catalog_list(payload["restrictions"], "restrictions", Restriction)
+    _optional_catalog_list(payload["allergies"], "allergies", Allergy)
+    _int(payload["meals_per_day"], "meals_per_day", MEALS_PER_DAY_MIN, MEALS_PER_DAY_MAX)
+    _optional(payload["hydration_liters_per_day"], _hydration)
+
+
 _SECTION_RULES: dict[ProfileSection, tuple[frozenset[str], Callable[[dict[str, Any]], None]]] = {
     ProfileSection.DEMOGRAPHIC: (DEMOGRAPHIC_FIELDS, _validate_demographic),
     ProfileSection.PHYSIOLOGICAL: (PHYSIOLOGICAL_FIELDS, _validate_physiological),
     ProfileSection.SPORT_HABITS: (SPORT_HABITS_FIELDS, _validate_sport_habits),
+    ProfileSection.NUTRITION_HABITS: (NUTRITION_HABITS_FIELDS, _validate_nutrition_habits),
 }
 
 

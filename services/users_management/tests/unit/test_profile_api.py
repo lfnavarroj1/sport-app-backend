@@ -16,6 +16,7 @@ from fakes import (
     demographic_body,
     physiological_body,
     update_demographic_with,
+    update_nutrition_habits_with,
     update_physiological_with,
     update_sport_habits_with,
 )
@@ -63,6 +64,7 @@ class ProfileApiTest(unittest.TestCase):
                     update_demographic=update_demographic_with(self.store, clock),
                     update_physiological=update_physiological_with(self.store, clock),
                     update_sport_habits=update_sport_habits_with(self.store, clock),
+                    update_nutrition_habits=update_nutrition_habits_with(self.store, clock),
                     get_profile=GetAthleteProfile(self.reader),
                 )
             ],
@@ -346,7 +348,13 @@ class ProfileApiTest(unittest.TestCase):
                 "demographic": None,
                 "physiological": None,
                 "sport_habits": None,
-                "versions": {"demographic": None, "physiological": None, "sport_habits": None},
+                "nutrition_habits": None,
+                "versions": {
+                    "demographic": None,
+                    "physiological": None,
+                    "sport_habits": None,
+                    "nutrition_habits": None,
+                },
                 "projected_at": None,
             },
         )
@@ -364,9 +372,11 @@ class ProfileApiTest(unittest.TestCase):
             demographic=sections["demographic"],
             physiological=sections["physiological"],
             sport_habits=None,
+            nutrition_habits=None,
             demographic_version=1,
             physiological_version=1,
             sport_habits_version=None,
+            nutrition_habits_version=None,
             projected_at=datetime(2026, 10, 7, 7, 0, 1, tzinfo=UTC).astimezone(
                 timezone(timedelta(hours=-5))
             ),
@@ -380,7 +390,8 @@ class ProfileApiTest(unittest.TestCase):
         self.assertEqual(body["demographic"], sections["demographic"])
         self.assertEqual(body["physiological"], sections["physiological"])
         self.assertEqual(
-            body["versions"], {"demographic": 1, "physiological": 1, "sport_habits": None}
+            body["versions"],
+            {"demographic": 1, "physiological": 1, "sport_habits": None, "nutrition_habits": None},
         )
         self.assertEqual(body["projected_at"], "2026-10-07T07:00:01Z")
         self.assertIsNone(other.json()["demographic"])

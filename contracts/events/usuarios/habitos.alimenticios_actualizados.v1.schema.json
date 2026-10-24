@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/usuarios/habitos.alimenticios_actualizados.v1.schema.json",
+  "title": "habitos.alimenticios_actualizados.v1",
+  "description": "Publicado en sportapp.usuarios.v1 con ordering_key = user_id cuando el deportista registra o reemplaza sus hábitos alimenticios (HU009, ADR-035). Estado completo de la sección, con restricciones y alergias en el orden de su catálogo. Alergias y restricciones son datos de salud: lo consume solo usuarios-read-projector (athlete_profile_view.nutrition_habits); Entrenamientos recibe únicamente restricciones, alergias, patrón y versión por el contrato interno GET /v1/users/{user_id}/nutrition-restrictions. Sin otras secciones del perfil ni texto libre.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "habitos.alimenticios_actualizados.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "gestion-usuarios"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "user_id del deportista; también ordering_key. aggregate_type = nutrition_habits (atributo del mensaje)."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Versión de la sección; igual a payload.version."
+    },
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "Idempotency-Key del comando que originó el evento."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "version",
+        "consent",
+        "diet_pattern",
+        "restrictions",
+        "allergies",
+        "meals_per_day",
+        "hydration_liters_per_day",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "user_id": {"type": "string", "format": "uuid"},
+        "version": {"type": "integer", "minimum": 1},
+        "consent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "accepted_at"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "HEALTH_DATA_CONSENT_VERSION aceptada."
+            },
+            "accepted_at": {"type": "string", "format": "date-time"}
+          }
+        },
+        "diet_pattern": {"enum": ["OMNIVORE", "VEGETARIAN", "VEGAN", "PESCATARIAN", "FLEXITARIAN"]},
+        "restrictions": {
+          "type": "array",
+          "maxItems": 7,
+          "uniqueItems": true,
+          "description": "Puede ir vacía; en el orden del catálogo.",
+          "items": {
+            "enum": [
+              "GLUTEN_FREE",
+              "LACTOSE_FREE",
+              "LOW_SODIUM",
+              "LOW_SUGAR",
+              "KETO",
+              "HALAL",
+              "KOSHER"
+            ]
+          }
+        },
+        "allergies": {
+          "type": "array",
+          "maxItems": 9,
+          "uniqueItems": true,
+          "description": "Puede ir vacía; en el orden del catálogo.",
+          "items": {
+            "enum": [
+              "PEANUTS",
+              "TREE_NUTS",
+              "MILK",
+              "EGGS",
+              "WHEAT",
+              "SOY",
+              "FISH",
+              "SHELLFISH",
+              "SESAME"
+            ]
+          }
+        },
+        "meals_per_day": {"type": "integer", "minimum": 1, "maximum": 8},
+        "hydration_liters_per_day": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{1,2}\\.\\d$",
+          "description": "Litros por día con un decimal, de 0.5 a 10.0; null si no se informó."
+        },
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

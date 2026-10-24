@@ -83,7 +83,13 @@ class SportHabitsFlowTest(ProfileFlowCase):
             view["sport_habits"], {k: v for k, v in replaced.json().items() if k != "user_id"}
         )
         self.assertEqual(
-            view["versions"], {"demographic": None, "physiological": None, "sport_habits": 2}
+            view["versions"],
+            {
+                "demographic": None,
+                "physiological": None,
+                "sport_habits": 2,
+                "nutrition_habits": None,
+            },
         )
         free_plan = self.subscriber.pull(
             request={

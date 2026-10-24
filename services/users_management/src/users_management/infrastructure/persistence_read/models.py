@@ -14,8 +14,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sportapp_platform.database import new_metadata
 
 DIRECTORY_EMAIL_UNIQUE_CONSTRAINT = "uq_user_directory_email"
-# Secciones de `athlete_profile_view` (ADR-034); HU006 reutiliza `sport_habits`.
-PROFILE_SECTIONS = ("demographic", "physiological", "sport_habits")
+# Secciones de `athlete_profile_view` (ADR-034); HU006 reutiliza `sport_habits` y HU009
+# (ADR-035) agrega `nutrition_habits` con la migración de lectura `0005`.
+PROFILE_SECTIONS = ("demographic", "physiological", "sport_habits", "nutrition_habits")
 
 
 class ReadBase(DeclarativeBase):
@@ -61,7 +62,7 @@ def _section_constraints() -> tuple[CheckConstraint, ...]:
 
 
 class AthleteProfileViewRow(ReadBase):
-    """Perfil del deportista por secciones (HU005/HU006, ADR-034).
+    """Perfil del deportista por secciones (HU005/HU006, ADR-034; HU009, ADR-035).
 
     Cada sección es el estado completo publicado en su evento, sin `user_id`; se
     reemplaza solo con una versión mayor que la proyectada. Contiene datos
@@ -75,9 +76,11 @@ class AthleteProfileViewRow(ReadBase):
     demographic: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     physiological: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     sport_habits: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    nutrition_habits: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     demographic_version: Mapped[int | None] = mapped_column(BigInteger)
     physiological_version: Mapped[int | None] = mapped_column(BigInteger)
     sport_habits_version: Mapped[int | None] = mapped_column(BigInteger)
+    nutrition_habits_version: Mapped[int | None] = mapped_column(BigInteger)
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     def __repr__(self) -> str:

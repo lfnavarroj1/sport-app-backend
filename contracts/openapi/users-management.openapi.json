@@ -18,6 +18,21 @@
         "title": "ActorType",
         "type": "string"
       },
+      "Allergy": {
+        "enum": [
+          "PEANUTS",
+          "TREE_NUTS",
+          "MILK",
+          "EGGS",
+          "WHEAT",
+          "SOY",
+          "FISH",
+          "SHELLFISH",
+          "SESAME"
+        ],
+        "title": "Allergy",
+        "type": "string"
+      },
       "AthleteProfileResponse": {
         "properties": {
           "demographic": {
@@ -29,6 +44,17 @@
                 "type": "null"
               }
             ]
+          },
+          "nutrition_habits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NutritionHabitsSectionView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HU009; `null` mientras no exista."
           },
           "physiological": {
             "anyOf": [
@@ -78,6 +104,7 @@
           "demographic",
           "physiological",
           "sport_habits",
+          "nutrition_habits",
           "versions",
           "projected_at"
         ],
@@ -288,6 +315,17 @@
         ],
         "title": "DemographicSectionView",
         "type": "object"
+      },
+      "DietPattern": {
+        "enum": [
+          "OMNIVORE",
+          "VEGETARIAN",
+          "VEGAN",
+          "PESCATARIAN",
+          "FLEXITARIAN"
+        ],
+        "title": "DietPattern",
+        "type": "string"
       },
       "ErrorDetail": {
         "properties": {
@@ -595,22 +633,166 @@
         "title": "MaritalStatus",
         "type": "string"
       },
+      "NutritionHabitsResponse": {
+        "properties": {
+          "allergies": {
+            "description": "En el orden del catálogo.",
+            "items": {
+              "$ref": "#/components/schemas/Allergy"
+            },
+            "title": "Allergies",
+            "type": "array"
+          },
+          "consent": {
+            "$ref": "#/components/schemas/HealthConsent"
+          },
+          "created_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "diet_pattern": {
+            "$ref": "#/components/schemas/DietPattern"
+          },
+          "hydration_liters_per_day": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{1,3}\\.\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "2.5"
+            ],
+            "title": "Hydration Liters Per Day"
+          },
+          "meals_per_day": {
+            "title": "Meals Per Day",
+            "type": "integer"
+          },
+          "restrictions": {
+            "description": "En el orden del catálogo.",
+            "items": {
+              "$ref": "#/components/schemas/Restriction"
+            },
+            "title": "Restrictions",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "version",
+          "consent",
+          "diet_pattern",
+          "restrictions",
+          "allergies",
+          "meals_per_day",
+          "hydration_liters_per_day",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "NutritionHabitsResponse",
+        "type": "object"
+      },
+      "NutritionHabitsSectionView": {
+        "properties": {
+          "allergies": {
+            "description": "En el orden del catálogo.",
+            "items": {
+              "$ref": "#/components/schemas/Allergy"
+            },
+            "title": "Allergies",
+            "type": "array"
+          },
+          "consent": {
+            "$ref": "#/components/schemas/HealthConsent"
+          },
+          "created_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "diet_pattern": {
+            "$ref": "#/components/schemas/DietPattern"
+          },
+          "hydration_liters_per_day": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{1,3}\\.\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "2.5"
+            ],
+            "title": "Hydration Liters Per Day"
+          },
+          "meals_per_day": {
+            "title": "Meals Per Day",
+            "type": "integer"
+          },
+          "restrictions": {
+            "description": "En el orden del catálogo.",
+            "items": {
+              "$ref": "#/components/schemas/Restriction"
+            },
+            "title": "Restrictions",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "consent",
+          "diet_pattern",
+          "restrictions",
+          "allergies",
+          "meals_per_day",
+          "hydration_liters_per_day",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "NutritionHabitsSectionView",
+        "type": "object"
+      },
       "NutritionRestrictionsResponse": {
         "properties": {
           "allergies": {
+            "description": "En el orden del catálogo.",
             "items": {
-              "enum": [
-                "PEANUTS",
-                "TREE_NUTS",
-                "MILK",
-                "EGGS",
-                "WHEAT",
-                "SOY",
-                "FISH",
-                "SHELLFISH",
-                "SESAME"
-              ],
-              "type": "string"
+              "$ref": "#/components/schemas/Allergy"
             },
             "title": "Allergies",
             "type": "array"
@@ -618,34 +800,18 @@
           "diet_pattern": {
             "anyOf": [
               {
-                "enum": [
-                  "OMNIVORE",
-                  "VEGETARIAN",
-                  "VEGAN",
-                  "PESCATARIAN",
-                  "FLEXITARIAN"
-                ],
-                "type": "string"
+                "$ref": "#/components/schemas/DietPattern"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "`null` si el usuario no registró hábitos alimenticios.",
-            "title": "Diet Pattern"
+            "description": "`null` si el usuario no registró hábitos alimenticios."
           },
           "restrictions": {
+            "description": "En el orden del catálogo.",
             "items": {
-              "enum": [
-                "GLUTEN_FREE",
-                "LACTOSE_FREE",
-                "LOW_SODIUM",
-                "LOW_SUGAR",
-                "KETO",
-                "HALAL",
-                "KOSHER"
-              ],
-              "type": "string"
+              "$ref": "#/components/schemas/Restriction"
             },
             "title": "Restrictions",
             "type": "array"
@@ -659,7 +825,7 @@
                 "type": "null"
               }
             ],
-            "description": "Versión de los hábitos alimenticios; `null` si no los registró (en ese caso las listas van vacías).",
+            "description": "Versión de los hábitos alimenticios proyectada; `null` si no los registró (en ese caso las listas van vacías).",
             "title": "Version"
           }
         },
@@ -904,6 +1070,17 @@
             ],
             "title": "Demographic"
           },
+          "nutrition_habits": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nutrition Habits"
+          },
           "physiological": {
             "anyOf": [
               {
@@ -930,7 +1107,8 @@
         "required": [
           "demographic",
           "physiological",
-          "sport_habits"
+          "sport_habits",
+          "nutrition_habits"
         ],
         "title": "ProfileVersions",
         "type": "object"
@@ -995,6 +1173,19 @@
         ],
         "title": "RegisterUserRequest",
         "type": "object"
+      },
+      "Restriction": {
+        "enum": [
+          "GLUTEN_FREE",
+          "LACTOSE_FREE",
+          "LOW_SODIUM",
+          "LOW_SUGAR",
+          "KETO",
+          "HALAL",
+          "KOSHER"
+        ],
+        "title": "Restriction",
+        "type": "string"
       },
       "SessionResponse": {
         "properties": {
@@ -1391,7 +1582,7 @@
   },
   "info": {
     "title": "SportApp - Usuarios",
-    "version": "0.9.0"
+    "version": "0.10.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1698,6 +1889,251 @@
           }
         },
         "summary": "Registrar o reemplazar la sección demográfica (HU005)",
+        "tags": [
+          "profile"
+        ]
+      }
+    },
+    "/v1/me/nutrition-habits": {
+      "put": {
+        "description": "Exige el consentimiento vigente de datos de salud; sin él no se guarda nada. Registrar hábitos no crea planes, consumos ni recomendaciones.",
+        "operationId": "put_nutrition_habits_v1_me_nutrition_habits_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Hábitos alimenticios completos (HU009, ADR-035), con el consentimiento de datos de\nsalud vigente. Sin texto libre: solo valores de los catálogos. `user_id` y cualquier\ncampo no listado → `field_not_allowed`. Los errores de una lista nombran la posición\nrecibida (`allergies[1]`).",
+                "properties": {
+                  "allergies": {
+                    "description": "Valores únicos; puede ir vacía.",
+                    "items": {
+                      "enum": [
+                        "PEANUTS",
+                        "TREE_NUTS",
+                        "MILK",
+                        "EGGS",
+                        "WHEAT",
+                        "SOY",
+                        "FISH",
+                        "SHELLFISH",
+                        "SESAME"
+                      ],
+                      "title": "Allergy",
+                      "type": "string"
+                    },
+                    "maxItems": 9,
+                    "title": "Allergies",
+                    "type": "array"
+                  },
+                  "consent": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "version": {
+                        "description": "Igual a la versión vigente (`HEALTH_DATA_CONSENT_VERSION`).",
+                        "title": "Version",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "version"
+                    ],
+                    "title": "ConsentAcceptance",
+                    "type": "object"
+                  },
+                  "diet_pattern": {
+                    "enum": [
+                      "OMNIVORE",
+                      "VEGETARIAN",
+                      "VEGAN",
+                      "PESCATARIAN",
+                      "FLEXITARIAN"
+                    ],
+                    "title": "DietPattern",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Se omite al crear; igual a la versión vigente al reemplazar.",
+                    "title": "Expected Version"
+                  },
+                  "hydration_liters_per_day": {
+                    "anyOf": [
+                      {
+                        "pattern": "^\\d{1,3}(\\.\\d)?$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Cadena decimal (0 o 1 decimal) entre 0.5 y 10.0 litros.",
+                    "examples": [
+                      "2.5"
+                    ],
+                    "title": "Hydration Liters Per Day"
+                  },
+                  "meals_per_day": {
+                    "maximum": 8,
+                    "minimum": 1,
+                    "title": "Meals Per Day",
+                    "type": "integer"
+                  },
+                  "restrictions": {
+                    "description": "Valores únicos; puede ir vacía.",
+                    "items": {
+                      "enum": [
+                        "GLUTEN_FREE",
+                        "LACTOSE_FREE",
+                        "LOW_SODIUM",
+                        "LOW_SUGAR",
+                        "KETO",
+                        "HALAL",
+                        "KOSHER"
+                      ],
+                      "title": "Restriction",
+                      "type": "string"
+                    },
+                    "maxItems": 7,
+                    "title": "Restrictions",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "consent",
+                  "diet_pattern",
+                  "restrictions",
+                  "allergies",
+                  "meals_per_day"
+                ],
+                "title": "NutritionHabitsRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NutritionHabitsResponse"
+                }
+              }
+            },
+            "description": "Sección reemplazada.",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NutritionHabitsResponse"
+                }
+              }
+            },
+            "description": "Sección registrada.",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`) puede operar."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` (`details[0].issue` = versión vigente, `0` si la sección no existe) o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (ADR-034)."
+          }
+        },
+        "summary": "Registrar o reemplazar los hábitos alimenticios con consentimiento (HU009)",
         "tags": [
           "profile"
         ]
@@ -2027,7 +2463,7 @@
             "description": "`upstream_unavailable`: la base de lectura no responde."
           }
         },
-        "summary": "Consultar el perfil propio desde la proyección (HU005 y HU006)",
+        "summary": "Consultar el perfil propio desde la proyección (HU005, HU006 y HU009)",
         "tags": [
           "profile"
         ]
@@ -2690,7 +3126,7 @@
     },
     "/v1/users/{user_id}/nutrition-restrictions": {
       "get": {
-        "description": "Solo para `training-management` (HU014). Sin hábitos registrados: listas vacías y `diet_pattern`/`version` en `null`.",
+        "description": "Solo para `training-management` (HU014), dentro de la red de la plataforma y sin token. Sin hábitos registrados: listas vacías y `diet_pattern`/`version` en `null`. Datos de salud: `no-store`.",
         "operationId": "nutrition_restrictions_v1_users__user_id__nutrition_restrictions_get",
         "parameters": [
           {
@@ -2701,6 +3137,24 @@
               "format": "uuid",
               "title": "User Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "No se envía: con ella la solicitud se rechaza (`403`).",
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "No se envía: con ella la solicitud se rechaza (`403`).",
+              "title": "Authorization"
             }
           }
         ],
@@ -2714,6 +3168,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: la solicitud trae `Authorization` (un cliente no puede usar este contrato interno)."
           },
           "404": {
             "content": {
@@ -2734,6 +3198,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: la base de lectura no responde."
           }
         },
         "summary": "Restricciones y alergias alimenticias de un usuario (interno, ADR-035)",

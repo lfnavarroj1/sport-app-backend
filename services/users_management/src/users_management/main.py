@@ -24,6 +24,7 @@ from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
 from users_management.application.commands.update_sport_habits import UpdateSportHabits
+from users_management.application.queries.directory_lookup import LookupDirectoryNames
 from users_management.application.queries.get_profile import GetAthleteProfile
 from users_management.application.queries.lookup_user import LookupUserByEmail
 from users_management.application.queries.lookup_users_batch import LookupUsersByIds
@@ -49,7 +50,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.10.0"
+API_VERSION = "0.11.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -134,7 +135,7 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
                 ),
             ),
             build_jwks_router(token_issuer.jwks()),
-            build_lookup_router(lookup_user, lookup_batch),
+            build_lookup_router(lookup_user, lookup_batch, LookupDirectoryNames(lookup_batch)),
             build_nutrition_restrictions_router(
                 GetNutritionRestrictions(SqlAlchemyNutritionRestrictionsReader(read_sessions))
             ),

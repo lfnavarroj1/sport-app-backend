@@ -322,3 +322,35 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         """Traduce un mensaje ya procesado o una inscripción ya proyectada por otra entrega a
         `DuplicateDelivery`, y una vista de evento creada en paralelo a `ConcurrentEventView`."""
         ...
+
+
+@dataclass(frozen=True)
+class AttendeePosition:
+    """HU022: posición del cursor en el orden `registered_at`, `registration_id`."""
+
+    registered_at: datetime
+    registration_id: UUID
+
+
+@dataclass(frozen=True)
+class AttendeesQuery:
+    event_id: UUID
+    organizer_id: UUID
+    status: str | None
+    after: AttendeePosition | None
+    limit: int
+
+
+@dataclass(frozen=True)
+class AttendeePage:
+    """Inscripciones de la página y conteo de todas las del evento por estado."""
+
+    items: tuple[EventRegistration, ...]
+    by_status: dict[str, int]
+
+
+class AttendeeReader(Protocol):
+    def attendees(self, query: AttendeesQuery) -> AttendeePage | None:
+        """`None` si el evento no existe o no es del organizador; página y conteos de una
+        misma lectura en otro caso."""
+        ...

@@ -1,6 +1,118 @@
 {
   "components": {
     "schemas": {
+      "AppliedFee": {
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal con dos decimales.",
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "title": "AppliedFee",
+        "type": "object"
+      },
+      "AttendeeItem": {
+        "properties": {
+          "applied_fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedFee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Informativa: no es un cobro."
+          },
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nombre visible (`full_name`); `null` si Usuarios no lo entregó.",
+            "title": "Display Name"
+          },
+          "registered_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "title": "Registration Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "REGISTERED",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration_id",
+          "athlete_id",
+          "display_name",
+          "status",
+          "registered_at",
+          "applied_fee"
+        ],
+        "title": "AttendeeItem",
+        "type": "object"
+      },
+      "AttendeesByStatus": {
+        "properties": {
+          "REGISTERED": {
+            "title": "Registered",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "REGISTERED"
+        ],
+        "title": "AttendeesByStatus",
+        "type": "object"
+      },
+      "AttendeesSource": {
+        "properties": {
+          "source": {
+            "const": "users",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "OK",
+              "UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "status"
+        ],
+        "title": "AttendeesSource",
+        "type": "object"
+      },
       "AvailabilityInterval": {
         "additionalProperties": false,
         "description": "Intervalo `[starts_at, ends_at)`. En la solicitud, con desfase coherente con\n`time_zone`; en la respuesta, en UTC con sufijo `Z`.",
@@ -816,6 +928,54 @@
           "published_at"
         ],
         "title": "EventAggregateResponse",
+        "type": "object"
+      },
+      "EventAttendeesResponse": {
+        "properties": {
+          "by_status": {
+            "$ref": "#/components/schemas/AttendeesByStatus",
+            "description": "Todas las inscripciones del evento por estado."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AttendeeItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "sources": {
+            "description": "Estado de la consulta de nombres a Usuarios.",
+            "items": {
+              "$ref": "#/components/schemas/AttendeesSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "total": {
+            "description": "Inscripciones del evento que cumplen el filtro de `status`.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "by_status",
+          "next_cursor",
+          "sources"
+        ],
+        "title": "EventAttendeesResponse",
         "type": "object"
       },
       "EventConflict": {
@@ -3617,7 +3777,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.21.0"
+    "version": "0.22.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5205,6 +5365,170 @@
           }
         },
         "summary": "Coincidencias de un evento propio con eventos publicados (HU023)",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/v1/me/events/{event_id}/registrations": {
+      "get": {
+        "description": "Orden `registered_at`, `registration_id` ascendente con cursor keyset. Identidad mínima: `display_name` desde Usuarios, sin correo ni perfil. Si Usuarios no responde, `display_name` es `null` y `sources[users]` es `UNAVAILABLE`.",
+        "operationId": "event_attendees_v1_me_events__event_id__registrations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "`REGISTERED` (por defecto) o `ALL`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`REGISTERED` (por defecto) o `ALL`.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "1 a 100; por defecto 20.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 a 100; por defecto 20.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAttendeesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: no es `organizer` con `events.attendees.view`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: el evento no existe o es de otro organizador."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.status` `unknown_value`, `query.limit` `out_of_range` o `query.cursor` `invalid_cursor`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Inscritos de un evento propio (HU022)",
         "tags": [
           "events"
         ]

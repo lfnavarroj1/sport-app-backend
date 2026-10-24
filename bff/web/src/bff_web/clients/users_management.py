@@ -121,6 +121,18 @@ class UsersManagementClient:
         items: list[dict[str, Any]] = response.json()["items"]
         return items
 
+    def directory_lookup(self, user_ids: list[UUID]) -> list[dict[str, Any]]:
+        """HU022 (ADR-039): solo el nombre (`full_name`) de cuentas activas por identificador
+        (contrato interno, ≤ 100). Los identificadores salen siempre de la página de Eventos.
+        Cualquier respuesta distinta de `200` es indisponibilidad."""
+        response = self._post(
+            "/v1/users/directory-lookup", {"user_ids": [str(user_id) for user_id in user_ids]}, {}
+        )
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        items: list[dict[str, Any]] = response.json()["items"]
+        return items
+
     def jwks(self) -> dict[str, Any]:
         """Claves públicas de firma; un fallo se propaga para conservar el JWKS anterior."""
         response = self._http.get("/.well-known/jwks.json")

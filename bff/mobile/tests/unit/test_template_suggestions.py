@@ -76,6 +76,7 @@ class TemplateSuggestionsTest(unittest.TestCase):
                     affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
                     training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
                     events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
+                    complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
                 ),
                 users_http=httpx.Client(
                     base_url="http://users", transport=httpx.MockTransport(self.users)

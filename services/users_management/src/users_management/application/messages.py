@@ -1,6 +1,7 @@
 """Lectura validada de los eventos de `sportapp.usuarios.v1` para `usuarios-read-projector`.
 
 Se proyectan `usuario.registrado.v1` (HU001, directorio de identidad),
+`usuario.actualizado.v1` (HU002, ADR-035: nombre y correo en el directorio),
 `perfil.demografico_actualizado.v1` / `perfil.fisiologico_actualizado.v1` (HU005),
 `habitos.deportivos_actualizados.v1` (HU006), según ADR-034, y
 `habitos.alimenticios_actualizados.v1` (HU009, ADR-035). Cada evento
@@ -23,7 +24,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from users_management.domain.account.events import UserRegistered
+from users_management.domain.account.events import UserRegistered, UserUpdated
 from users_management.domain.account.model import AccountStatus, ActorType
 from users_management.domain.profile.events import (
     SCHEMA_VERSION as PROFILE_SCHEMA_VERSION,
@@ -81,6 +82,9 @@ _COUNTRY = re.compile(r"^[A-Z]{2}$")
 
 _REGISTERED_FIELDS = frozenset(
     {"user_id", "full_name", "email", "actor_type", "status", "registered_at"}
+)
+_UPDATED_FIELDS = frozenset(
+    {"user_id", "full_name", "email", "actor_type", "status", "version", "updated_at"}
 )
 DEMOGRAPHIC_FIELDS = frozenset(
     {
@@ -188,6 +192,31 @@ class UserRegisteredEvent:
 
 
 @dataclass(frozen=True)
+class UserUpdatedEvent:
+    """`usuario.actualizado.v1` (HU002): estado completo de la cuenta editable, sin hash."""
+
+    event_id: UUID
+    user_id: UUID
+    aggregate_version: int
+    correlation_id: UUID | None
+    full_name: str
+    email: str
+    actor_type: str
+    status: str
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.user_id
+
+    def __repr__(self) -> str:
+        # Nombre y correo son datos personales: nunca en trazas.
+        return (
+            f"UserUpdatedEvent(event_id={self.event_id}, user_id={self.user_id}, "
+            f"version={self.aggregate_version})"
+        )
+
+
+@dataclass(frozen=True)
 class ProfileSectionUpdatedEvent:
     """`perfil.*_actualizado.v1`: `document` es el payload sin `user_id` (ADR-034)."""
 
@@ -211,7 +240,7 @@ class ProfileSectionUpdatedEvent:
         )
 
 
-UsersEvent = UserRegisteredEvent | ProfileSectionUpdatedEvent
+UsersEvent = UserRegisteredEvent | UserUpdatedEvent | ProfileSectionUpdatedEvent
 
 
 def _uuid(value: object, field: str) -> UUID:
@@ -333,6 +362,35 @@ def _user_registered(envelope: dict[str, Any]) -> UserRegisteredEvent:
     status = _choice(payload["status"], "status", frozenset({AccountStatus.ACTIVE.value}))
     _aware_datetime(payload["registered_at"], "registered_at")
     return UserRegisteredEvent(
+        event_id=event_id,
+        user_id=aggregate_id,
+        aggregate_version=version,
+        correlation_id=_correlation(envelope),
+        full_name=full_name,
+        email=email,
+        actor_type=actor_type,
+        status=status,
+    )
+
+
+def _user_updated(envelope: dict[str, Any]) -> UserUpdatedEvent:
+    event_id, aggregate_id, version = _envelope(envelope, UserUpdated.SCHEMA_VERSION)
+    # La versión 1 la crea el registro; una edición siempre produce la 2 o posterior.
+    if version <= REGISTERED_VERSION:
+        raise InvalidEvent("aggregate_version_invalid")
+    payload = _object(envelope.get("payload"), "payload", _UPDATED_FIELDS)
+    if _uuid(payload["user_id"], "user_id") != aggregate_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if _int(payload["version"], "version", 1) != version:
+        raise InvalidEvent("version_mismatch")
+    full_name = _text(payload["full_name"], "full_name", 1, 120)
+    email = _text(payload["email"], "email", 3, 254)
+    actor_type = _choice(
+        payload["actor_type"], "actor_type", frozenset(value.value for value in ActorType)
+    )
+    status = _choice(payload["status"], "status", frozenset(value.value for value in AccountStatus))
+    _instant(payload["updated_at"], "updated_at")
+    return UserUpdatedEvent(
         event_id=event_id,
         user_id=aggregate_id,
         aggregate_version=version,
@@ -488,6 +546,8 @@ def parse_users_event(envelope: object) -> UsersEvent:
         raise InvalidEvent("event_type_missing")
     if event_type == UserRegistered.EVENT_TYPE:
         return _user_registered(envelope)
+    if event_type == UserUpdated.EVENT_TYPE:
+        return _user_updated(envelope)
     if event_type in SECTION_BY_EVENT_TYPE:
         return _profile_section_updated(envelope, event_type)
     raise UnsupportedEvent(event_type)

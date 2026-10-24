@@ -175,6 +175,43 @@ class SubscriptionReader(Protocol):
     def active(self, user_id: UUID) -> SubscriptionView | None: ...
 
 
+# --- HU007 (ADR-036): estado de cuenta ---
+
+
+@dataclass(frozen=True)
+class MovementPosition:
+    """Posición keyset de un movimiento: orden `occurred_at DESC, movement_id DESC`."""
+
+    occurred_at: datetime
+    movement_id: UUID
+
+
+@dataclass(frozen=True)
+class MovementView:
+    """Movimiento con el importe de su compromiso (`None` si no es de un compromiso)."""
+
+    movement: Movement
+    amount: Decimal | None
+    currency: str | None
+
+
+@dataclass(frozen=True)
+class AccountStatementSnapshot:
+    """Lectura coherente (una sola instantánea) del estado de cuenta de un usuario."""
+
+    current: SubscriptionView | None
+    has_any_subscription: bool
+    commitments: list[BillingCommitment]
+    # Hasta `limit` movimientos después de la posición pedida, en el orden del contrato.
+    movements: list[MovementView]
+
+
+class AccountStatementReader(Protocol):
+    def read(
+        self, user_id: UUID, *, after: MovementPosition | None, limit: int
+    ) -> AccountStatementSnapshot: ...
+
+
 class SubscriptionChangeUnitOfWork(Protocol):
     """Transacción local del cambio: cierre, alta, compromisos, historial, outbox y clave."""
 

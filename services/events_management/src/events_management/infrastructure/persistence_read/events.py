@@ -33,6 +33,7 @@ from events_management.domain.registrations.model import (
     EventRegistration,
     RegistrationStatus,
 )
+from events_management.domain.sport_events.fee import EventFee
 from events_management.domain.sport_events.model import (
     EventDetails,
     EventStatus,
@@ -52,6 +53,21 @@ from events_management.infrastructure.persistence_read.models import (
 # Estados que un catálogo o calendario público puede mostrar; `DRAFT` nunca lo es. HU024
 # lleva los eventos a `PUBLISHED`.
 PUBLIC_STATUSES: frozenset[str] = frozenset({"PUBLISHED"})
+
+
+def _fee(row: EventReadRow) -> EventFee | None:
+    if row.fee_amount is None or row.fee_currency is None:
+        return None
+    return EventFee(amount=row.fee_amount, currency=row.fee_currency)
+
+
+def _fee_columns(event: SportEvent) -> dict[str, Any]:
+    fee = event.fee
+    return {
+        "fee_amount": fee.amount if fee else None,
+        "fee_currency": fee.currency if fee else None,
+        "fee_updated_at": event.fee_updated_at,
+    }
 
 
 def _event(row: EventReadRow) -> SportEvent:
@@ -79,6 +95,8 @@ def _event(row: EventReadRow) -> SportEvent:
         created_at=row.created_at,
         updated_at=row.updated_at,
         published_at=row.published_at,
+        fee=_fee(row),
+        fee_updated_at=row.fee_updated_at,
     )
 
 
@@ -95,6 +113,7 @@ def _calendar(row: EventReadRow) -> CalendarEventView:
         time_zone=row.time_zone,
         status=row.status,
         version=row.version,
+        fee=_fee(row),
     )
 
 
@@ -250,6 +269,7 @@ class SqlAlchemyEventDetailReader:
                 description=row.description,
                 capacity=row.capacity,
                 my_registration=_registration(mine) if mine is not None else None,
+                owned_by_caller=owner_id is not None and row.organizer_id == owner_id,
             )
 
 
@@ -388,6 +408,7 @@ class SqlAlchemyProjectionUnitOfWork:
                 created_at=event.created_at,
                 updated_at=event.updated_at,
                 published_at=event.published_at,
+                **_fee_columns(event),
                 projected_at=projected_at,
             )
         )
@@ -416,6 +437,7 @@ class SqlAlchemyProjectionUnitOfWork:
                 created_at=event.created_at,
                 updated_at=event.updated_at,
                 published_at=event.published_at,
+                **_fee_columns(event),
                 projected_at=projected_at,
             )
         )

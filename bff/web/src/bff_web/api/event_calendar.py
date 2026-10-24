@@ -21,6 +21,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Query, Response
 from pydantic import BaseModel, Field
 
+from bff_web.api.event_publication import EventFee
 from bff_web.api.training import (
     _UNAUTHORIZED,
     _UPSTREAM,
@@ -67,6 +68,7 @@ class PublishedEventItem(BaseModel):
     time_zone: str
     status: Literal["PUBLISHED"]
     version: int
+    fee: Annotated[EventFee | None, Field(description="Informativa; `null` sin tarifa (HU025).")]
 
 
 class PublishedEventsResponse(BaseModel):

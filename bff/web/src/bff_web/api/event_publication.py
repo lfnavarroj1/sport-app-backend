@@ -44,6 +44,13 @@ DEFAULT_LIMIT = 20
 SOURCE = "events-management"
 
 
+class EventFee(BaseModel):
+    """Tarifa informativa del evento (ADR-040): `{amount, currency}`; `0.00` es gratuito."""
+
+    amount: Annotated[str, Field(description="Cadena decimal con dos decimales.")]
+    currency: str
+
+
 class EventAggregateResponse(BaseModel):
     """Agregado completo de ADR-028 con estado, versión y `published_at` (ADR-033)."""
 
@@ -65,10 +72,30 @@ class EventAggregateResponse(BaseModel):
     published_at: Annotated[
         datetime | None, Field(description="Instante de la publicación; `null` en borrador.")
     ]
+    fee: Annotated[
+        EventFee | None,
+        Field(description="Tarifa informativa (HU025); `null` sin tarifa. No es un cobro."),
+    ]
+    fee_updated_at: Annotated[
+        datetime | None,
+        Field(description="Último cambio de la tarifa; `null` si nunca se definió."),
+    ]
+
+
+class OwnEventResponse(EventAggregateResponse):
+    """El agregado como lo ve su organizador (HU025)."""
+
+    registration_count: Annotated[
+        int,
+        Field(
+            description="Inscripciones vigentes; cambiar la tarifa no las modifica (cada una "
+            "conserva su `applied_fee`)."
+        ),
+    ]
 
 
 class MyEventsResponse(BaseModel):
-    items: list[EventAggregateResponse]
+    items: list[OwnEventResponse]
     next_cursor: str | None = Field(
         description="Cursor opaco de la página siguiente; `null` si no hay más."
     )
@@ -78,12 +105,6 @@ class EventDetailLocation(BaseModel):
     name: str
     city: str
     country_code: str
-
-
-class EventFee(BaseModel):
-    amount: Annotated[str, Field(description="Cadena decimal con dos decimales.")]
-    currency: str
-    billing_unit: str
 
 
 class EventDetailResponse(BaseModel):
@@ -103,7 +124,14 @@ class EventDetailResponse(BaseModel):
         Field(description="`DRAFT` solo lo recibe el organizador propietario (HU024)."),
     ]
     version: int
-    fee: Annotated[EventFee | None, Field(description="`null` hasta HU025.")]
+    fee: Annotated[EventFee | None, Field(description="Informativa; `null` sin tarifa (HU025).")]
+    registration_count: Annotated[
+        int | None,
+        Field(
+            description="Inscripciones vigentes; solo para el organizador propietario (HU025), "
+            "`null` para los demás actores."
+        ),
+    ]
 
 
 def _error(status: HTTPStatus, description: str) -> dict[int | str, dict[str, Any]]:

@@ -12,6 +12,10 @@
 HU024 (ADR-033): la única transición es `DRAFT` → `PUBLISHED`. Incrementa una vez la
 versión, fija `published_at` con el reloj del servidor y exige que el agregado persistido
 cumpla de nuevo todas las reglas de ADR-028, con `starts_at` posterior a la publicación.
+
+HU025 (ADR-040): la tarifa informativa pertenece al evento. Asignarla o retirarla exige la
+versión vigente, se admite en `DRAFT` y `PUBLISHED` antes de `starts_at` e incrementa la
+versión una vez.
 """
 
 from dataclasses import dataclass, replace
@@ -21,6 +25,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from events_management.domain.sport_events.countries import COUNTRY_CODES
+from events_management.domain.sport_events.fee import EventFee, FeeChange, VersionConflict
 from events_management.domain.validation import InvalidSportEvent, Issue, Violation
 
 NAME_MIN, NAME_MAX = 3, 120
@@ -103,6 +108,9 @@ class SportEvent:
     created_at: datetime
     updated_at: datetime
     published_at: datetime | None = None
+    fee: EventFee | None = None
+    # Último cambio de la tarifa (asignada o retirada); `None` si nunca se definió.
+    fee_updated_at: datetime | None = None
 
     @classmethod
     def draft(
@@ -135,6 +143,22 @@ class SportEvent:
             version=self.version + 1,
             updated_at=published_at,
             published_at=published_at,
+        )
+
+    def change_fee(self, change: FeeChange, now: datetime) -> "SportEvent":
+        """Asigna o retira la tarifa (CA1, CA3): versión vigente, inicio futuro y una sola
+        subida de versión. `VersionConflict` o `InvalidSportEvent` dejan el evento intacto."""
+        if change.expected_version != self.version:
+            raise VersionConflict(self.version)
+        if self.details.starts_at <= now:
+            raise InvalidSportEvent([Violation("starts_at", Issue.EVENT_ALREADY_STARTED)])
+        instant = now.astimezone(UTC)
+        return replace(
+            self,
+            fee=change.fee,
+            fee_updated_at=instant,
+            version=self.version + 1,
+            updated_at=instant,
         )
 
 

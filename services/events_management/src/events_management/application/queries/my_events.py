@@ -5,9 +5,12 @@
 - Solo los eventos propios; `status` opcional (`DRAFT` o `PUBLISHED`; sin él, ambos).
 - Orden `starts_at`, `event_id` ascendente con cursor keyset opaco; `limit` de 1 a 100.
 - Lee la proyección: un evento recién publicado cambia de estado cuando se proyecta.
+- HU025 (ADR-040): cada evento lleva `registration_count`, contado en la base de escritura
+  para advertir que cambiar la tarifa no modifica las inscripciones existentes.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from uuid import UUID
 
 from events_management.application.errors import PermissionRequired
 from events_management.application.ports import (
@@ -15,6 +18,7 @@ from events_management.application.ports import (
     EventPosition,
     OwnEventReader,
     OwnEventsQuery,
+    RegistrationCounter,
 )
 from events_management.application.queries.published_events import (
     InvalidEventsQuery,
@@ -39,11 +43,16 @@ class MyEventsFilters:
 class MyEventsPage:
     items: tuple[SportEvent, ...]
     next_cursor: str | None
+    registration_counts: dict[UUID, int] = field(default_factory=dict)
+
+    def registration_count(self, event: SportEvent) -> int:
+        return self.registration_counts.get(event.event_id, 0)
 
 
 class ListMyEvents:
-    def __init__(self, *, reader: OwnEventReader) -> None:
+    def __init__(self, *, reader: OwnEventReader, counter: RegistrationCounter) -> None:
         self._reader = reader
+        self._counter = counter
 
     def __call__(self, caller: Caller, filters: MyEventsFilters) -> MyEventsPage:
         if caller.actor_type != ORGANIZER:
@@ -68,4 +77,5 @@ class ListMyEvents:
             if len(events) > filters.limit
             else None
         )
-        return MyEventsPage(items=tuple(page), next_cursor=next_cursor)
+        counts = self._counter.counts([event.event_id for event in page])
+        return MyEventsPage(items=tuple(page), next_cursor=next_cursor, registration_counts=counts)

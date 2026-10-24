@@ -19,6 +19,7 @@ from events_management.api.identity import (
     authenticate,
     forbidden,
 )
+from events_management.api.registrations import EventFee
 from events_management.application.errors import (
     CapabilitiesUnavailable,
     CapabilityRequired,
@@ -32,6 +33,7 @@ from events_management.application.queries.published_events import (
     InvalidEventsQuery,
     ListPublishedEvents,
 )
+from events_management.domain.sport_events.fee import fee_document
 from sportapp_platform.errors import ErrorDetail, ErrorResponse, error_response
 
 INSTANT = "Instante ISO 8601 con desfase UTC explícito."
@@ -57,6 +59,7 @@ class PublishedEventItem(BaseModel):
     time_zone: str
     status: Literal["PUBLISHED"]
     version: int
+    fee: Annotated[EventFee | None, Field(description="Informativa; `null` sin tarifa (HU025).")]
 
 
 class PublishedEventsResponse(BaseModel):
@@ -83,6 +86,7 @@ class PublishedEventsResponse(BaseModel):
                     time_zone=item.time_zone,
                     status="PUBLISHED",
                     version=item.version,
+                    fee=EventFee.model_validate(fee_document(item.fee)) if item.fee else None,
                 )
                 for item in page.items
             ],

@@ -10,7 +10,7 @@ Solo `athlete` (CA9); sin capacidad de plan.
 import base64
 import binascii
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from uuid import UUID
 
@@ -19,6 +19,7 @@ from events_management.application.ports import (
     Caller,
     EventDetailReader,
     EventDetailView,
+    RegistrationCounter,
     RegistrationPosition,
     RegistrationReader,
     RegistrationsQuery,
@@ -81,18 +82,23 @@ def _require_athlete(caller: Caller) -> None:
 
 
 class GetPublishedEvent:
-    def __init__(self, *, reader: EventDetailReader) -> None:
+    def __init__(self, *, reader: EventDetailReader, counter: RegistrationCounter) -> None:
         self._reader = reader
+        self._counter = counter
 
     def __call__(self, caller: Caller, event_id: UUID) -> EventDetailView:
         """ADR-033: un evento `PUBLISHED` es visible para cualquier actor autenticado y un
         `DRAFT` solo para su organizador propietario (HU024); en otro caso `event_not_found`.
-        `my_registration` solo se compone para el deportista (ADR-032)."""
+        `my_registration` solo se compone para el deportista (ADR-032) y `registration_count`
+        solo para el organizador propietario (HU025, base de escritura)."""
         athlete_id = caller.user_id if caller.actor_type == ATHLETE else None
         owner_id = caller.user_id if caller.actor_type == ORGANIZER else None
         detail = self._reader.visible_detail(event_id, athlete_id=athlete_id, owner_id=owner_id)
         if detail is None:
             raise EventNotAvailable()
+        if detail.owned_by_caller:
+            count = self._counter.counts([event_id]).get(event_id, 0)
+            detail = replace(detail, registration_count=count)
         return detail
 
 

@@ -371,6 +371,172 @@
         "title": "CatalogMethod",
         "type": "object"
       },
+      "DashboardBySource": {
+        "properties": {
+          "SPORTAPP": {
+            "$ref": "#/components/schemas/SourceBreakdown"
+          },
+          "STRAVA": {
+            "$ref": "#/components/schemas/SourceBreakdown",
+            "description": "Sesiones importadas de Strava (HU031); hoy en cero."
+          }
+        },
+        "required": [
+          "SPORTAPP",
+          "STRAVA"
+        ],
+        "title": "DashboardBySource",
+        "type": "object"
+      },
+      "DashboardMetric": {
+        "description": "Estimación de campo de ADR-030; nunca es un diagnóstico (`disclaimer_key`).",
+        "properties": {
+          "disclaimer_key": {
+            "examples": [
+              "estimated_not_diagnostic"
+            ],
+            "title": "Disclaimer Key",
+            "type": "string"
+          },
+          "indicator": {
+            "examples": [
+              "FTP_ESTIMATED"
+            ],
+            "title": "Indicator",
+            "type": "string"
+          },
+          "measured_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "method_code": {
+            "title": "Method Code",
+            "type": "string"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "integer"
+          },
+          "unit": {
+            "examples": [
+              "W"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Entero con escala 0; con decimales en otro caso.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "indicator",
+          "value",
+          "unit",
+          "method_code",
+          "method_version",
+          "measured_at",
+          "disclaimer_key"
+        ],
+        "title": "DashboardMetric",
+        "type": "object"
+      },
+      "DashboardPeriodView": {
+        "properties": {
+          "from": {
+            "description": "Instante ISO 8601 con desfase (`Z` o `±HH:MM`).",
+            "format": "date-time",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "Instante ISO 8601 con desfase (`Z` o `±HH:MM`).",
+            "format": "date-time",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "DashboardPeriodView",
+        "type": "object"
+      },
+      "DashboardSource": {
+        "properties": {
+          "source": {
+            "enum": [
+              "training_sessions",
+              "training_metrics"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "OK",
+              "UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "status"
+        ],
+        "title": "DashboardSource",
+        "type": "object"
+      },
+      "DashboardTotals": {
+        "properties": {
+          "avg_duration_minutes": {
+            "description": "Minutos por sesión; 0 sin datos.",
+            "title": "Avg Duration Minutes",
+            "type": "integer"
+          },
+          "distance_meters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Metros de las sesiones que la registran; `null` si ninguna la tiene.",
+            "title": "Distance Meters"
+          },
+          "sessions_count": {
+            "title": "Sessions Count",
+            "type": "integer"
+          },
+          "total_duration_minutes": {
+            "description": "Minutos, `ROUND_HALF_UP`.",
+            "title": "Total Duration Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sessions_count",
+          "total_duration_minutes",
+          "avg_duration_minutes",
+          "distance_meters"
+        ],
+        "title": "DashboardTotals",
+        "type": "object"
+      },
       "ErrorDetail": {
         "properties": {
           "field": {
@@ -1102,6 +1268,123 @@
         "title": "SessionUser",
         "type": "object"
       },
+      "SourceBreakdown": {
+        "properties": {
+          "sessions_count": {
+            "title": "Sessions Count",
+            "type": "integer"
+          },
+          "total_duration_minutes": {
+            "title": "Total Duration Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sessions_count",
+          "total_duration_minutes"
+        ],
+        "title": "SourceBreakdown",
+        "type": "object"
+      },
+      "SportBreakdown": {
+        "properties": {
+          "distance_meters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Meters"
+          },
+          "sessions_count": {
+            "title": "Sessions Count",
+            "type": "integer"
+          },
+          "sport": {
+            "enum": [
+              "running",
+              "cycling",
+              "swimming",
+              "strength",
+              "other"
+            ],
+            "title": "Sport",
+            "type": "string"
+          },
+          "total_duration_minutes": {
+            "title": "Total Duration Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sport",
+          "sessions_count",
+          "total_duration_minutes",
+          "distance_meters"
+        ],
+        "title": "SportBreakdown",
+        "type": "object"
+      },
+      "TrainingDashboardResponse": {
+        "properties": {
+          "by_source": {
+            "$ref": "#/components/schemas/DashboardBySource"
+          },
+          "by_sport": {
+            "items": {
+              "$ref": "#/components/schemas/SportBreakdown"
+            },
+            "title": "By Sport",
+            "type": "array"
+          },
+          "by_week": {
+            "items": {
+              "$ref": "#/components/schemas/WeekBreakdown"
+            },
+            "title": "By Week",
+            "type": "array"
+          },
+          "has_data": {
+            "title": "Has Data",
+            "type": "boolean"
+          },
+          "latest_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardMetric"
+            },
+            "title": "Latest Metrics",
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/DashboardPeriodView"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/DashboardTotals"
+          }
+        },
+        "required": [
+          "period",
+          "has_data",
+          "totals",
+          "by_sport",
+          "by_week",
+          "by_source",
+          "latest_metrics",
+          "sources"
+        ],
+        "title": "TrainingDashboardResponse",
+        "type": "object"
+      },
       "TrainingMetricCalculationResponse": {
         "description": "Cálculo confirmado: estimación de campo, nunca un diagnóstico.",
         "properties": {
@@ -1372,12 +1655,37 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WeekBreakdown": {
+        "properties": {
+          "sessions_count": {
+            "title": "Sessions Count",
+            "type": "integer"
+          },
+          "total_duration_minutes": {
+            "title": "Total Duration Minutes",
+            "type": "integer"
+          },
+          "week_start": {
+            "description": "Lunes de la semana ISO en la zona del `from`.",
+            "format": "date",
+            "title": "Week Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week_start",
+          "sessions_count",
+          "total_duration_minutes"
+        ],
+        "title": "WeekBreakdown",
+        "type": "object"
       }
     }
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.8.0"
+    "version": "0.9.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2031,6 +2339,132 @@
         "summary": "Mis inscripciones a eventos (HU041)",
         "tags": [
           "event-registrations"
+        ]
+      }
+    },
+    "/v1/me/training-dashboard": {
+      "get": {
+        "description": "Totales, distribución por deporte, por semana ISO y por fuente, y el último resultado por indicador del periodo `[from, to)` (por defecto los últimos 30 días; como mucho 366). Sin datos: `has_data: false`, totales en cero y listas vacías.",
+        "operationId": "training_dashboard_v1_me_training_dashboard_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase (`Z` o `±HH:MM`).",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase (`Z` o `±HH:MM`).",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase (`Z` o `±HH:MM`).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase (`Z` o `±HH:MM`).",
+              "title": "To"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDashboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.dashboard.view`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.from`/`query.to` con `required` (solo llegó uno), `invalid_datetime` (sin desfase o mal formado), `ends_before_starts` (`to` ≤ `from`) u `out_of_range` (más de 366 días)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Mi tablero de entrenamientos (HU033)",
+        "tags": [
+          "training-dashboard"
         ]
       }
     },

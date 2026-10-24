@@ -101,3 +101,9 @@ class NutritionRestrictionsUnavailable(Exception):
     el plan nunca se crea sin validarlas."""
 
     code = "upstream_unavailable"
+
+
+class DashboardSourceUnavailable(Exception):
+    """HU033: una consulta del tablero (sesiones o indicadores) no respondió."""
+
+    code = "upstream_unavailable"

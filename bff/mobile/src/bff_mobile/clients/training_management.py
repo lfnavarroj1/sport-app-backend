@@ -78,6 +78,10 @@ class TrainingManagementClient:
         """HU034: resultados propios proyectados; solo los parámetros recibidos."""
         return self._send("GET", "/v1/training-metrics/calculations", access_token, params=params)
 
+    def training_dashboard(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU033: tablero propio; `from`/`to` tal como llegaron."""
+        return self._send("GET", "/v1/me/training-dashboard", access_token, params=params)
+
     def _send(
         self,
         method: str,

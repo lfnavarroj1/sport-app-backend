@@ -35,6 +35,7 @@ TRAINING_SESSION_PRIMARY_KEY = "pk_training_session"
 ACTIVE_SESSION_INDEX = "uq_training_session_athlete_active"
 AUTHORIZATION_PRIMARY_KEY = "pk_training_authorization"
 METRIC_CALCULATION_PRIMARY_KEY = "pk_training_metric_calculation"
+ATHLETE_DEVICE_PRIMARY_KEY = "pk_athlete_device"
 
 
 class WriteBase(DeclarativeBase):
@@ -407,3 +408,53 @@ class TrainingPlanTemplateRow(WriteBase):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AthleteDeviceRow(WriteBase):
+    """Monitor de frecuencia cardiaca vinculado por el deportista (HU037, ADR-044).
+
+    `device_id` es el SHA-256 que calcula el móvil; la dirección BLE nunca llega al backend.
+    """
+
+    __tablename__ = "athlete_device"
+    __table_args__ = (
+        CheckConstraint("device_id ~ '^[0-9a-f]{64}$'", name="device_id"),
+        CheckConstraint("char_length(display_name) BETWEEN 1 AND 60", name="display_name"),
+        CheckConstraint("device_type = 'HEART_RATE_MONITOR'", name="device_type"),
+        CheckConstraint("protocol = 'BLE_HRS'", name="protocol"),
+        CheckConstraint("status IN ('ACTIVE', 'REVOKED')", name="status"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'REVOKED') = (revoked_at IS NOT NULL)", name="revoked_at"),
+    )
+
+    athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
+    device_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(60))
+    device_type: Mapped[str] = mapped_column(String(32))
+    protocol: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingMeasurementRow(WriteBase):
+    """Muestra de frecuencia cardiaca de una sesión (HU037, ADR-044 §7); la clave primaria es la
+    identidad natural que deduplica los reenvíos."""
+
+    __tablename__ = "training_measurement"
+    __table_args__ = (
+        CheckConstraint("type = 'HEART_RATE'", name="type"),
+        CheckConstraint("unit = 'bpm'", name="unit"),
+        CheckConstraint("value BETWEEN 20 AND 250", name="value"),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT"), primary_key=True
+    )
+    device_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    type: Mapped[str] = mapped_column(String(16))
+    value: Mapped[int] = mapped_column(SmallInteger)
+    unit: Mapped[str] = mapped_column(String(8))

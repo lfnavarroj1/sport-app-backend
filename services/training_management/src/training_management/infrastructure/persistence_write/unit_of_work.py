@@ -1,11 +1,12 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
-HU034, HU014, HU026, HU028)."""
+HU034, HU014, HU026, HU028, HU037)."""
 
 from types import TracebackType
 from typing import Self
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import Select, delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -13,6 +14,7 @@ from training_management.application.errors import (
     ActiveSessionExists,
     AuthorizationConflict,
     CalculationIdConflict,
+    DeviceConflict,
     IdempotencyKeyConflict,
     SessionIdConflict,
 )
@@ -21,6 +23,13 @@ from training_management.domain.authorizations.model import (
     AuthorizationStatus,
     TrainingAuthorization,
 )
+from training_management.domain.devices.model import (
+    AthleteDevice,
+    DeviceProtocol,
+    DeviceStatus,
+    DeviceType,
+)
+from training_management.domain.measurements.model import Measurement
 from training_management.domain.metrics.model import (
     CalculationStatus,
     MetricInput,
@@ -46,11 +55,13 @@ from training_management.domain.templates.model import (
 )
 from training_management.infrastructure.persistence_write.models import (
     ACTIVE_SESSION_INDEX,
+    ATHLETE_DEVICE_PRIMARY_KEY,
     AUTHORIZATION_PRIMARY_KEY,
     COMMAND_IDEMPOTENCY_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
     METRIC_CALCULATION_PRIMARY_KEY,
     TRAINING_SESSION_PRIMARY_KEY,
+    AthleteDeviceRow,
     CommandIdempotencyRow,
     IdempotencyKeyRow,
     NutritionPlanItemRow,
@@ -59,6 +70,7 @@ from training_management.infrastructure.persistence_write.models import (
     OutboxEventRow,
     RouteRow,
     TrainingAuthorizationRow,
+    TrainingMeasurementRow,
     TrainingMetricCalculationRow,
     TrainingMetricInputRow,
     TrainingPlanRow,
@@ -676,3 +688,146 @@ class SqlAlchemyTemplateUnitOfWork(_CommandUnitOfWork):
             if _violated_constraint(error) == COMMAND_IDEMPOTENCY_PRIMARY_KEY:
                 raise IdempotencyKeyConflict() from None
             raise
+
+
+def _device(row: AthleteDeviceRow) -> AthleteDevice:
+    return AthleteDevice(
+        device_id=row.device_id,
+        athlete_id=row.athlete_id,
+        display_name=row.display_name,
+        device_type=DeviceType(row.device_type),
+        protocol=DeviceProtocol(row.protocol),
+        status=DeviceStatus(row.status),
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        revoked_at=row.revoked_at,
+    )
+
+
+def _device_statement(athlete_id: UUID, device_id: str) -> Select[AthleteDeviceRow]:
+    return select(AthleteDeviceRow).where(
+        AthleteDeviceRow.athlete_id == athlete_id, AthleteDeviceRow.device_id == device_id
+    )
+
+
+_DEVICE_CONFLICTS: dict[str | None, type[Exception]] = {
+    COMMAND_IDEMPOTENCY_PRIMARY_KEY: IdempotencyKeyConflict,
+    ATHLETE_DEVICE_PRIMARY_KEY: DeviceConflict,
+}
+
+
+class SqlAlchemyDeviceUnitOfWork(_CommandUnitOfWork):
+    """HU037: vínculo del dispositivo e idempotencia en una transacción de escritura."""
+
+    def get_device(
+        self, athlete_id: UUID, device_id: str, *, for_update: bool = False
+    ) -> AthleteDevice | None:
+        statement = _device_statement(athlete_id, device_id)
+        if for_update:
+            statement = statement.with_for_update()
+        with self.session.no_autoflush:
+            row = self.session.scalar(statement)
+        return _device(row) if row is not None else None
+
+    def add_device(self, device: AthleteDevice) -> None:
+        self.session.add(
+            AthleteDeviceRow(
+                athlete_id=device.athlete_id,
+                device_id=device.device_id,
+                display_name=device.display_name,
+                device_type=device.device_type.value,
+                protocol=device.protocol.value,
+                status=device.status.value,
+                version=device.version,
+                created_at=device.created_at,
+                updated_at=device.updated_at,
+                revoked_at=device.revoked_at,
+            )
+        )
+
+    def update_device(self, device: AthleteDevice) -> None:
+        row = self.session.get(AthleteDeviceRow, (device.athlete_id, device.device_id))
+        if row is None:
+            raise RuntimeError("El dispositivo a actualizar no está cargado.")
+        row.display_name = device.display_name
+        row.device_type = device.device_type.value
+        row.protocol = device.protocol.value
+        row.status = device.status.value
+        row.version = device.version
+        row.updated_at = device.updated_at
+        row.revoked_at = device.revoked_at
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            conflict = _DEVICE_CONFLICTS.get(_violated_constraint(error))
+            if conflict is not None:
+                raise conflict() from None
+            raise
+
+
+class SqlAlchemyDeviceReader:
+    """HU037: dispositivos propios leídos de `athlete_device` (sin proyección, ADR-044)."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def list(self, athlete_id: UUID) -> list[AthleteDevice]:
+        with self._session_factory() as session:
+            rows = session.scalars(
+                select(AthleteDeviceRow)
+                .where(AthleteDeviceRow.athlete_id == athlete_id)
+                .order_by(AthleteDeviceRow.created_at.desc(), AthleteDeviceRow.device_id.desc())
+            )
+            return [_device(row) for row in rows]
+
+
+class SqlAlchemyMeasurementUnitOfWork(_SessionUnitOfWork):
+    """HU037: ingestión de un lote con la sesión y el dispositivo en `FOR SHARE`.
+
+    Una finalización (HU032) o una revocación toman `FOR UPDATE` sobre la misma fila, así que
+    esperan a que el lote confirme; un lote posterior ve el nuevo estado y se rechaza.
+    """
+
+    def get_session_for_ingestion(self, session_id: UUID) -> TrainingSession | None:
+        row = self.session.scalar(
+            select(TrainingSessionRow)
+            .where(TrainingSessionRow.session_id == session_id)
+            .with_for_update(read=True)
+        )
+        return _session(row) if row is not None else None
+
+    def get_device_for_ingestion(self, athlete_id: UUID, device_id: str) -> AthleteDevice | None:
+        row = self.session.scalar(
+            _device_statement(athlete_id, device_id).with_for_update(read=True)
+        )
+        return _device(row) if row is not None else None
+
+    def add_measurements(
+        self, session_id: UUID, device_id: str, measurements: tuple[Measurement, ...]
+    ) -> int:
+        statement = (
+            insert(TrainingMeasurementRow)
+            .values(
+                [
+                    {
+                        "session_id": session_id,
+                        "device_id": device_id,
+                        "measured_at": item.measured_at,
+                        "type": item.type.value,
+                        "value": item.value,
+                        "unit": item.unit.value,
+                    }
+                    for item in measurements
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["session_id", "device_id", "measured_at"])
+            .returning(TrainingMeasurementRow.measured_at)
+        )
+        return len(self.session.execute(statement).all())
+
+    def commit(self) -> None:
+        self.session.commit()

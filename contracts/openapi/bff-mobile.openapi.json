@@ -537,6 +537,103 @@
         "title": "DashboardTotals",
         "type": "object"
       },
+      "DeviceResponse": {
+        "description": "Dispositivo vinculado al deportista del token.",
+        "properties": {
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "device_id": {
+            "description": "SHA-256 en 64 caracteres hexadecimales en minúsculas (dirección BLE + usuario).",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "device_type": {
+            "const": "HEART_RATE_MONITOR",
+            "title": "Device Type",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "protocol": {
+            "const": "BLE_HRS",
+            "title": "Protocol",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` mientras está activo.",
+            "title": "Revoked At"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "REVOKED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "description": "1 al vincular; +1 en cada revocación o reactivación.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device_id",
+          "athlete_id",
+          "display_name",
+          "device_type",
+          "protocol",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "revoked_at"
+        ],
+        "title": "DeviceResponse",
+        "type": "object"
+      },
+      "DevicesResponse": {
+        "description": "Dispositivos propios (`ACTIVE` y `REVOKED`), `created_at DESC, device_id DESC`.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "DevicesResponse",
+        "type": "object"
+      },
       "ErrorDetail": {
         "properties": {
           "field": {
@@ -894,6 +991,51 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "MeasurementBatchResponse": {
+        "description": "Resultado del lote: aceptadas, duplicadas (idempotencia natural) y rechazadas.",
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "device_id": {
+            "description": "SHA-256 en 64 caracteres hexadecimales en minúsculas (dirección BLE + usuario).",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "duplicates": {
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedSample"
+            },
+            "title": "Rejected",
+            "type": "array"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "device_id",
+          "received",
+          "accepted",
+          "duplicates",
+          "rejected"
+        ],
+        "title": "MeasurementBatchResponse",
+        "type": "object"
+      },
       "MetricInputValue": {
         "additionalProperties": false,
         "properties": {
@@ -1109,6 +1251,25 @@
         "title": "RegistrationsResponse",
         "type": "object"
       },
+      "RejectedSample": {
+        "properties": {
+          "index": {
+            "description": "Posición de la muestra en `samples`.",
+            "title": "Index",
+            "type": "integer"
+          },
+          "issue": {
+            "$ref": "#/components/schemas/SampleIssue",
+            "description": "Motivo del rechazo de la muestra (catálogo del servicio)."
+          }
+        },
+        "required": [
+          "index",
+          "issue"
+        ],
+        "title": "RejectedSample",
+        "type": "object"
+      },
       "RoutePoint": {
         "properties": {
           "lat": {
@@ -1304,6 +1465,21 @@
         ],
         "title": "RouteSuggestionsResponse",
         "type": "object"
+      },
+      "SampleIssue": {
+        "description": "Motivos por muestra de `training-management` (ADR-044); el BFF solo los documenta.",
+        "enum": [
+          "required",
+          "field_not_allowed",
+          "unknown_value",
+          "invalid_unit",
+          "out_of_range",
+          "invalid_datetime",
+          "too_far_in_future",
+          "too_old"
+        ],
+        "title": "SampleIssue",
+        "type": "string"
       },
       "SessionCalendarItem": {
         "properties": {
@@ -2143,7 +2319,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.11.0"
+    "version": "0.12.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2657,6 +2833,392 @@
         "summary": "Identidad, permisos por actor y capacidades vigentes (HU003)",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/v1/me/devices": {
+      "get": {
+        "operationId": "list_devices_v1_me_devices_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicesResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`devices.measurement.connect`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Mis dispositivos de medición (HU037)",
+        "tags": [
+          "devices"
+        ]
+      },
+      "post": {
+        "operationId": "register_device_v1_me_devices_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado de la vinculación; la validación la hace el servicio (ADR-044).",
+                "properties": {
+                  "device_id": {
+                    "description": "SHA-256 en 64 caracteres hexadecimales en minúsculas (dirección BLE + usuario).",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "title": "Device Id",
+                    "type": "string"
+                  },
+                  "device_type": {
+                    "const": "HEART_RATE_MONITOR",
+                    "title": "Device Type",
+                    "type": "string"
+                  },
+                  "display_name": {
+                    "description": "Nombre visible; se recorta.",
+                    "maxLength": 60,
+                    "minLength": 1,
+                    "title": "Display Name",
+                    "type": "string"
+                  },
+                  "protocol": {
+                    "const": "BLE_HRS",
+                    "title": "Protocol",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "device_id",
+                  "display_name",
+                  "device_type",
+                  "protocol"
+                ],
+                "title": "RegisterDeviceRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceResponse"
+                }
+              }
+            },
+            "description": "El mismo `device_id` ya activo con el mismo nombre y otra clave: sin cambios."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado original de la misma clave.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "`/v1/me/devices/{device_id}`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`devices.measurement.connect`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`device_already_registered` (activo con otro nombre) o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `required`, `field_not_allowed`, `unknown_value`, `invalid_format` (`device_id`), `invalid_length` (`display_name`); `Idempotency-Key` `required` o `invalid_uuid`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Vincular o reactivar un dispositivo de medición (HU037)",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/v1/me/devices/{device_id}": {
+      "delete": {
+        "operationId": "revoke_device_v1_me_devices__device_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`devices.measurement.connect`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`device_not_found`: inexistente o de otro deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `device_id` `invalid_format`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Revocar un dispositivo de medición propio (HU037)",
+        "tags": [
+          "devices"
         ]
       }
     },
@@ -4282,6 +4844,202 @@
         "summary": "Finalizar una sesión de entrenamiento propia (HU032)",
         "tags": [
           "training-sessions"
+        ]
+      }
+    },
+    "/v1/training-sessions/{session_id}/measurements": {
+      "post": {
+        "operationId": "ingest_measurements_v1_training_sessions__session_id__measurements_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Lote de 1 a 60 muestras; una muestra inválida se rechaza sin rechazar el lote.",
+                "properties": {
+                  "device_id": {
+                    "description": "SHA-256 en 64 caracteres hexadecimales en minúsculas (dirección BLE + usuario).",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "title": "Device Id",
+                    "type": "string"
+                  },
+                  "samples": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "measured_at": {
+                          "description": "Instante UTC con sufijo `Z` y precisión de segundos (`YYYY-MM-DDTHH:MM:SSZ`).",
+                          "examples": [
+                            "2026-10-24T12:30:05Z"
+                          ],
+                          "format": "date-time",
+                          "title": "Measured At",
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "HEART_RATE",
+                          "title": "Type",
+                          "type": "string"
+                        },
+                        "unit": {
+                          "const": "bpm",
+                          "title": "Unit",
+                          "type": "string"
+                        },
+                        "value": {
+                          "description": "Pulsaciones por minuto.",
+                          "maximum": 250,
+                          "minimum": 20,
+                          "title": "Value",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "measured_at",
+                        "type",
+                        "value",
+                        "unit"
+                      ],
+                      "title": "MeasurementSample",
+                      "type": "object"
+                    },
+                    "maxItems": 60,
+                    "minItems": 1,
+                    "title": "Samples",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "device_id",
+                  "samples"
+                ],
+                "title": "MeasurementBatchRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeasurementBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.realtime.monitor`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`training_session_not_found` (inexistente o ajena) o `device_not_found` (no vinculado al deportista)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`training_session_already_finished` o `device_revoked`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` del lote: `session_id` `invalid_uuid`, `device_id` `invalid_format`, `samples` `required`, `unknown_value` o `too_many_items`, `field_not_allowed` o cuerpo ausente."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Enviar mediciones en vivo de una sesión propia (HU037)",
+        "tags": [
+          "devices"
         ]
       }
     }

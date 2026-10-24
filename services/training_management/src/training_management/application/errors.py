@@ -107,3 +107,7 @@ class DashboardSourceUnavailable(Exception):
     """HU033: una consulta del tablero (sesiones o indicadores) no respondió."""
 
     code = "upstream_unavailable"
+
+
+class DeviceConflict(Exception):
+    """HU037: otra solicitud concurrente vinculó primero el mismo dispositivo."""

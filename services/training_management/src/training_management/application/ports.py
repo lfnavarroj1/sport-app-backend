@@ -12,6 +12,8 @@ from training_management.domain.dashboard.model import (
     LatestMetric,
     SessionBucket,
 )
+from training_management.domain.devices.model import AthleteDevice
+from training_management.domain.measurements.model import Measurement
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.catalog import FoodCatalog
 from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
@@ -750,3 +752,56 @@ class TemplateReader(Protocol):
         primero, luego `published_at` y `template_id` desc. Sin deportes: las últimas
         publicadas. Como mucho `limit`."""
         ...
+
+
+class DeviceUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU037: vinculación e idempotencia juntas (sin outbox, ADR-044)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_device(
+        self, athlete_id: UUID, device_id: str, *, for_update: bool = False
+    ) -> AthleteDevice | None:
+        """Con `for_update`, bloquea la fila hasta el fin de la transacción."""
+        ...
+
+    def add_device(self, device: AthleteDevice) -> None: ...
+
+    def update_device(self, device: AthleteDevice) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el dispositivo duplicado a
+        `DeviceConflict`."""
+        ...
+
+
+class DeviceReader(Protocol):
+    """`athlete_device` de la base de escritura: la vinculación no emite eventos (ADR-044)."""
+
+    def list(self, athlete_id: UUID) -> list[AthleteDevice]:
+        """Dispositivos del deportista en cualquier estado, `created_at` y `device_id` desc."""
+        ...
+
+
+class MeasurementUnitOfWork(Transaction, Protocol):
+    """Transacción local de la ingestión de HU037: sesión y dispositivo bloqueados en modo
+    compartido (una finalización o una revocación esperan al lote, y viceversa)."""
+
+    def get_session_for_ingestion(self, session_id: UUID) -> TrainingSession | None: ...
+
+    def get_device_for_ingestion(
+        self, athlete_id: UUID, device_id: str
+    ) -> AthleteDevice | None: ...
+
+    def add_measurements(
+        self, session_id: UUID, device_id: str, measurements: tuple[Measurement, ...]
+    ) -> int:
+        """Inserta las muestras que no existan (`session_id`, `device_id`, `measured_at`) y
+        devuelve cuántas insertó; las existentes se ignoran."""
+        ...
+
+    def commit(self) -> None: ...

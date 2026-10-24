@@ -60,12 +60,18 @@ class UsersManagementClient:
         document: dict[str, Any] = response.json()
         return document
 
-    def directory_lookup(self, user_ids: list[UUID]) -> list[dict[str, Any]]:
+    def directory_lookup(
+        self, user_ids: list[UUID], *, timeout: float | None = None
+    ) -> list[dict[str, Any]]:
         """ADR-039: solo el nombre (`full_name`) de cuentas activas (contrato interno, ≤ 100).
-        En HU026, los organizadores de las rutas sugeridas. Cualquier respuesta distinta de
-        `200` es indisponibilidad."""
+        En HU026, los organizadores de las rutas sugeridas; en HU029, los proveedores de los
+        servicios sugeridos (con `timeout` propio). Cualquier respuesta distinta de `200` es
+        indisponibilidad."""
         response = self._post(
-            "/v1/users/directory-lookup", {"user_ids": [str(user_id) for user_id in user_ids]}, {}
+            "/v1/users/directory-lookup",
+            {"user_ids": [str(user_id) for user_id in user_ids]},
+            {},
+            timeout=timeout,
         )
         if response.status_code != httpx.codes.OK:
             raise UpstreamUnavailable()
@@ -79,12 +85,24 @@ class UsersManagementClient:
         document: dict[str, Any] = response.json()
         return document
 
-    def _post(self, path: str, payload: dict[str, Any], headers: dict[str, str]) -> httpx.Response:
+    def _post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        *,
+        timeout: float | None = None,
+    ) -> httpx.Response:
         correlation_id = current_correlation_id()
         if correlation_id:
             headers = {**headers, CORRELATION_HEADER: correlation_id}
         try:
-            return self._http.post(path, json=payload, headers=headers)
+            return self._http.post(
+                path,
+                json=payload,
+                headers=headers,
+                timeout=httpx.USE_CLIENT_DEFAULT if timeout is None else timeout,
+            )
         except httpx.TimeoutException:
             raise UpstreamTimeout() from None
         except httpx.TransportError:

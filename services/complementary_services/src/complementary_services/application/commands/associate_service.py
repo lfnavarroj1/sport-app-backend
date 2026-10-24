@@ -181,6 +181,13 @@ class AssociateService:
             return previous
         try:
             return self._associate(athlete_id, command, fingerprint)
+        except AssociationExists:
+            # La activa pudo confirmarla un reintento con la misma clave entre la revisión de
+            # la clave y la de la asociación: entonces se devuelve su resultado.
+            previous = self._previous(athlete_id, command.idempotency_key, fingerprint)
+            if previous is None:
+                raise
+            return previous
         except IdempotencyKeyConflict:
             # Otra solicitud con la misma clave confirmó primero: su resultado.
             previous = self._previous(athlete_id, command.idempotency_key, fingerprint)

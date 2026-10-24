@@ -400,6 +400,39 @@ class AssociateServiceTest(AssociationCase):
         self.assertEqual(result.association, original[0].association)
         self.assertEqual(len(self.store.associations), 1)
 
+    def test_retry_confirmed_between_key_and_active_checks_returns_original(self) -> None:
+        """El reintento con la misma clave confirma justo después de que esta solicitud
+        revisó la clave y antes de que buscara la activa: respuesta original, no `409`."""
+        key = uuid4()
+        original: list[Any] = []
+        store = self.store
+        access, clock, command = self.access, self.clock, self.command(key=key)
+        athlete = self.athlete
+
+        class RacingUnitOfWork(InMemoryAssociationUnitOfWork):
+            def active_association(
+                self, athlete_id: UUID, service_id: UUID
+            ) -> ServiceAssociation | None:
+                if not original:
+                    original.append(
+                        AssociateService(
+                            unit_of_work=lambda: InMemoryAssociationUnitOfWork(store),
+                            access=access,
+                            clock=clock,
+                        )(athlete, command)
+                    )
+                return super().active_association(athlete_id, service_id)
+
+        racing = AssociateService(
+            unit_of_work=lambda: RacingUnitOfWork(store), access=access, clock=clock
+        )
+
+        result = racing(athlete, command)
+
+        self.assertTrue(result.replayed)
+        self.assertEqual(result.association, original[0].association)
+        self.assertEqual(len(store.associations), 1)
+
     def test_audits_without_sensitive_data(self) -> None:
         with self.assertLogs("sportapp.audit", logging.INFO) as logs:
             result = self.associate(self.athlete, self.command())

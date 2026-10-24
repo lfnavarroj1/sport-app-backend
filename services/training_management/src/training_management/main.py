@@ -17,6 +17,7 @@ from training_management.api.devices import build_devices_router
 from training_management.api.food_catalog import build_food_catalog_router
 from training_management.api.history import build_history_router
 from training_management.api.measurements import build_measurements_router
+from training_management.api.monitoring_settings import build_monitoring_settings_router
 from training_management.api.nutrition_plans import build_nutrition_plans_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
@@ -38,6 +39,9 @@ from training_management.application.commands.create_nutrition_plan import Creat
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
 from training_management.application.commands.devices import RegisterDevice, RevokeDevice
 from training_management.application.commands.measurements import IngestMeasurements
+from training_management.application.commands.monitoring_settings import (
+    UpdateMonitoringSettings,
+)
 from training_management.application.commands.routes import PublishRoute, RetireRoute
 from training_management.application.commands.training_plan_templates import (
     PublishTemplate,
@@ -47,11 +51,13 @@ from training_management.application.commands.training_sessions import (
     FinishTrainingSession,
     StartTrainingSession,
 )
+from training_management.application.monitoring_threshold import ResolveThreshold
 from training_management.application.queries.active_session import GetActiveTrainingSession
 from training_management.application.queries.authorized_athletes import GetAuthorizedAthletes
 from training_management.application.queries.devices import ListMyDevices
 from training_management.application.queries.food_catalog import GetFoodCatalog
 from training_management.application.queries.get_training_plan import GetTrainingPlan
+from training_management.application.queries.monitoring_settings import GetMonitoringSettings
 from training_management.application.queries.nutrition_plans import (
     GetNutritionPlan,
     ListMyNutritionPlans,
@@ -74,7 +80,10 @@ from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
 )
-from training_management.infrastructure.integrations.users import UsersNutritionRestrictions
+from training_management.infrastructure.integrations.users import (
+    UsersAthleteBirthDates,
+    UsersNutritionRestrictions,
+)
 from training_management.infrastructure.persistence_read.dashboard import SqlAlchemyDashboardReader
 from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyActiveSessionReader,
@@ -102,6 +111,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyDeviceUnitOfWork,
     SqlAlchemyMeasurementUnitOfWork,
     SqlAlchemyMetricUnitOfWork,
+    SqlAlchemyMonitoringSettingsUnitOfWork,
     SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemyRouteUnitOfWork,
@@ -111,7 +121,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.13.0"
+API_VERSION = "0.14.0"
 
 
 def create_app(
@@ -152,6 +162,11 @@ def create_app(
     authorization_views = SqlAlchemyAuthorizationReader(reads)
     route_views = SqlAlchemyRouteReader(reads)
     template_views = SqlAlchemyTemplateReader(reads)
+    thresholds = ResolveThreshold(
+        unit_of_work=lambda: SqlAlchemyMonitoringSettingsUnitOfWork(writes),
+        birth_dates=UsersAthleteBirthDates(users_http),
+        clock=clock,
+    )
     return create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - Entrenamientos",
@@ -311,6 +326,16 @@ def create_app(
                 verify_token=verifier.verify,
                 ingest=IngestMeasurements(
                     unit_of_work=lambda: SqlAlchemyMeasurementUnitOfWork(writes),
+                    capabilities=capabilities,
+                    thresholds=thresholds,
+                    clock=clock,
+                ),
+            ),
+            build_monitoring_settings_router(
+                verify_token=verifier.verify,
+                get_settings=GetMonitoringSettings(resolve=thresholds, capabilities=capabilities),
+                update_settings=UpdateMonitoringSettings(
+                    unit_of_work=lambda: SqlAlchemyMonitoringSettingsUnitOfWork(writes),
                     capabilities=capabilities,
                     clock=clock,
                 ),

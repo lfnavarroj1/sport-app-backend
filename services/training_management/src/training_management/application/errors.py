@@ -111,3 +111,14 @@ class DashboardSourceUnavailable(Exception):
 
 class DeviceConflict(Exception):
     """HU037: otra solicitud concurrente vinculó primero el mismo dispositivo."""
+
+
+class AthleteContextUnavailable(Exception):
+    """HU036: Usuarios no entregó la fecha de nacimiento para el umbral por defecto (caída,
+    timeout o respuesta inesperada); no se evalúa con un umbral supuesto."""
+
+    code = "upstream_unavailable"
+
+
+class MonitoringSettingsConflict(Exception):
+    """HU036: otra solicitud concurrente creó primero la configuración del deportista."""

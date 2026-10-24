@@ -1,7 +1,8 @@
 """HU032: sesiones de entrenamiento (contrato de ADR-029).
 
 - `POST /v1/training-sessions`: inicia (`201` + `Location`).
-- `POST /v1/training-sessions/{session_id}/finish`: finaliza (`200`).
+- `POST /v1/training-sessions/{session_id}/finish`: finaliza (`200`); HU036 agrega el motivo
+  opcional `reason: RISK_STOP` (ADR-044 §10), que la respuesta devuelve en `end_reason`.
 - `GET /v1/training-sessions/active`: sesión activa proyectada (`200`) o `204`.
 
 Los cuerpos se leen como JSON sin validación automática para responder el catálogo de
@@ -48,6 +49,7 @@ from training_management.application.errors import (
 from training_management.application.queries.active_session import GetActiveTrainingSession
 from training_management.application.session_documents import session_document
 from training_management.domain.plans.model import Sport
+from training_management.domain.sessions.model import SessionEndReason
 from training_management.domain.sessions.validation import (
     InvalidTrainingSession,
     Issue,
@@ -68,7 +70,7 @@ _ERRORS: dict[type[Exception], tuple[HTTPStatus, str]] = {
     SessionIdReused: (HTTPStatus.CONFLICT, "El identificador de sesión ya se usó con otros datos."),
     TrainingSessionAlreadyFinished: (
         HTTPStatus.CONFLICT,
-        "La sesión ya terminó con otro instante final.",
+        "La sesión ya terminó con otro instante final o motivo.",
     ),
     IdempotencyKeyReused: (
         HTTPStatus.CONFLICT,
@@ -103,6 +105,13 @@ class FinishTrainingSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ended_at: Annotated[datetime, Field(description=INSTANT, examples=["2026-10-12T13:15:00Z"])]
+    reason: Annotated[
+        SessionEndReason | None,
+        Field(
+            description="HU036: `RISK_STOP` cuando el deportista detiene la práctica tras una "
+            "alerta de riesgo; opcional."
+        ),
+    ] = None
 
 
 class TrainingSessionResponse(BaseModel):
@@ -121,6 +130,10 @@ class TrainingSessionResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    end_reason: Annotated[
+        SessionEndReason | None,
+        Field(description="Motivo de la finalización (HU036); `null` si no se indicó."),
+    ] = None
 
 
 class ActiveTrainingSessionResponse(BaseModel):
@@ -293,7 +306,8 @@ def build_training_sessions_router(
             },
             HTTPStatus.CONFLICT.value: {
                 "model": ErrorResponse,
-                "description": "`training_session_already_finished` o `idempotency_key_reused`.",
+                "description": "`training_session_already_finished` (ya terminó con otro "
+                "`ended_at` u otro `reason`) o `idempotency_key_reused`.",
             },
             HTTPStatus.UNPROCESSABLE_ENTITY.value: _INVALID,
         },
@@ -308,11 +322,12 @@ def build_training_sessions_router(
         caller = authenticate(verify_token, authorization)
         if isinstance(caller, Response):
             return caller
-        ended_at, transport = parse_finish(body)
+        ended_at, reason, transport = parse_finish(body)
         key, key_problem = _idempotency_key(idempotency_key)
         command = FinishTrainingSessionCommand(
             session_id=session_id,
             ended_at=ended_at,
+            reason=reason,
             idempotency_key=key or UUID(int=0),
             transport_violations=transport,
             correlation_id=correlation_uuid(),

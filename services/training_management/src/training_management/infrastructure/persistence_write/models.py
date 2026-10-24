@@ -36,6 +36,7 @@ ACTIVE_SESSION_INDEX = "uq_training_session_athlete_active"
 AUTHORIZATION_PRIMARY_KEY = "pk_training_authorization"
 METRIC_CALCULATION_PRIMARY_KEY = "pk_training_metric_calculation"
 ATHLETE_DEVICE_PRIMARY_KEY = "pk_athlete_device"
+MONITORING_SETTINGS_PRIMARY_KEY = "pk_monitoring_settings"
 
 
 class WriteBase(DeclarativeBase):
@@ -160,6 +161,11 @@ class TrainingSessionRow(WriteBase):
             " AND version = 2)",
             name="transition",
         ),
+        # HU036: `RISK_STOP` solo en una sesión terminada.
+        CheckConstraint(
+            "end_reason IS NULL OR (end_reason = 'RISK_STOP' AND status = 'FINISHED')",
+            name="end_reason",
+        ),
         # Como máximo una sesión activa por deportista: serializa los inicios concurrentes.
         Index(
             ACTIVE_SESSION_INDEX,
@@ -182,6 +188,7 @@ class TrainingSessionRow(WriteBase):
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    end_reason: Mapped[str | None] = mapped_column(String(16))
 
 
 class CommandIdempotencyRow(WriteBase):
@@ -448,6 +455,8 @@ class TrainingMeasurementRow(WriteBase):
         CheckConstraint("type = 'HEART_RATE'", name="type"),
         CheckConstraint("unit = 'bpm'", name="unit"),
         CheckConstraint("value BETWEEN 20 AND 250", name="value"),
+        # HU036: retención de 90 días por instante de la muestra.
+        Index("ix_training_measurement_measured_at", "measured_at"),
     )
 
     session_id: Mapped[UUID] = mapped_column(
@@ -458,3 +467,66 @@ class TrainingMeasurementRow(WriteBase):
     type: Mapped[str] = mapped_column(String(16))
     value: Mapped[int] = mapped_column(SmallInteger)
     unit: Mapped[str] = mapped_column(String(8))
+
+
+class MonitoringSettingsRow(WriteBase):
+    """Umbral de alerta configurado por el deportista (HU036, ADR-044 §9); sin fila se usa el
+    valor por defecto."""
+
+    __tablename__ = "monitoring_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "max_heart_rate_alert_bpm BETWEEN 100 AND 220", name="max_heart_rate_alert_bpm"
+        ),
+        CheckConstraint("version >= 1", name="version"),
+    )
+
+    athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
+    max_heart_rate_alert_bpm: Mapped[int] = mapped_column(SmallInteger)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SessionMonitoringStateRow(WriteBase):
+    """Secuencias del monitoreo de una sesión (HU036): versión del resumen de
+    `medicion.recibida.v1` y número de alertas. Su bloqueo serializa los lotes de la sesión."""
+
+    __tablename__ = "session_monitoring_state"
+    __table_args__ = (
+        CheckConstraint("summary_version >= 0", name="summary_version"),
+        CheckConstraint("alert_count >= 0", name="alert_count"),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT"), primary_key=True
+    )
+    summary_version: Mapped[int] = mapped_column(BigInteger)
+    alert_count: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingRiskAlertRow(WriteBase):
+    """Alerta `HR_ABOVE_THRESHOLD_V1` confirmada (HU036, ADR-044 §9). `alert_id` es un UUIDv5
+    estable de la sesión, el dispositivo, el instante y la regla."""
+
+    __tablename__ = "training_risk_alert"
+    __table_args__ = (
+        CheckConstraint("rule = 'HR_ABOVE_THRESHOLD_V1'", name="rule"),
+        CheckConstraint("severity = 'HIGH'", name="severity"),
+        CheckConstraint("threshold_bpm BETWEEN 100 AND 220", name="threshold_bpm"),
+        CheckConstraint("sequence >= 1", name="sequence"),
+        Index("ix_training_risk_alert_session_detected", "session_id", "detected_at"),
+    )
+
+    alert_id: Mapped[UUID] = mapped_column(primary_key=True)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT")
+    )
+    device_id: Mapped[str] = mapped_column(String(64))
+    rule: Mapped[str] = mapped_column(String(32))
+    severity: Mapped[str] = mapped_column(String(8))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    threshold_bpm: Mapped[int] = mapped_column(SmallInteger)
+    sequence: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

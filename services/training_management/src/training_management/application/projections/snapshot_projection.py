@@ -17,15 +17,19 @@ HU034 (ADR-030): `indicador.calculado.v1` se despacha a `ProjectMetricCalculated
 HU014 (ADR-037): `plan.alimentacion_creado.v1` se despacha a `ProjectNutritionPlanCreated`.
 HU026 (ADR-041): `ruta.publicada.v1` y `ruta.retirada.v1` se despachan a `ProjectRouteChanged`.
 HU028 (ADR-041): `plantilla_entrenamiento.*.v1` se despachan a `ProjectTemplateChanged`.
+HU036 (ADR-044): `medicion.recibida.v1` y `riesgo.detectado.v1` se despachan a
+`ProjectMeasurementReceived` y `ProjectRiskDetected`.
 """
 
 from collections.abc import Callable
 
 from training_management.application.messages import (
     AuthorizationChangedEvent,
+    MeasurementReceivedEvent,
     MetricCalculatedEvent,
     NutritionPlanCreatedEvent,
     PlanCreatedEvent,
+    RiskDetectedEvent,
     RouteChangedEvent,
     SessionFinishedEvent,
     SessionStartedEvent,
@@ -35,6 +39,10 @@ from training_management.application.messages import (
 from training_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
 from training_management.application.projections.metric_projection import (
     ProjectMetricCalculated,
+)
+from training_management.application.projections.monitoring_projection import (
+    ProjectMeasurementReceived,
+    ProjectRiskDetected,
 )
 from training_management.application.projections.nutrition_projection import (
     ProjectNutritionPlanCreated,
@@ -146,6 +154,8 @@ class TrainingProjector:
         self._nutrition = ProjectNutritionPlanCreated(unit_of_work=unit_of_work, clock=clock)
         self._routes = ProjectRouteChanged(unit_of_work=unit_of_work, clock=clock)
         self._templates = ProjectTemplateChanged(unit_of_work=unit_of_work, clock=clock)
+        self._measurements = ProjectMeasurementReceived(unit_of_work=unit_of_work, clock=clock)
+        self._risks = ProjectRiskDetected(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
@@ -154,6 +164,10 @@ class TrainingProjector:
             return self._authorizations(event)
         if isinstance(event, SessionStartedEvent):
             return self._started(event)
+        if isinstance(event, MeasurementReceivedEvent):
+            return self._measurements(event)
+        if isinstance(event, RiskDetectedEvent):
+            return self._risks(event)
         return self._project_snapshot(event)
 
     def _project_snapshot(self, event: TrainingEvent) -> ProjectionOutcome:

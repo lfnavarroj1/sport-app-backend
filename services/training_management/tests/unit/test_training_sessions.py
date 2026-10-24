@@ -283,12 +283,13 @@ class FinishTrainingSessionTest(unittest.TestCase):
         self, ended_at: str = "2026-10-12T11:45:30Z", key: UUID | None = None, **body: Any
     ) -> FinishTrainingSessionCommand:
         session_id = str(body.pop("session_id", self.session.session_id))
-        raw, transport = parse_finish({"ended_at": ended_at, **body})
+        raw, reason, transport = parse_finish({"ended_at": ended_at, **body})
         return FinishTrainingSessionCommand(
             session_id=session_id,
             ended_at=raw,
             idempotency_key=key or uuid4(),
             transport_violations=transport,
+            reason=reason,
         )
 
     def test_finishes_with_backend_duration_and_event(self) -> None:

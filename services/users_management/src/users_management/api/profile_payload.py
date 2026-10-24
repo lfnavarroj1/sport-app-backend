@@ -1,4 +1,5 @@
-"""Lectura del cuerpo JSON de los `PUT` del perfil con los errores de ADR-034 (HU005 y HU006).
+"""Lectura del cuerpo JSON de los `PUT` del perfil con los errores de ADR-034 (HU005, HU006 y
+HU009).
 
 Esta capa solo verifica la forma del JSON: campos permitidos (`field_not_allowed`,
 incluidos `user_id` y `bmi`) y tipos JSON (`unknown_value`; un número donde va una
@@ -9,6 +10,7 @@ consentimiento y la consistencia de la presión son reglas del dominio.
 from typing import Any
 
 from users_management.domain.profile.demographic import DemographicInput
+from users_management.domain.profile.nutrition_habits import NutritionHabitsInput
 from users_management.domain.profile.physiological import BloodPressureInput, PhysiologicalInput
 from users_management.domain.profile.sport_habits import SportHabitsInput, SportInput
 from users_management.domain.profile.validation import Issue, Violation
@@ -34,6 +36,15 @@ PHYSIOLOGICAL_FIELDS = (
     "body_temperature_c",
 )
 SPORT_HABITS_FIELDS = ("expected_version", "sports", "availability", "primary_goal")
+NUTRITION_HABITS_FIELDS = (
+    "expected_version",
+    "consent",
+    "diet_pattern",
+    "restrictions",
+    "allergies",
+    "meals_per_day",
+    "hydration_liters_per_day",
+)
 SPORT_FIELDS = (
     "sport",
     "frequency_per_week",
@@ -223,5 +234,25 @@ def parse_sport_habits(body: object) -> SportHabitsInput:
         days=days,
         time_slots=time_slots,
         primary_goal=_string(body.get("primary_goal"), "primary_goal", violations),
+        transport_violations=tuple(violations),
+    )
+
+
+def parse_nutrition_habits(body: object) -> NutritionHabitsInput:
+    """HU009: sección con los campos de forma válida y las violaciones de transporte."""
+    if not isinstance(body, dict):
+        return NutritionHabitsInput(transport_violations=(_body_violation(body),))
+    violations = _unexpected(body, NUTRITION_HABITS_FIELDS, "")
+    return NutritionHabitsInput(
+        expected_version=_integer(body.get("expected_version"), "expected_version", violations),
+        consent_version=_consent_version(body, violations),
+        diet_pattern=_string(body.get("diet_pattern"), "diet_pattern", violations),
+        restrictions=_strings(body.get("restrictions"), "restrictions", violations),
+        allergies=_strings(body.get("allergies"), "allergies", violations),
+        meals_per_day=_integer(body.get("meals_per_day"), "meals_per_day", violations),
+        # Decimal como cadena (ADR-027): un número JSON es `unknown_value`.
+        hydration_liters_per_day=_string(
+            body.get("hydration_liters_per_day"), "hydration_liters_per_day", violations
+        ),
         transport_violations=tuple(violations),
     )

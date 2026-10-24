@@ -136,7 +136,8 @@ class PhysiologicalSection:
         }
 
 
-def _consent(collector: Collector, value: str | None, current_version: str) -> str | None:
+def validate_consent(collector: Collector, value: str | None, current_version: str) -> str | None:
+    """`consent.version` obligatorio e igual a la versión vigente (HU005 y HU009)."""
     if not collector.required(value, "consent.version"):
         return None
     if value != current_version:
@@ -191,7 +192,7 @@ def validate_physiological(
     """Valida todo o nada; sin consentimiento vigente no se acepta ningún valor."""
     collector = Collector(section.transport_violations)
     expected_version = collector.expected_version(section.expected_version)
-    consent_version = _consent(collector, section.consent_version, current_consent_version)
+    consent_version = validate_consent(collector, section.consent_version, current_consent_version)
     measured_at = _measured_at(collector, section.measured_at, now)
     weight_kg = height_cm = None
     if collector.required(section.weight_kg, "weight_kg"):

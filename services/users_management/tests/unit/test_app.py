@@ -60,12 +60,13 @@ class UsersManagementAppTest(unittest.TestCase):
         self.assertEqual(info["title"], "SportApp - Usuarios")
 
     def test_profile_routes_are_wired_and_require_a_token(self) -> None:
-        """HU005 y HU006: las cuatro rutas del perfil exigen `Authorization: Bearer`."""
-        self.assertEqual(API_VERSION, "0.9.0")
+        """HU005, HU006 y HU009: las cinco rutas del perfil exigen `Authorization: Bearer`."""
+        self.assertEqual(API_VERSION, "0.10.0")
         for method, path in (
             ("PUT", "/v1/me/demographic-profile"),
             ("PUT", "/v1/me/physiological-profile"),
             ("PUT", "/v1/me/sport-habits"),
+            ("PUT", "/v1/me/nutrition-habits"),
             ("GET", "/v1/me/profile"),
         ):
             with self.subTest(path=path):

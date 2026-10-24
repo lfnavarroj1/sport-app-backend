@@ -90,6 +90,19 @@ class UsersManagementClient:
             idempotency_key=idempotency_key,
         )
 
+    def put_nutrition_habits(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU009 (ADR-035): bytes del cuerpo y clave tal cual; el servicio valida y responde
+        el `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PUT",
+            "/v1/me/nutrition-habits",
+            access_token,
+            content=body,
+            idempotency_key=idempotency_key,
+        )
+
     def get_profile(self, access_token: str) -> httpx.Response:
         """HU005 (ADR-034): perfil proyectado del deportista del token."""
         return self._send_as_user("GET", "/v1/me/profile", access_token)

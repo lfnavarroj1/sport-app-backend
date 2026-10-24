@@ -14,6 +14,7 @@ from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.commands.update_demographic_profile import (
     UpdateDemographicProfile,
 )
+from users_management.application.commands.update_nutrition_habits import UpdateNutritionHabits
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
@@ -426,6 +427,33 @@ def update_sport_habits_with(
         unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
         clock=clock or FixedClock(),
     )
+
+
+def update_nutrition_habits_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> UpdateNutritionHabits:
+    return UpdateNutritionHabits(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+        current_consent_version=CONSENT_VERSION,
+    )
+
+
+def nutrition_habits_body(**overrides: Any) -> dict[str, Any]:
+    """Cuerpo sintético de HU009 (sin `expected_version`: alta), con las listas fuera del
+    orden del catálogo para comprobar la normalización."""
+    values: dict[str, Any] = {
+        "consent": {"version": CONSENT_VERSION},
+        "diet_pattern": "VEGETARIAN",
+        "restrictions": ["LOW_SUGAR", "GLUTEN_FREE"],
+        "allergies": ["SESAME", "PEANUTS"],
+        "meals_per_day": 4,
+        "hydration_liters_per_day": "2.5",
+    }
+    values.update(overrides)
+    return values
 
 
 def sport_habits_body(**overrides: Any) -> dict[str, Any]:

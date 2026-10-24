@@ -6,10 +6,11 @@ requiere `TEST_DATABASE_URL`. Como en `test_training_plan_flow.py`, el alta `FRE
 directorio de Usuarios y la publicación/proyección de Entrenamientos se ejecutan con sus casos
 de uso (su transporte por Pub/Sub se prueba en la integración de cada servicio).
 
-Usuarios aún no registra hábitos alimenticios (HU009): su contrato real responde «sin
-hábitos». Para el bloqueo por alergia o restricción, el transporte de Usuarios que usa
-Entrenamientos sustituye solo la respuesta de `GET /v1/users/{id}/nutrition-restrictions`
-con datos sintéticos de ADR-035; todas las demás llamadas llegan al servicio real.
+El transporte de Usuarios que usa Entrenamientos puede sustituir solo la respuesta de
+`GET /v1/users/{id}/nutrition-restrictions` con datos sintéticos de ADR-035 (o simular su
+caída); todas las demás llamadas llegan al servicio real. Desde HU009 el deportista registra
+sus hábitos alimenticios: `test_registered_habits_block_the_plan_through_the_real_contract`
+recorre el bloqueo sin sustituir nada.
 """
 
 import json
@@ -398,6 +399,50 @@ class NutritionPlanFlowTest(unittest.TestCase):
         )
         organizer_list = self.bff.get("/v1/me/nutrition-plans", headers=self.auth(self.stranger))
         self.assertEqual(organizer_list.status_code, 403)
+
+    def test_registered_habits_block_the_plan_through_the_real_contract(self) -> None:
+        """HU009 CA3 y HU014 CA2: los hábitos que el deportista registra por el BFF se proyectan
+        y Entrenamientos obtiene sus alergias y restricciones por el contrato interno real."""
+        registered = self.bff.put(
+            "/v1/me/nutrition-habits",
+            json={
+                "consent": {"version": "health-test.v1"},
+                "diet_pattern": "VEGETARIAN",
+                "restrictions": ["GLUTEN_FREE"],
+                "allergies": ["PEANUTS"],
+                "meals_per_day": 4,
+            },
+            headers=self.auth(self.athlete, **{"Idempotency-Key": str(uuid.uuid4())}),
+        )
+        self.assertEqual(registered.status_code, 201, registered.text)
+        self.project_users_outbox()
+        self.authorize(self.professional)
+
+        blocked = self.create(
+            plan_request(
+                self.athlete["email"],
+                {"food_code": "PEANUT_BUTTER", "quantity": "30", "unit": "G"},
+                {"food_code": "CHICKEN_BREAST", "quantity": "150", "unit": "G"},
+                {"food_code": "PASTA", "quantity": "100", "unit": "G"},
+            )
+        )
+        allowed = self.create(plan_request(self.athlete["email"]))
+
+        self.assertEqual(
+            (blocked.status_code, blocked.json()["code"]), (422, "nutrition_plan_invalid")
+        )
+        self.assertEqual(
+            blocked.json()["details"],
+            [
+                {"field": "body.meals.0.items.0.food_code", "issue": "conflicts_with_allergy"},
+                {"field": "body.meals.0.items.1.food_code", "issue": "conflicts_with_restriction"},
+                {"field": "body.meals.0.items.2.food_code", "issue": "conflicts_with_restriction"},
+            ],
+        )
+        self.assertEqual(allowed.status_code, 201, allowed.text)
+        self.assertEqual(allowed.json()["warnings"], [], "con hábitos registrados no hay aviso")
+        self.assertEqual(self.users_seen_by_training.restriction_reads, 2)
+        self.assertEqual(self.nutrition_events(), 1)
 
     def test_food_catalog_through_the_web_channel(self) -> None:
         catalog = self.bff.get("/v1/food-catalog", headers=self.auth(self.professional))

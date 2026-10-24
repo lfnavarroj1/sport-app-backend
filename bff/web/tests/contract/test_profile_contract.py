@@ -1,4 +1,5 @@
-"""HU005 y HU006 (ADR-034): `bff-web` expone las cuatro operaciones del perfil con el mismo
+"""HU005, HU006 y HU009 (ADR-034 y ADR-035): `bff-web` expone las cinco operaciones del
+perfil con el mismo
 contrato que `users-management`.
 
 Compara los OpenAPI versionados: cuerpo de las solicitudes y respuestas de éxito idénticos
@@ -17,6 +18,7 @@ OPERATIONS = (
     ("/v1/me/demographic-profile", "put"),
     ("/v1/me/physiological-profile", "put"),
     ("/v1/me/sport-habits", "put"),
+    ("/v1/me/nutrition-habits", "put"),
     ("/v1/me/profile", "get"),
 )
 DOCUMENTATION_KEYS = {"title", "description", "examples"}
@@ -59,7 +61,7 @@ class ProfileContractEquivalenceTest(unittest.TestCase):
         return operation
 
     def test_request_bodies_are_identical(self) -> None:
-        for path, method in OPERATIONS[:3]:
+        for path, method in OPERATIONS[:-1]:
             with self.subTest(path=path):
                 service = self.operation(self.service, path, method)["requestBody"]
                 bff = self.operation(self.bff, path, method)["requestBody"]

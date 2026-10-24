@@ -19,6 +19,7 @@ from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.commands.update_demographic_profile import (
     UpdateDemographicProfile,
 )
+from users_management.application.commands.update_nutrition_habits import UpdateNutritionHabits
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
@@ -32,6 +33,9 @@ from users_management.application.queries.nutrition_restrictions import (
 from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
 from users_management.infrastructure.persistence_read.directory import SqlAlchemyUserDirectory
+from users_management.infrastructure.persistence_read.nutrition_restrictions import (
+    SqlAlchemyNutritionRestrictionsReader,
+)
 from users_management.infrastructure.persistence_read.profile import SqlAlchemyAthleteProfileReader
 from users_management.infrastructure.persistence_write.authentication import (
     SqlAlchemyAuthenticationUnitOfWork,
@@ -45,7 +49,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.9.0"
+API_VERSION = "0.10.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -105,6 +109,11 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
         update_sport_habits=UpdateSportHabits(
             unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions), clock=clock
         ),
+        update_nutrition_habits=UpdateNutritionHabits(
+            unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions),
+            clock=clock,
+            current_consent_version=settings.health_data_consent_version,
+        ),
         get_profile=GetAthleteProfile(SqlAlchemyAthleteProfileReader(read_sessions)),
     )
     return create_service_app(
@@ -126,7 +135,9 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
             ),
             build_jwks_router(token_issuer.jwks()),
             build_lookup_router(lookup_user, lookup_batch),
-            build_nutrition_restrictions_router(GetNutritionRestrictions(directory)),
+            build_nutrition_restrictions_router(
+                GetNutritionRestrictions(SqlAlchemyNutritionRestrictionsReader(read_sessions))
+            ),
             profile_router,
         ],
         shutdown_hooks=[engine.dispose, read_engine.dispose],

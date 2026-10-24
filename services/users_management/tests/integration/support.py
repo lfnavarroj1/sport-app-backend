@@ -22,6 +22,7 @@ from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.commands.update_demographic_profile import (
     UpdateDemographicProfile,
 )
+from users_management.application.commands.update_nutrition_habits import UpdateNutritionHabits
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
@@ -119,6 +120,13 @@ class WriteDatabase:
 
     def update_sport_habits(self, clock: Clock | None = None) -> UpdateSportHabits:
         return UpdateSportHabits(unit_of_work=self.profile, clock=clock or SystemClock())
+
+    def update_nutrition_habits(self, clock: Clock | None = None) -> UpdateNutritionHabits:
+        return UpdateNutritionHabits(
+            unit_of_work=self.profile,
+            clock=clock or SystemClock(),
+            current_consent_version=HEALTH_CONSENT,
+        )
 
     def update_physiological(self, clock: Clock | None = None) -> UpdatePhysiologicalProfile:
         return UpdatePhysiologicalProfile(

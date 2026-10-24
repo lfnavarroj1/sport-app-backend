@@ -158,10 +158,15 @@ class UserDirectory(Protocol):
     def find_active_by_email(self, email: str) -> UserReference | None: ...
 
 
-class ActiveUserCheck(Protocol):
-    """¿El identificador corresponde a una cuenta activa del directorio? (ADR-035)."""
+class NutritionRestrictionsReader(Protocol):
+    """Restricciones alimenticias proyectadas de una cuenta activa (ADR-035, HU009).
 
-    def is_active(self, user_id: UUID) -> bool: ...
+    `None` si no hay una cuenta activa con ese identificador; `version = None` (listas vacías)
+    si la cuenta no registró hábitos alimenticios. `ReadModelUnavailable` si la base de
+    lectura no responde.
+    """
+
+    def find(self, user_id: UUID) -> "NutritionRestrictions | None": ...
 
 
 @dataclass(frozen=True)
@@ -251,9 +256,11 @@ class AthleteProfileView:
     demographic: dict[str, Any] | None
     physiological: dict[str, Any] | None
     sport_habits: dict[str, Any] | None
+    nutrition_habits: dict[str, Any] | None
     demographic_version: int | None
     physiological_version: int | None
     sport_habits_version: int | None
+    nutrition_habits_version: int | None
     projected_at: datetime | None
 
     def __repr__(self) -> str:

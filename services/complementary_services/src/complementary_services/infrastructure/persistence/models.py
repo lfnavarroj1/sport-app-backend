@@ -27,6 +27,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sportapp_platform.database import new_metadata
 
 IDEMPOTENCY_PRIMARY_KEY = "pk_idempotency_key"
+# HU017: una sola asociación `ACTIVE` por deportista y servicio.
+ACTIVE_ASSOCIATION_INDEX = "uq_service_association_active"
 
 
 class Base(DeclarativeBase):
@@ -103,7 +105,11 @@ class ServiceAvailabilityRow(Base):
 
 
 class IdempotencyKeyRow(Base):
-    """Resultado de un comando reintentable por profesional, vigente durante 24 horas."""
+    """Resultado de un comando reintentable, vigente durante 24 horas.
+
+    `provider_id` es el usuario autenticado dueño de la clave: el profesional en HU015 y
+    HU019, el deportista en HU017 (los identificadores de usuario no se repiten).
+    """
 
     __tablename__ = "idempotency_key"
 
@@ -155,3 +161,43 @@ class OutboxEventRow(Base):
     attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(256))
+
+
+class ServiceAssociationRow(Base):
+    """HU017 (ADR-038): relación del deportista con un servicio médico deportivo.
+
+    `athlete_id` es un identificador de Usuarios (sin clave foránea a otra base); no guarda
+    datos de salud ni copias del perfil. La relación inactiva se conserva como historial.
+    """
+
+    __tablename__ = "service_association"
+    __table_args__ = (
+        CheckConstraint("status IN ('ACTIVE', 'INACTIVE')", name="status"),
+        CheckConstraint(
+            "(status = 'ACTIVE' AND ended_at IS NULL) "
+            "OR (status = 'INACTIVE' AND ended_at IS NOT NULL)",
+            name="ended_at",
+        ),
+        Index(
+            ACTIVE_ASSOCIATION_INDEX,
+            "service_id",
+            "athlete_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+        # «Mis asociaciones» por `associated_at` y `association_id` descendentes.
+        Index(
+            "ix_service_association_athlete_id_associated_at",
+            "athlete_id",
+            "associated_at",
+            "association_id",
+        ),
+    )
+
+    association_id: Mapped[UUID] = mapped_column(primary_key=True)
+    service_id: Mapped[UUID] = mapped_column(ForeignKey("service.service_id"))
+    athlete_id: Mapped[UUID]
+    status: Mapped[str] = mapped_column(String(16))
+    associated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)

@@ -6,11 +6,18 @@ import httpx
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
+from complementary_services.api.associations import build_associations_router
 from complementary_services.api.availability import build_availability_router
 from complementary_services.api.publication import build_publication_router
 from complementary_services.api.services import build_services_router
+from complementary_services.application.commands.associate_service import (
+    AssociateService,
+    DissociateService,
+    MedicalAccess,
+)
 from complementary_services.application.commands.create_service import CreateService
 from complementary_services.application.commands.publish_service import PublishService
+from complementary_services.application.queries.my_associations import ListMyAssociations
 from complementary_services.application.queries.my_services import GetMyService, ListMyServices
 from complementary_services.application.queries.service_availability import (
     ListServiceAvailability,
@@ -20,6 +27,9 @@ from complementary_services.infrastructure.clock import SystemClock
 from complementary_services.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
 )
+from complementary_services.infrastructure.persistence.associations_reader import (
+    SqlAlchemyAssociationReader,
+)
 from complementary_services.infrastructure.persistence.catalog_reader import (
     SqlAlchemyServiceCatalogReader,
 )
@@ -27,6 +37,7 @@ from complementary_services.infrastructure.persistence.services_reader import (
     SqlAlchemyServiceReader,
 )
 from complementary_services.infrastructure.persistence.unit_of_work import (
+    SqlAlchemyAssociationUnitOfWork,
     SqlAlchemyCreationUnitOfWork,
     SqlAlchemyPublicationUnitOfWork,
 )
@@ -38,7 +49,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "complementary-services"
-API_VERSION = "0.4.0"
+API_VERSION = "0.5.0"
 
 
 def create_app(
@@ -73,6 +84,8 @@ def create_app(
     )
     clock = SystemClock()
     reader = SqlAlchemyServiceReader(sessions)
+    capabilities = AffiliationCapabilityChecker(affiliation_http)
+    medical_access = MedicalAccess(capabilities)
     return create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - Servicios complementarios",
@@ -102,8 +115,24 @@ def create_app(
                 verify_token=verifier.verify,
                 list_availability=ListServiceAvailability(
                     reader=SqlAlchemyServiceCatalogReader(sessions),
-                    capabilities=AffiliationCapabilityChecker(affiliation_http),
+                    capabilities=capabilities,
                     clock=clock,
+                ),
+            ),
+            build_associations_router(
+                verify_token=verifier.verify,
+                associate_service=AssociateService(
+                    unit_of_work=lambda: SqlAlchemyAssociationUnitOfWork(sessions),
+                    access=medical_access,
+                    clock=clock,
+                ),
+                dissociate_service=DissociateService(
+                    unit_of_work=lambda: SqlAlchemyAssociationUnitOfWork(sessions),
+                    access=medical_access,
+                    clock=clock,
+                ),
+                list_my_associations=ListMyAssociations(
+                    reader=SqlAlchemyAssociationReader(sessions), access=medical_access
                 ),
             ),
         ],

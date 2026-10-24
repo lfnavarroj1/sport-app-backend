@@ -1,4 +1,5 @@
-"""Cliente HTTP de `complementary_services` según su OpenAPI 0.4.0 (HU015, HU019 y HU020).
+"""Cliente HTTP de `complementary_services` según su OpenAPI 0.5.0 (HU015, HU019, HU020 y
+HU017).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad y permiso.
 """
@@ -56,6 +57,27 @@ class ComplementaryServicesClient:
             access_token,
             params=httpx.QueryParams(tuple(params)),
         )
+
+    def associate_service(
+        self, access_token: str, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU017 (ADR-038): el cuerpo y la clave viajan tal cual; el servicio responde los
+        errores de validación, elegibilidad y unicidad."""
+        return self._send(
+            "POST",
+            "/v1/me/service-associations",
+            access_token,
+            json=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def dissociate_service(self, access_token: str, association_id: UUID) -> httpx.Response:
+        """HU017: desasociación idempotente (`204` también al repetirla)."""
+        return self._send("DELETE", f"/v1/me/service-associations/{association_id}", access_token)
+
+    def list_my_associations(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU017: asociaciones propias; los parámetros los valida el servicio."""
+        return self._send("GET", "/v1/me/service-associations", access_token, params=params)
 
     def _send(
         self,

@@ -1,11 +1,14 @@
-"""Cliente HTTP de `training_management` según su OpenAPI 0.6.0 (HU032, HU034 y HU035).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU026, HU028, HU032-HU035, HU037).
 
 Reenvía el access token del usuario, la clave de idempotencia, `If-None-Match` y la
-correlación; el servicio vuelve a verificar identidad, actor y capacidad.
+correlación; el servicio vuelve a verificar identidad, actor y capacidad. Los segmentos de
+ruta recibidos del cliente (`session_id`, `device_id`) se codifican completos, sin validarlos:
+el servicio decide su formato (ADR-044).
 """
 
 from datetime import date
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -104,6 +107,31 @@ class TrainingManagementClient:
             params=httpx.QueryParams(tuple(params)),
         )
 
+    def register_device(
+        self, access_token: str, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU037: vincular o reactivar un dispositivo; cuerpo y clave viajan tal cual."""
+        return self._send(
+            "POST", "/v1/me/devices", access_token, body=body, idempotency_key=idempotency_key
+        )
+
+    def list_devices(self, access_token: str) -> httpx.Response:
+        """HU037: dispositivos propios, activos y revocados."""
+        return self._send("GET", "/v1/me/devices", access_token)
+
+    def revoke_device(self, access_token: str, device_id: str) -> httpx.Response:
+        """HU037: revocar un dispositivo propio; sin cuerpo ni clave."""
+        return self._send("DELETE", f"/v1/me/devices/{_segment(device_id)}", access_token)
+
+    def ingest_measurements(self, access_token: str, session_id: str, body: Any) -> httpx.Response:
+        """HU037: lote de mediciones de una sesión propia; sin clave (idempotencia natural)."""
+        return self._send(
+            "POST",
+            f"/v1/training-sessions/{_segment(session_id)}/measurements",
+            access_token,
+            body=body,
+        )
+
     def _send(
         self,
         method: str,
@@ -127,8 +155,15 @@ class TrainingManagementClient:
         try:
             if method == "GET":
                 return self._http.get(path, headers=headers, params=params)
+            if method == "DELETE":
+                return self._http.delete(path, headers=headers)
             return self._http.post(path, json=body, headers=headers)
         except httpx.TimeoutException:
             raise UpstreamTimeout() from None
         except httpx.TransportError:
             raise UpstreamUnavailable() from None
+
+
+def _segment(value: str) -> str:
+    """Un segmento de ruta tal como llegó, sin que `/`, `?` o `#` cambien la ruta reenviada."""
+    return quote(value, safe="")

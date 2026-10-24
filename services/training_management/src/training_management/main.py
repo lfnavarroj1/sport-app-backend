@@ -13,8 +13,10 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 from training_management.api.authorizations import build_authorizations_router
 from training_management.api.authorized_athletes import build_authorized_athletes_router
+from training_management.api.devices import build_devices_router
 from training_management.api.food_catalog import build_food_catalog_router
 from training_management.api.history import build_history_router
+from training_management.api.measurements import build_measurements_router
 from training_management.api.nutrition_plans import build_nutrition_plans_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
@@ -34,6 +36,8 @@ from training_management.application.commands.calculate_training_metric import (
 )
 from training_management.application.commands.create_nutrition_plan import CreateNutritionPlan
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
+from training_management.application.commands.devices import RegisterDevice, RevokeDevice
+from training_management.application.commands.measurements import IngestMeasurements
 from training_management.application.commands.routes import PublishRoute, RetireRoute
 from training_management.application.commands.training_plan_templates import (
     PublishTemplate,
@@ -45,6 +49,7 @@ from training_management.application.commands.training_sessions import (
 )
 from training_management.application.queries.active_session import GetActiveTrainingSession
 from training_management.application.queries.authorized_athletes import GetAuthorizedAthletes
+from training_management.application.queries.devices import ListMyDevices
 from training_management.application.queries.food_catalog import GetFoodCatalog
 from training_management.application.queries.get_training_plan import GetTrainingPlan
 from training_management.application.queries.nutrition_plans import (
@@ -93,6 +98,9 @@ from training_management.infrastructure.persistence_write.food_catalog import (
 )
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
+    SqlAlchemyDeviceReader,
+    SqlAlchemyDeviceUnitOfWork,
+    SqlAlchemyMeasurementUnitOfWork,
     SqlAlchemyMetricUnitOfWork,
     SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
@@ -103,7 +111,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.12.0"
+API_VERSION = "0.13.0"
 
 
 def create_app(
@@ -282,6 +290,30 @@ def create_app(
                 ),
                 list_templates=ListMyTemplates(reader=template_views, permissions=permissions),
                 suggest=SuggestTemplates(reader=template_views, capabilities=capabilities),
+            ),
+            build_devices_router(
+                verify_token=verifier.verify,
+                register=RegisterDevice(
+                    unit_of_work=lambda: SqlAlchemyDeviceUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
+                revoke=RevokeDevice(
+                    unit_of_work=lambda: SqlAlchemyDeviceUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
+                list_devices=ListMyDevices(
+                    reader=SqlAlchemyDeviceReader(writes), capabilities=capabilities
+                ),
+            ),
+            build_measurements_router(
+                verify_token=verifier.verify,
+                ingest=IngestMeasurements(
+                    unit_of_work=lambda: SqlAlchemyMeasurementUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
             ),
         ],
         shutdown_hooks=[

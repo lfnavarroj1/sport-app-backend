@@ -20,6 +20,8 @@ NUTRITION_PLAN_AUTHOR_PERMISSION = "nutrition.plan.author"
 ROUTE_AUTHOR_PERMISSION = "training.routes.author"
 ROUTE_SUGGEST_CAPABILITY = "training.routes.suggest"
 TEMPLATE_SUGGEST_CAPABILITY = "training.plans.suggest"
+DEVICES_CAPABILITY = "devices.measurement.connect"
+REALTIME_MONITOR_CAPABILITY = "training.realtime.monitor"
 
 
 def require_plan_author(caller: Caller, permissions: PermissionPolicy) -> None:
@@ -82,4 +84,20 @@ def require_template_suggest_capability(caller: Caller, capabilities: Capability
     `training.plans.suggest`. Consulta Afiliación antes de leer."""
     require_athlete(caller)
     if not capabilities.has_capability(caller.user_id, TEMPLATE_SUGGEST_CAPABILITY):
+        raise CapabilityRequired()
+
+
+def require_devices_capability(caller: Caller, capabilities: CapabilityChecker) -> None:
+    """HU037 (ADR-044): vincular, listar y revocar dispositivos exige `athlete` con
+    `devices.measurement.connect`. Consulta Afiliación fuera de cualquier transacción."""
+    require_athlete(caller)
+    if not capabilities.has_capability(caller.user_id, DEVICES_CAPABILITY):
+        raise CapabilityRequired()
+
+
+def require_realtime_monitor_capability(caller: Caller, capabilities: CapabilityChecker) -> None:
+    """HU037/HU036 (ADR-044 §5): la ingestión de mediciones exige `athlete` con
+    `training.realtime.monitor`. Consulta Afiliación fuera de cualquier transacción."""
+    require_athlete(caller)
+    if not capabilities.has_capability(caller.user_id, REALTIME_MONITOR_CAPABILITY):
         raise CapabilityRequired()

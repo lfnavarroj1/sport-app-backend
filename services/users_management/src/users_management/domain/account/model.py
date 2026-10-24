@@ -1,11 +1,12 @@
-"""Agregado `UserAccount` y reglas de registro (HU001) y acceso (HU003)."""
+"""Agregado `UserAccount` y reglas de registro (HU001), acceso (HU003) y edición (HU002)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
 from users_management.domain.account.errors import (
+    AccountVersionConflict,
     InvalidRegistrationData,
     PoliciesVersionMismatch,
 )
@@ -95,4 +96,48 @@ class UserAccount:
             policies_accepted_at=now,
             created_at=now,
             version=1,
+        )
+
+
+@dataclass(frozen=True)
+class AccountDetails:
+    """Datos de la cuenta que expone y edita HU002: nombre y correo de cualquier actor.
+
+    La contraseña, `actor_type` y el estado no se modifican aquí. Nombre y correo son datos
+    personales: nunca en trazas.
+    """
+
+    user_id: UUID
+    full_name: str
+    email: str
+    actor_type: ActorType
+    status: AccountStatus
+    version: int
+    updated_at: datetime
+
+    def __repr__(self) -> str:
+        return f"AccountDetails(user_id={self.user_id}, version={self.version})"
+
+    def change(
+        self, *, expected_version: int, full_name: str, email: str, now: datetime
+    ) -> tuple["AccountDetails", tuple[str, ...]]:
+        """Aplica nombre y correo ya normalizados; devuelve la cuenta y los campos cambiados.
+
+        Una versión distinta de la vigente es un conflicto, aunque los valores coincidan. Si
+        nada cambia (p. ej., el mismo correo), la cuenta queda igual y sin versión nueva.
+        """
+        if expected_version != self.version:
+            raise AccountVersionConflict(self.version)
+        changed = tuple(
+            name
+            for name, value in (("full_name", full_name), ("email", email))
+            if getattr(self, name) != value
+        )
+        if not changed:
+            return self, ()
+        return (
+            replace(
+                self, full_name=full_name, email=email, version=self.version + 1, updated_at=now
+            ),
+            changed,
         )

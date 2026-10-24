@@ -1896,6 +1896,662 @@
         "title": "HistoryFilters",
         "type": "object"
       },
+      "IntegratedAssociatedServiceAvailabilityItem": {
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "`<source>:<identificador>`, único en la respuesta.",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "modality": {
+            "title": "Modality",
+            "type": "string"
+          },
+          "occurs_on": {
+            "description": "Fecha de inicio en la `time_zone` del elemento.",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/IntegratedAssociatedServiceReference"
+          },
+          "source": {
+            "const": "ASSOCIATED_SERVICE_AVAILABILITY",
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Instante original en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "const": "AVAILABLE",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el dominio.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "occurs_on",
+          "title",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "source",
+          "status",
+          "category",
+          "modality",
+          "capacity",
+          "reference"
+        ],
+        "title": "IntegratedAssociatedServiceAvailabilityItem",
+        "type": "object"
+      },
+      "IntegratedAssociatedServiceReference": {
+        "properties": {
+          "association_id": {
+            "format": "uuid",
+            "title": "Association Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_id",
+          "association_id"
+        ],
+        "title": "IntegratedAssociatedServiceReference",
+        "type": "object"
+      },
+      "IntegratedCalendarResponse": {
+        "properties": {
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "title": "From",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "ASSOCIATED_SERVICE_AVAILABILITY": "#/components/schemas/IntegratedAssociatedServiceAvailabilityItem",
+                  "EVENT_PUBLISHED": "#/components/schemas/IntegratedPublishedEventItem",
+                  "EVENT_REGISTRATION": "#/components/schemas/IntegratedEventRegistrationItem",
+                  "OWN_EVENT": "#/components/schemas/IntegratedOwnEventItem",
+                  "OWN_SERVICE_AVAILABILITY": "#/components/schemas/IntegratedOwnServiceAvailabilityItem",
+                  "TRAINING_PLAN_SESSION": "#/components/schemas/IntegratedTrainingSessionItem"
+                },
+                "propertyName": "source"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IntegratedOwnEventItem"
+                },
+                {
+                  "$ref": "#/components/schemas/IntegratedPublishedEventItem"
+                },
+                {
+                  "$ref": "#/components/schemas/IntegratedEventRegistrationItem"
+                },
+                {
+                  "$ref": "#/components/schemas/IntegratedTrainingSessionItem"
+                },
+                {
+                  "$ref": "#/components/schemas/IntegratedOwnServiceAvailabilityItem"
+                },
+                {
+                  "$ref": "#/components/schemas/IntegratedAssociatedServiceAvailabilityItem"
+                }
+              ]
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "sources": {
+            "description": "Fuentes del actor; una distinta de `OK` está incompleta.",
+            "items": {
+              "$ref": "#/components/schemas/IntegratedSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "to": {
+            "format": "date-time",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "items",
+          "sources",
+          "evaluated_at"
+        ],
+        "title": "IntegratedCalendarResponse",
+        "type": "object"
+      },
+      "IntegratedEventReference": {
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "IntegratedEventReference",
+        "type": "object"
+      },
+      "IntegratedEventRegistrationItem": {
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "`<source>:<identificador>`, único en la respuesta.",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/IntegratedLocation"
+          },
+          "occurs_on": {
+            "description": "Fecha de inicio en la `time_zone` del elemento.",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/IntegratedRegistrationReference"
+          },
+          "source": {
+            "const": "EVENT_REGISTRATION",
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Instante original en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "const": "REGISTERED",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el dominio.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "occurs_on",
+          "title",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "source",
+          "status",
+          "location",
+          "reference"
+        ],
+        "title": "IntegratedEventRegistrationItem",
+        "type": "object"
+      },
+      "IntegratedLocation": {
+        "properties": {
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "city",
+          "country_code"
+        ],
+        "title": "IntegratedLocation",
+        "type": "object"
+      },
+      "IntegratedOwnEventItem": {
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "`<source>:<identificador>`, único en la respuesta.",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/IntegratedLocation"
+          },
+          "occurs_on": {
+            "description": "Fecha de inicio en la `time_zone` del elemento.",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/IntegratedEventReference"
+          },
+          "source": {
+            "const": "OWN_EVENT",
+            "title": "Source",
+            "type": "string"
+          },
+          "sport": {
+            "title": "Sport",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Instante original en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el dominio.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "occurs_on",
+          "title",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "source",
+          "status",
+          "sport",
+          "location",
+          "reference"
+        ],
+        "title": "IntegratedOwnEventItem",
+        "type": "object"
+      },
+      "IntegratedOwnServiceAvailabilityItem": {
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "`<source>:<identificador>`, único en la respuesta.",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "modality": {
+            "title": "Modality",
+            "type": "string"
+          },
+          "occurs_on": {
+            "description": "Fecha de inicio en la `time_zone` del elemento.",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/IntegratedServiceReference"
+          },
+          "source": {
+            "const": "OWN_SERVICE_AVAILABILITY",
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Instante original en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "description": "Estado del servicio propio.",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el dominio.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "occurs_on",
+          "title",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "source",
+          "status",
+          "category",
+          "modality",
+          "capacity",
+          "reference"
+        ],
+        "title": "IntegratedOwnServiceAvailabilityItem",
+        "type": "object"
+      },
+      "IntegratedPublishedEventItem": {
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "`<source>:<identificador>`, único en la respuesta.",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/IntegratedLocation"
+          },
+          "occurs_on": {
+            "description": "Fecha de inicio en la `time_zone` del elemento.",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/IntegratedEventReference"
+          },
+          "source": {
+            "const": "EVENT_PUBLISHED",
+            "title": "Source",
+            "type": "string"
+          },
+          "sport": {
+            "title": "Sport",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Instante original en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "const": "PUBLISHED",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el dominio.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "occurs_on",
+          "title",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "source",
+          "status",
+          "sport",
+          "location",
+          "reference"
+        ],
+        "title": "IntegratedPublishedEventItem",
+        "type": "object"
+      },
+      "IntegratedRegistrationReference": {
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "title": "Registration Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "registration_id"
+        ],
+        "title": "IntegratedRegistrationReference",
+        "type": "object"
+      },
+      "IntegratedServiceReference": {
+        "properties": {
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_id"
+        ],
+        "title": "IntegratedServiceReference",
+        "type": "object"
+      },
+      "IntegratedSessionReference": {
+        "properties": {
+          "plan_id": {
+            "format": "uuid",
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id",
+          "session_id"
+        ],
+        "title": "IntegratedSessionReference",
+        "type": "object"
+      },
+      "IntegratedSource": {
+        "properties": {
+          "name": {
+            "enum": [
+              "OWN_EVENT",
+              "EVENT_PUBLISHED",
+              "EVENT_REGISTRATION",
+              "TRAINING_PLAN_SESSION",
+              "OWN_SERVICE_AVAILABILITY",
+              "ASSOCIATED_SERVICE_AVAILABILITY"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "OK",
+              "UNAVAILABLE",
+              "TIMEOUT"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "La fuente tenía más de 200 elementos.",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "truncated"
+        ],
+        "title": "IntegratedSource",
+        "type": "object"
+      },
+      "IntegratedTrainingSessionItem": {
+        "properties": {
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "ends_at": {
+            "title": "Ends At",
+            "type": "null"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "occurs_on": {
+            "description": "`scheduled_date` de la sesión (sin hora).",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/IntegratedSessionReference"
+          },
+          "rpe": {
+            "title": "Rpe",
+            "type": "integer"
+          },
+          "source": {
+            "const": "TRAINING_PLAN_SESSION",
+            "title": "Source",
+            "type": "string"
+          },
+          "sport": {
+            "title": "Sport",
+            "type": "string"
+          },
+          "starts_at": {
+            "title": "Starts At",
+            "type": "null"
+          },
+          "status": {
+            "const": "ASSIGNED",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "null"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "source",
+          "status",
+          "occurs_on",
+          "title",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "sport",
+          "duration_minutes",
+          "rpe",
+          "reference"
+        ],
+        "title": "IntegratedTrainingSessionItem",
+        "type": "object"
+      },
       "Level": {
         "enum": [
           "BEGINNER",
@@ -5044,7 +5700,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.28.0"
+    "version": "0.29.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7530,6 +8186,132 @@
         "summary": "Inscritos de un evento propio (HU022)",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/me/integrated-calendar": {
+      "get": {
+        "description": "Compone por actor las fuentes de ADR-039: organizador `OWN_EVENT`; profesional `OWN_SERVICE_AVAILABILITY` y `EVENT_PUBLISHED`; deportista `EVENT_PUBLISHED`, `TRAINING_PLAN_SESSION`, `ASSOCIATED_SERVICE_AVAILABILITY` y `EVENT_REGISTRATION`. Periodo de hasta 92 días; hasta 200 elementos por fuente (`truncated`); orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`. Instantes en UTC con la `time_zone` de cada elemento: el cliente los presenta en la zona del navegador. Una fuente caída se declara en `sources[]` (`UNAVAILABLE` o `TIMEOUT`) y el calendario no afirma que no haya actividades.",
+        "operationId": "integrated_calendar_v1_me_integrated_calendar_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase (zona del navegador); sin ambos, el mes UTC en curso.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase (zona del navegador); sin ambos, el mes UTC en curso.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase (zona del navegador); sin ambos, el mes UTC en curso.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase (zona del navegador); sin ambos, el mes UTC en curso.",
+              "title": "To"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegratedCalendarResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (actor sin `calendar.integrated.view`) o `capability_required` (deportista sin `calendar.sport.view`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` en `query.from`/`query.to`: `invalid_datetime`, `ends_before_starts`, `out_of_range` (más de 92 días) o `required` (solo uno de los dos extremos)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no evaluable o todas las fuentes caídas."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o todas las fuentes sin respuesta."
+          }
+        },
+        "summary": "Calendario integrado de eventos y servicios por actor (HU018)",
+        "tags": [
+          "calendar"
         ]
       }
     },

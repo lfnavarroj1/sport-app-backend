@@ -1,4 +1,5 @@
-"""Sección de hábitos deportivos del perfil (HU006, ADR-034).
+"""Sección de hábitos deportivos del perfil (HU006, ADR-034) y su edición parcial (HU008,
+ADR-035).
 
 De uno a cinco deportes del catálogo de HU010, cada uno con frecuencia semanal, duración
 típica, intensidad, nivel y años de práctica opcionales; disponibilidad por días y franjas
@@ -8,6 +9,11 @@ Normalización canónica: los deportes, los días y las franjas se devuelven en 
 su catálogo, sea cual sea el orden recibido. Así la misma información produce el mismo
 documento y la misma huella idempotente. Los errores nombran la posición recibida
 (`sports[1].sport`, `availability.days[0]`).
+
+Edición parcial (HU008): el cuerpo trae una o más secciones (`sports`, `availability`,
+`primary_goal`); cada sección enviada reemplaza completa a la vigente y las demás se
+conservan. Las secciones enviadas se validan con las mismas reglas y, tras fusionarlas con
+el estado vigente, se revalida el agregado completo (todo o nada).
 """
 
 from dataclasses import dataclass
@@ -279,5 +285,134 @@ def validate_sport_habits(section: SportHabitsInput) -> SportHabitsSection:
         sports=sports,
         days=days,
         time_slots=time_slots,
+        primary_goal=primary_goal,
+    )
+
+
+# --- HU008: edición parcial ---
+
+SECTIONS = ("sports", "availability", "primary_goal")
+NOT_FOUND_CODE = "sport_habits_not_found"
+
+
+@dataclass(frozen=True)
+class SportHabitsPatchInput:
+    """Secciones con la forma JSON correcta y cuáles llegaron en el cuerpo.
+
+    `sends_*` distingue una sección ausente (se conserva) de una enviada: `primary_goal: null`
+    borra el objetivo, mientras que `sports` o `availability` en `null` son `required`.
+    """
+
+    expected_version: int | None = None
+    sends_sports: bool = False
+    sports: tuple[SportInput | None, ...] | None = None
+    sends_availability: bool = False
+    has_availability: bool = False
+    days: tuple[str | None, ...] | None = None
+    time_slots: tuple[str | None, ...] | None = None
+    sends_primary_goal: bool = False
+    primary_goal: str | None = None
+    transport_violations: tuple[Violation, ...] = ()
+
+    def __repr__(self) -> str:
+        return f"SportHabitsPatchInput(expected_version={self.expected_version})"
+
+
+@dataclass(frozen=True)
+class SportHabitsPatch:
+    """Secciones enviadas, validadas y normalizadas; `None` en `sports`/`availability` = no
+    enviada. `primary_goal` solo cuenta si `sends_primary_goal`."""
+
+    expected_version: int
+    sports: tuple[SportHabit, ...] | None
+    availability: tuple[tuple[Day, ...], tuple[TimeSlot, ...]] | None
+    sends_primary_goal: bool
+    primary_goal: PrimaryGoal | None
+
+    def __repr__(self) -> str:
+        return f"SportHabitsPatch(expected_version={self.expected_version})"
+
+    def fields(self, now: datetime) -> dict[str, Any]:
+        # Las secciones enviadas; el comando las fusiona con la vigente mediante `merge`.
+        return self.changes()
+
+    def changes(self) -> dict[str, Any]:
+        """Solo las secciones enviadas, en el formato del documento."""
+        changes: dict[str, Any] = {}
+        if self.sports is not None:
+            changes["sports"] = [habit.document() for habit in self.sports]
+        if self.availability is not None:
+            days, time_slots = self.availability
+            changes["availability"] = {
+                "days": [day.value for day in days],
+                "time_slots": [slot.value for slot in time_slots],
+            }
+        if self.sends_primary_goal:
+            changes["primary_goal"] = self.primary_goal.value if self.primary_goal else None
+        return changes
+
+    def normalized(self) -> dict[str, Any]:
+        return {"expected_version": self.expected_version, **self.changes()}
+
+    def merge(self, current: dict[str, Any], now: datetime) -> dict[str, Any]:
+        """Fusiona las secciones enviadas con el documento vigente y revalida el agregado
+        completo con las reglas de HU006 (`InvalidProfileSection` si no las cumple)."""
+        values = {name: current.get(name) for name in SECTIONS}
+        values.update(self.changes())
+        return validate_sport_habits(_document_input(values, self.expected_version)).fields(now)
+
+
+def _document_input(values: dict[str, Any], expected_version: int) -> SportHabitsInput:
+    sports = values.get("sports")
+    availability = values.get("availability")
+    return SportHabitsInput(
+        expected_version=expected_version,
+        sports=(tuple(SportInput(**item) for item in sports) if isinstance(sports, list) else None),
+        has_availability=isinstance(availability, dict),
+        days=tuple(availability.get("days") or ()) if isinstance(availability, dict) else None,
+        time_slots=(
+            tuple(availability.get("time_slots") or ()) if isinstance(availability, dict) else None
+        ),
+        primary_goal=values.get("primary_goal"),
+    )
+
+
+def validate_sport_habits_patch(patch: SportHabitsPatchInput) -> SportHabitsPatch:
+    """Valida todo o nada las secciones enviadas; al menos una y `expected_version`."""
+    collector = Collector(patch.transport_violations)
+    body_invalid = any(item.field is None for item in patch.transport_violations)
+    expected_version = None
+    if collector.required(patch.expected_version, "expected_version"):
+        expected_version = collector.expected_version(patch.expected_version)
+    if not body_invalid and not (
+        patch.sends_sports or patch.sends_availability or patch.sends_primary_goal
+    ):
+        # Sin secciones no hay nada que actualizar (CA5).
+        collector.add(None, Issue.REQUIRED)
+    sports = _sports(collector, patch.sports) if patch.sends_sports else None
+    availability: tuple[tuple[Day, ...], tuple[TimeSlot, ...]] | None = None
+    if patch.sends_availability:
+        if not patch.has_availability:
+            collector.required(None, "availability")
+        else:
+            days = _choices(collector, patch.days, "availability.days", Day, DAYS_MAX)
+            time_slots = _choices(
+                collector, patch.time_slots, "availability.time_slots", TimeSlot, TIME_SLOTS_MAX
+            )
+            if days is not None and time_slots is not None:
+                availability = (days, time_slots)
+    primary_goal = (
+        collector.catalog(patch.primary_goal, "primary_goal", PrimaryGoal)
+        if patch.sends_primary_goal
+        else None
+    )
+    collector.raise_if_any()
+    if expected_version is None:
+        raise InvalidProfileSection([])  # Inalcanzable: la falta ya se informó arriba.
+    return SportHabitsPatch(
+        expected_version=expected_version,
+        sports=sports,
+        availability=availability,
+        sends_primary_goal=patch.sends_primary_goal,
         primary_goal=primary_goal,
     )

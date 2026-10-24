@@ -15,6 +15,7 @@ from users_management.api.profile import build_profile_router
 from users_management.api.registration import build_registration_router
 from users_management.api.sessions import build_jwks_router, build_sessions_router
 from users_management.application.commands.login import Login
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
 from users_management.application.commands.revoke_session import RevokeSession
@@ -62,7 +63,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.13.0"
+API_VERSION = "0.14.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -120,6 +121,9 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
             current_consent_version=settings.health_data_consent_version,
         ),
         update_sport_habits=UpdateSportHabits(
+            unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions), clock=clock
+        ),
+        patch_sport_habits=PatchSportHabits(
             unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions), clock=clock
         ),
         update_nutrition_habits=UpdateNutritionHabits(

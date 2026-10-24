@@ -11,6 +11,7 @@ from fakes import (
     FixedClock,
     InMemoryProfileReader,
     InMemoryProfileStore,
+    patch_sport_habits_with,
     sport_habits_body,
     update_demographic_with,
     update_nutrition_habits_with,
@@ -47,6 +48,7 @@ class SportHabitsApiTest(unittest.TestCase):
                     update_demographic=update_demographic_with(self.store, clock),
                     update_physiological=update_physiological_with(self.store, clock),
                     update_sport_habits=update_sport_habits_with(self.store, clock),
+                    patch_sport_habits=patch_sport_habits_with(self.store, clock),
                     update_nutrition_habits=update_nutrition_habits_with(self.store, clock),
                     get_profile=GetAthleteProfile(self.reader),
                 )

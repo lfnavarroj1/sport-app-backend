@@ -1,7 +1,9 @@
-"""`GET /v1/events?from&to&discipline&city&limit&cursor` (ADR-031, ampliado por ADR-040).
+"""`GET /v1/events?from&to&discipline&city&limit&cursor` (ADR-031, ampliado por ADR-040 y
+ADR-039).
 
 Lo consumen `bff-mobile` (calendario del deportista, HU035) y `bff-web` (calendario del
-organizador y coincidencias, HU023). Solo eventos `PUBLISHED`; nunca borradores ni
+organizador y coincidencias, HU023; fuente `EVENT_PUBLISHED` del calendario integrado del
+profesional, HU018). Solo eventos `PUBLISHED`; nunca borradores ni
 `organizer_id`. Instantes en UTC (`Z`) con la zona del evento.
 """
 
@@ -111,17 +113,19 @@ def build_published_events_router(
     @router.get(
         "",
         response_model=PublishedEventsResponse,
-        summary="Eventos publicados por periodo (HU035 deportista, HU023 organizador)",
-        description="`athlete` con `calendar.sport.view` (Afiliación) u `organizer` con "
-        "`events.calendar.view`. Periodo de hasta 92 días; para el organizador `from` debe ser "
-        "anterior a `to`. Orden `starts_at`, `event_id` ascendente; el cursor se reenvía con los "
-        "mismos filtros.",
+        summary="Eventos publicados por periodo (HU035 deportista, HU023 organizador, HU018 "
+        "profesional)",
+        description="`athlete` con `calendar.sport.view` (Afiliación), `organizer` con "
+        "`events.calendar.view` o `service_provider` con `calendar.integrated.view`. Periodo de "
+        "hasta 92 días; para el organizador `from` debe ser anterior a `to`. Orden `starts_at`, "
+        "`event_id` ascendente; el cursor se reenvía con los mismos filtros.",
         responses={
             **AUTH_RESPONSES,
             HTTPStatus.FORBIDDEN.value: {
                 "model": ErrorResponse,
-                "description": "`permission_required` (otro actor, u organizador sin "
-                "`events.calendar.view`) o `capability_required` (`calendar.sport.view`).",
+                "description": "`permission_required` (otro actor, organizador sin "
+                "`events.calendar.view` o profesional sin `calendar.integrated.view`) o "
+                "`capability_required` (`calendar.sport.view`).",
             },
             HTTPStatus.UNPROCESSABLE_ENTITY.value: {
                 "model": ErrorResponse,

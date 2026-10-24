@@ -52,7 +52,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "events-management"
-API_VERSION = "0.8.0"
+API_VERSION = "0.9.0"
 
 
 def create_app(

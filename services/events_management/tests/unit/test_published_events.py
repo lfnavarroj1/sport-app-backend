@@ -142,10 +142,12 @@ class ListPublishedEventsTest(unittest.TestCase):
 
     def test_authorization(self) -> None:
         """CA5: deportista con `calendar.sport.view`; Afiliación caída no concede nada. Desde
-        HU023 el organizador también entra (con `events.calendar.view`, ver test_event_calendar);
-        cualquier otro actor sigue rechazado."""
-        with self.assertRaises(PermissionRequired):
-            self.list(Caller(uuid4(), "service_provider"), EventsFilters(NOV_1, NOV_30))
+        HU023 el organizador también entra (con `events.calendar.view`, ver test_event_calendar)
+        y desde HU018 el profesional (con `calendar.integrated.view`, ver
+        test_provider_calendar); cualquier otro actor sigue rechazado."""
+        for actor in ("administrator", ""):
+            with self.subTest(actor=actor), self.assertRaises(PermissionRequired):
+                self.list(Caller(uuid4(), actor), EventsFilters(NOV_1, NOV_30))
         with self.assertRaises(CapabilityRequired):
             self.list(Caller(uuid4(), "athlete"), EventsFilters(NOV_1, NOV_30))
         self.capabilities.unavailable = True
@@ -225,16 +227,14 @@ class PublishedEventsApiTest(unittest.TestCase):
 
     def test_errors(self) -> None:
         period = "from=2026-11-01T00:00:00-05:00&to=2026-11-30T23:59:59-05:00"
-        provider = self.get(period, "service_provider")
+        other = self.get(period, "administrator")
         no_capability = self.get(period, user=uuid4())
         inverted = self.get("from=2026-11-30T00:00:00Z&to=2026-11-01T00:00:00Z")
         naive = self.get("from=2026-11-01T00:00:00&to=2026-11-30T00:00:00Z")
         self.capabilities.unavailable = True
         down = self.get(period)
 
-        self.assertEqual(
-            (provider.status_code, provider.json()["code"]), (403, "permission_required")
-        )
+        self.assertEqual((other.status_code, other.json()["code"]), (403, "permission_required"))
         self.assertEqual(
             (no_capability.status_code, no_capability.json()["code"]), (403, "capability_required")
         )

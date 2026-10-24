@@ -30,9 +30,14 @@ class EventsManagementClient:
         headers = {IDEMPOTENCY_HEADER: idempotency_key} if idempotency_key is not None else {}
         return self._send("POST", f"/v1/events/{event_id}/registrations", access_token, headers)
 
-    def my_registrations(self, access_token: str, params: dict[str, str]) -> httpx.Response:
-        """HU041: inscripciones propias con `status`, `limit` y `cursor` tal como llegaron."""
-        return self._send("GET", "/v1/me/event-registrations", access_token, params=params)
+    def my_registrations(
+        self, access_token: str, params: dict[str, str], *, timeout: float | None = None
+    ) -> httpx.Response:
+        """HU041: inscripciones propias con `status`, `limit` y `cursor` tal como llegaron.
+        HU029 fija un `timeout` propio para esta fuente opcional."""
+        return self._send(
+            "GET", "/v1/me/event-registrations", access_token, params=params, timeout=timeout
+        )
 
     def _send(
         self,
@@ -42,13 +47,20 @@ class EventsManagementClient:
         extra_headers: dict[str, str] | None = None,
         *,
         params: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         headers = {"Authorization": f"Bearer {access_token}", **(extra_headers or {})}
         correlation_id = current_correlation_id()
         if correlation_id:
             headers[CORRELATION_HEADER] = correlation_id
         try:
-            return self._http.request(method, path, headers=headers, params=params)
+            return self._http.request(
+                method,
+                path,
+                headers=headers,
+                params=params,
+                timeout=httpx.USE_CLIENT_DEFAULT if timeout is None else timeout,
+            )
         except httpx.TimeoutException:
             raise UpstreamTimeout() from None
         except httpx.TransportError:

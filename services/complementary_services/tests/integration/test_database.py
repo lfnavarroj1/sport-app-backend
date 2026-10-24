@@ -21,7 +21,7 @@ class DatabaseIntegrationTest(unittest.TestCase):
             ):
                 upgrade(script_location, url)
 
-                self.assertEqual(current_revision(url), "0004_service_availability_read")
+                self.assertEqual(current_revision(url), "0005_service_association")
 
     def test_ready_against_real_postgres(self) -> None:
         with temporary_database("complementary_services_app") as url:

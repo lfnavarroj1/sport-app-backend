@@ -61,7 +61,7 @@ class UsersManagementAppTest(unittest.TestCase):
 
     def test_profile_routes_are_wired_and_require_a_token(self) -> None:
         """HU005, HU006 y HU009: las cinco rutas del perfil exigen `Authorization: Bearer`."""
-        self.assertEqual(API_VERSION, "0.12.0")
+        self.assertEqual(API_VERSION, "0.13.0")
         for method, path in (
             ("PUT", "/v1/me/demographic-profile"),
             ("PUT", "/v1/me/physiological-profile"),
@@ -71,6 +71,15 @@ class UsersManagementAppTest(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 response = self.client.request(method, path, json={})
+
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_account_routes_are_wired_and_require_a_token(self) -> None:
+        """HU002: `PUT` y `GET /v1/me/account` exigen `Authorization: Bearer`."""
+        for method in ("PUT", "GET"):
+            with self.subTest(method=method):
+                response = self.client.request(method, "/v1/me/account", json={})
 
                 self.assertEqual(response.status_code, 401)
                 self.assertEqual(response.headers["Cache-Control"], "no-store")

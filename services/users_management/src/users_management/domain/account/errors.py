@@ -20,3 +20,13 @@ class PoliciesVersionMismatch(AccountError):
 
 class EmailAlreadyRegistered(AccountError):
     code = "email_already_registered"
+
+
+class AccountVersionConflict(AccountError):
+    """HU002: `expected_version` no coincide con la versión vigente de la cuenta."""
+
+    code = "version_conflict"
+
+    def __init__(self, current_version: int) -> None:
+        super().__init__(f"current_version={current_version}")
+        self.current_version = current_version

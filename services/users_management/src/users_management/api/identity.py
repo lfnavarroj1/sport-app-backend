@@ -1,8 +1,8 @@
 """Identidad de quien llama al perfil (HU005): el BFF reenvía el access token y el
 servicio lo vuelve a verificar (firma, emisor, audiencia y vigencia) con su propio JWKS.
 
-Solo el actor `athlete` registra y consulta su perfil (ADR-034 §1); la identidad sale
-siempre del token, nunca del cuerpo.
+Solo el actor `athlete` registra y consulta su perfil (ADR-034 §1); la cuenta (HU002,
+ADR-035) la edita cualquier actor. La identidad sale siempre del token, nunca del cuerpo.
 """
 
 from collections.abc import Callable
@@ -55,8 +55,9 @@ def forbidden() -> Response:
     )
 
 
-def authenticate_athlete(verify_token: TokenVerifier, authorization: str | None) -> UUID | Response:
-    """Devuelve el `user_id` del deportista verificado o la respuesta de error."""
+def _verified(
+    verify_token: TokenVerifier, authorization: str | None
+) -> tuple[UUID, VerifiedAccessToken] | Response:
     if not authorization or not authorization.lower().startswith(BEARER_PREFIX):
         return unauthenticated()
     token = authorization[len(BEARER_PREFIX) :].strip()
@@ -64,9 +65,23 @@ def authenticate_athlete(verify_token: TokenVerifier, authorization: str | None)
         return unauthenticated()
     try:
         identity = verify_token(token)
-        user_id = UUID(identity.subject)
+        return UUID(identity.subject), identity
     except (InvalidAccessToken, ValueError):
         return unauthenticated()
+
+
+def authenticate_user(verify_token: TokenVerifier, authorization: str | None) -> UUID | Response:
+    """Devuelve el `user_id` de cualquier actor verificado (HU002) o la respuesta de error."""
+    verified = _verified(verify_token, authorization)
+    return verified if isinstance(verified, Response) else verified[0]
+
+
+def authenticate_athlete(verify_token: TokenVerifier, authorization: str | None) -> UUID | Response:
+    """Devuelve el `user_id` del deportista verificado o la respuesta de error."""
+    verified = _verified(verify_token, authorization)
+    if isinstance(verified, Response):
+        return verified
+    user_id, identity = verified
     if identity.actor_type != ActorType.ATHLETE.value:
         return forbidden()
     return user_id

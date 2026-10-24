@@ -19,3 +19,7 @@ class ReadModelUnavailable(Exception):
     """La base de lectura no respondió; la consulta se degrada a `503`."""
 
     code = "upstream_unavailable"
+
+
+class AccountNotFound(Exception):
+    """El `sub` del token no corresponde a ninguna cuenta (HU002); se responde `401`."""

@@ -6,7 +6,7 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
-from users_management.domain.account.model import ActorType, UserAccount
+from users_management.domain.account.model import AccountDetails, ActorType, UserAccount
 from users_management.domain.authentication.model import FailureWindow, RefreshToken
 from users_management.domain.profile.events import ProfileSection
 
@@ -302,4 +302,65 @@ class AthleteProfileReader(Protocol):
 
     def get(self, user_id: UUID) -> AthleteProfileView | None:
         """`None` si no hay fila; `ReadModelUnavailable` si la base de lectura no responde."""
+        ...
+
+
+class AccountUnitOfWork(Protocol):
+    """Transacción local de `PUT /v1/me/account` (HU002): cuenta, outbox e idempotencia."""
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None: ...
+
+    def find_idempotency(self, key: UUID) -> IdempotencyRecord | None:
+        """Sin *autoflush*: una consulta no debe adelantar el conflicto al `commit`."""
+        ...
+
+    def delete_idempotency(self, key: UUID) -> None: ...
+
+    def lock_account(self, user_id: UUID) -> AccountDetails | None:
+        """Bloquea la fila de `user_account` (`FOR UPDATE`) hasta el fin de la transacción."""
+        ...
+
+    def email_taken(self, email: str, user_id: UUID) -> bool:
+        """`True` si otra cuenta ya usa ese correo normalizado."""
+        ...
+
+    def save_account(self, account: AccountDetails) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Confirma todo o nada. Traduce la unicidad del correo a `EmailAlreadyRegistered` y
+        la de la clave a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class AccountView:
+    """Cuenta proyectada en `user_directory` (HU002). Datos personales: nunca en trazas."""
+
+    user_id: UUID
+    full_name: str
+    email: str
+    actor_type: str
+    status: str
+    version: int
+    projected_at: datetime
+
+    def __repr__(self) -> str:
+        return f"AccountView(user_id={self.user_id}, version={self.version})"
+
+
+class AccountReader(Protocol):
+    def get(self, user_id: UUID) -> AccountView | None:
+        """`None` si la cuenta aún no está proyectada (o sin nombre); `ReadModelUnavailable` si
+        la base de lectura no responde."""
         ...

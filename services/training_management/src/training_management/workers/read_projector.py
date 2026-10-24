@@ -32,6 +32,7 @@ from training_management.application.messages import (
     NutritionPlanCreatedEvent,
     PlanCreatedEvent,
     RouteChangedEvent,
+    TemplateChangedEvent,
     TrainingEvent,
     UnsupportedEvent,
     parse_training_event,
@@ -63,16 +64,16 @@ class InboundMessage(Protocol):
 
 
 def _aggregate_id(event: TrainingEvent) -> object:
-    if isinstance(event, PlanCreatedEvent):
+    if isinstance(event, PlanCreatedEvent | NutritionPlanCreatedEvent):
         return event.plan.plan_id
     if isinstance(event, AuthorizationChangedEvent):
         return event.aggregate_id
     if isinstance(event, MetricCalculatedEvent):
         return event.calculation.calculation_id
-    if isinstance(event, NutritionPlanCreatedEvent):
-        return event.plan.plan_id
     if isinstance(event, RouteChangedEvent):
         return event.route.route_id
+    if isinstance(event, TemplateChangedEvent):
+        return event.template.template_id
     return event.session.session_id
 
 

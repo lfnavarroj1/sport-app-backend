@@ -1,5 +1,5 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
-HU034, HU014, HU026)."""
+HU034, HU014, HU026, HU028)."""
 
 from types import TracebackType
 from typing import Self
@@ -36,6 +36,14 @@ from training_management.domain.routes.model import (
     RouteStatus,
 )
 from training_management.domain.sessions.model import TrainingSession, TrainingSessionStatus
+from training_management.domain.templates.model import (
+    DayOfWeek,
+    Goal,
+    Level,
+    TemplateStatus,
+    TrainingPlanTemplate,
+    WeeklySession,
+)
 from training_management.infrastructure.persistence_write.models import (
     ACTIVE_SESSION_INDEX,
     AUTHORIZATION_PRIMARY_KEY,
@@ -55,6 +63,7 @@ from training_management.infrastructure.persistence_write.models import (
     TrainingMetricInputRow,
     TrainingPlanRow,
     TrainingPlanSessionRow,
+    TrainingPlanTemplateRow,
     TrainingSessionRow,
 )
 
@@ -573,6 +582,91 @@ class SqlAlchemyRouteUnitOfWork(_CommandUnitOfWork):
         row.version = route.version
         row.updated_at = route.updated_at
         row.retired_at = route.retired_at
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            if _violated_constraint(error) == COMMAND_IDEMPOTENCY_PRIMARY_KEY:
+                raise IdempotencyKeyConflict() from None
+            raise
+
+
+def _template(row: TrainingPlanTemplateRow) -> TrainingPlanTemplate:
+    return TrainingPlanTemplate(
+        template_id=row.template_id,
+        professional_id=row.professional_id,
+        title=row.title,
+        objectives=row.objectives,
+        sport=Sport(row.sport),
+        goal=Goal(row.goal),
+        level=Level(row.level),
+        duration_weeks=row.duration_weeks,
+        weekly_sessions=tuple(
+            WeeklySession(
+                day_of_week=DayOfWeek(item["day_of_week"]),
+                description=item["description"],
+                duration_minutes=item["duration_minutes"],
+            )
+            for item in row.weekly_sessions
+        ),
+        status=TemplateStatus(row.status),
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        published_at=row.published_at,
+        retired_at=row.retired_at,
+    )
+
+
+class SqlAlchemyTemplateUnitOfWork(_CommandUnitOfWork):
+    """HU028: plantilla, outbox e idempotencia (`command_idempotency`) en una transacción."""
+
+    def get_template_for_update(self, template_id: UUID) -> TrainingPlanTemplate | None:
+        row = self.session.scalar(
+            select(TrainingPlanTemplateRow)
+            .where(TrainingPlanTemplateRow.template_id == template_id)
+            .with_for_update()
+        )
+        return _template(row) if row is not None else None
+
+    def add_template(self, template: TrainingPlanTemplate) -> None:
+        self.session.add(
+            TrainingPlanTemplateRow(
+                template_id=template.template_id,
+                professional_id=template.professional_id,
+                title=template.title,
+                objectives=template.objectives,
+                sport=template.sport.value,
+                goal=template.goal.value,
+                level=template.level.value,
+                duration_weeks=template.duration_weeks,
+                weekly_sessions=[
+                    {
+                        "day_of_week": session.day_of_week.value,
+                        "description": session.description,
+                        "duration_minutes": session.duration_minutes,
+                    }
+                    for session in template.weekly_sessions
+                ],
+                status=template.status.value,
+                version=template.version,
+                created_at=template.created_at,
+                updated_at=template.updated_at,
+                published_at=template.published_at,
+                retired_at=template.retired_at,
+            )
+        )
+
+    def update_template(self, template: TrainingPlanTemplate) -> None:
+        row = self.session.get(TrainingPlanTemplateRow, template.template_id)
+        if row is None:
+            raise RuntimeError("La plantilla a actualizar no está cargada.")
+        row.status = template.status.value
+        row.version = template.version
+        row.updated_at = template.updated_at
+        row.retired_at = template.retired_at
 
     def commit(self) -> None:
         try:

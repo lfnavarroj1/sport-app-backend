@@ -54,11 +54,12 @@ MissingContext = Literal["sports", "city"]
 
 
 class AthleteContext(BaseModel):
-    """Lo que las sugerencias de rutas usan del contrato interno de Usuarios."""
+    """Lo que las sugerencias usan del contrato interno de Usuarios (HU026 y HU028)."""
 
     sports: list[str]
     city: str | None
     country_code: str | None
+    primary_goal: str | None = None
 
 
 class AthleteContextCache:
@@ -216,15 +217,18 @@ def _athlete(
 
 
 def _capability_denied(
-    athlete_snapshot: Callable[[UUID], dict[str, Any]], user_id: UUID
+    athlete_snapshot: Callable[[UUID], dict[str, Any]],
+    user_id: UUID,
+    capability: str = ROUTES_CAPABILITY,
 ) -> Response | None:
-    """Capacidad vigente `training.routes.suggest` en Afiliación; `None` si la tiene."""
+    """Capacidad vigente en Afiliación (`training.routes.suggest` por defecto); `None` si la
+    tiene."""
     try:
         snapshot = athlete_snapshot(user_id)
     except (UpstreamTimeout, UpstreamUnavailable) as error:
         return _failure(error)
     granted = snapshot.get("capabilities") or []
-    if snapshot.get("subscription_status") == "ACTIVE" and ROUTES_CAPABILITY in granted:
+    if snapshot.get("subscription_status") == "ACTIVE" and capability in granted:
         return None
     return error_response(
         HTTPStatus.FORBIDDEN, "capability_required", "Su plan no incluye esta funcionalidad."
@@ -249,10 +253,11 @@ def _athlete_context(
 
 
 def _author_names(
-    users: UsersManagementClient, routes: list[dict[str, Any]]
+    users: UsersManagementClient, items: list[dict[str, Any]], author_key: str = "organizer_id"
 ) -> dict[str, str] | None:
-    """Nombre de cada organizador de la página; `None` si Usuarios no respondió."""
-    organizers = list(dict.fromkeys(UUID(route["organizer_id"]) for route in routes))
+    """Nombre de cada autor de la página (organizador o profesional); `None` si Usuarios no
+    respondió."""
+    organizers = list(dict.fromkeys(UUID(item[author_key]) for item in items))
     if not organizers:
         return {}
     try:

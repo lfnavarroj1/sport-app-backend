@@ -92,6 +92,18 @@ class TrainingManagementClient:
             params=httpx.QueryParams(tuple(params)),
         )
 
+    def training_plan_template_suggestions(
+        self, access_token: str, params: list[tuple[str, str]]
+    ) -> httpx.Response:
+        """HU028: plantillas sugeridas con el contexto del deportista como filtros explícitos
+        (`sport` repetible y `primary_goal`) y el `limit` recibido."""
+        return self._send(
+            "GET",
+            "/v1/me/suggestions/training-plan-templates",
+            access_token,
+            params=httpx.QueryParams(tuple(params)),
+        )
+
     def _send(
         self,
         method: str,

@@ -27,6 +27,7 @@ from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import TrainingPlan
 from training_management.domain.routes.model import Route
+from training_management.domain.templates.model import TrainingPlanTemplate
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
 
@@ -192,6 +193,7 @@ class InMemoryReadStore:
     metric_results: dict[UUID, TrainingMetricCalculation] = field(default_factory=dict)
     nutrition_plans: dict[UUID, NutritionPlan] = field(default_factory=dict)
     routes: dict[UUID, Route] = field(default_factory=dict)
+    templates: dict[UUID, TrainingPlanTemplate] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -248,6 +250,7 @@ class InMemoryProjectionUnitOfWork:
         self._metrics: list[TrainingMetricCalculation] = []
         self._nutrition: list[NutritionPlan] = []
         self._routes: list[Route] = []
+        self._templates: list[TrainingPlanTemplate] = []
 
     def __enter__(self) -> Self:
         return self
@@ -260,7 +263,7 @@ class InMemoryProjectionUnitOfWork:
     ) -> None:
         self._views, self._processed, self._authorizations, self._sessions = [], [], [], []
         self._active, self._removed, self._planned, self._metrics = [], [], [], []
-        self._nutrition, self._routes = [], []
+        self._nutrition, self._routes, self._templates = [], [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -321,6 +324,13 @@ class InMemoryProjectionUnitOfWork:
     def save_route_view(self, route: Route, projected_at: datetime) -> None:
         self._routes.append(route)
 
+    def template_version(self, template_id: UUID) -> int | None:
+        template = self.store.templates.get(template_id)
+        return template.version if template is not None else None
+
+    def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
+        self._templates.append(template)
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -345,12 +355,11 @@ class InMemoryProjectionUnitOfWork:
             self.store.planned[planned.plan_id] = planned
         for session_id in self._removed:
             self.store.active.pop(session_id, None)
-        for calculation in self._metrics:
-            self.store.metric_results[calculation.calculation_id] = calculation
-        for plan in self._nutrition:
-            self.store.nutrition_plans[plan.plan_id] = plan
-        for route in self._routes:
-            self.store.routes[route.route_id] = route
+        # Vistas de estado completo (HU034, HU014, HU026 y HU028).
+        self.store.metric_results.update((c.calculation_id, c) for c in self._metrics)
+        self.store.nutrition_plans.update((p.plan_id, p) for p in self._nutrition)
+        self.store.routes.update((r.route_id, r) for r in self._routes)
+        self.store.templates.update((t.template_id, t) for t in self._templates)
         for event_id, event_type, aggregate_id in self._processed:
             self.store.processed[event_id] = (event_type, aggregate_id)
 

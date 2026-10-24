@@ -33,6 +33,9 @@ NUTRITION_PLAN_ORDER_INDEX = "ix_nutrition_plan_view_athlete_order"
 ROUTE_SUGGESTION_INDEX = "ix_route_view_status_sport_city"
 ROUTE_ORGANIZER_ORDER_INDEX = "ix_route_view_organizer_order"
 ROUTE_LATEST_INDEX = "ix_route_view_status_published"
+TEMPLATE_SUGGESTION_INDEX = "ix_training_plan_template_view_suggestion"
+TEMPLATE_PROFESSIONAL_ORDER_INDEX = "ix_training_plan_template_view_professional_order"
+TEMPLATE_LATEST_INDEX = "ix_training_plan_template_view_status_published"
 
 
 class ReadBase(DeclarativeBase):
@@ -244,6 +247,45 @@ class RouteViewRow(ReadBase):
     city_key: Mapped[str] = mapped_column(String(160))
     country_code: Mapped[str] = mapped_column(String(2))
     distance_km: Mapped[Decimal] = mapped_column(Numeric(4, 1))
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingPlanTemplateViewRow(ReadBase):
+    """Plantilla de plan (HU028) a partir de `plantilla_entrenamiento.*.v1`; reconstruible.
+
+    `document` es el estado completo de la plantilla (el mismo de la respuesta).
+    """
+
+    __tablename__ = "training_plan_template_view"
+    __table_args__ = (
+        # Sugerencias por estado y deporte, en orden de publicación.
+        Index(
+            TEMPLATE_SUGGESTION_INDEX,
+            "status",
+            "sport",
+            text("published_at DESC"),
+            text("template_id DESC"),
+        ),
+        # Orden estable de `GET /v1/me/training-plan-templates`.
+        Index(
+            TEMPLATE_PROFESSIONAL_ORDER_INDEX,
+            "professional_id",
+            text("created_at DESC"),
+            text("template_id DESC"),
+        ),
+        # Sugerencia no personalizada: las últimas publicadas.
+        Index(TEMPLATE_LATEST_INDEX, "status", text("published_at DESC"), text("template_id DESC")),
+    )
+
+    template_id: Mapped[UUID] = mapped_column(primary_key=True)
+    professional_id: Mapped[UUID]
+    status: Mapped[str] = mapped_column(String(16))
+    sport: Mapped[str] = mapped_column(String(16))
+    goal: Mapped[str] = mapped_column(String(32))
     document: Mapped[dict[str, Any]] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

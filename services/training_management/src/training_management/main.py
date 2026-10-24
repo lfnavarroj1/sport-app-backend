@@ -21,6 +21,9 @@ from training_management.api.plans import build_plans_router
 from training_management.api.routes import build_routes_router
 from training_management.api.training_dashboard import build_training_dashboard_router
 from training_management.api.training_metrics import build_training_metrics_router
+from training_management.api.training_plan_templates import (
+    build_training_plan_templates_router,
+)
 from training_management.api.training_sessions import build_training_sessions_router
 from training_management.application.commands.authorizations import (
     GrantAuthorization,
@@ -32,6 +35,10 @@ from training_management.application.commands.calculate_training_metric import (
 from training_management.application.commands.create_nutrition_plan import CreateNutritionPlan
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
 from training_management.application.commands.routes import PublishRoute, RetireRoute
+from training_management.application.commands.training_plan_templates import (
+    PublishTemplate,
+    RetireTemplate,
+)
 from training_management.application.commands.training_sessions import (
     FinishTrainingSession,
     StartTrainingSession,
@@ -51,6 +58,10 @@ from training_management.application.queries.training_history import GetTraining
 from training_management.application.queries.training_metrics import (
     GetMetricCatalog,
     ListTrainingMetricResults,
+)
+from training_management.application.queries.training_plan_templates import (
+    ListMyTemplates,
+    SuggestTemplates,
 )
 from training_management.domain.metrics.catalog import TRAINING_METRICS_CATALOG
 from training_management.infrastructure.authorization import ContractPermissionPolicy
@@ -75,6 +86,7 @@ from training_management.infrastructure.persistence_read.nutrition import (
 )
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
 from training_management.infrastructure.persistence_read.routes import SqlAlchemyRouteReader
+from training_management.infrastructure.persistence_read.templates import SqlAlchemyTemplateReader
 from training_management.infrastructure.persistence_write.food_catalog import (
     FoodCatalogReadinessCheck,
     SqlAlchemyFoodCatalogReader,
@@ -86,11 +98,12 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemyRouteUnitOfWork,
     SqlAlchemySessionUnitOfWork,
+    SqlAlchemyTemplateUnitOfWork,
 )
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.11.0"
+API_VERSION = "0.12.0"
 
 
 def create_app(
@@ -130,6 +143,7 @@ def create_app(
     food_catalog = SqlAlchemyFoodCatalogReader(writes)
     authorization_views = SqlAlchemyAuthorizationReader(reads)
     route_views = SqlAlchemyRouteReader(reads)
+    template_views = SqlAlchemyTemplateReader(reads)
     return create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - Entrenamientos",
@@ -253,6 +267,21 @@ def create_app(
                 ),
                 list_routes=ListMyRoutes(reader=route_views, permissions=permissions),
                 suggest=SuggestRoutes(reader=route_views, capabilities=capabilities),
+            ),
+            build_training_plan_templates_router(
+                verify_token=verifier.verify,
+                publish=PublishTemplate(
+                    unit_of_work=lambda: SqlAlchemyTemplateUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                retire=RetireTemplate(
+                    unit_of_work=lambda: SqlAlchemyTemplateUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                list_templates=ListMyTemplates(reader=template_views, permissions=permissions),
+                suggest=SuggestTemplates(reader=template_views, capabilities=capabilities),
             ),
         ],
         shutdown_hooks=[

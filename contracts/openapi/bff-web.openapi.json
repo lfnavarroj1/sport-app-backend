@@ -543,6 +543,20 @@
         "title": "CreatedNutritionPlanResponse",
         "type": "object"
       },
+      "DayOfWeek": {
+        "description": "Días de la disponibilidad de ADR-034.",
+        "enum": [
+          "MON",
+          "TUE",
+          "WED",
+          "THU",
+          "FRI",
+          "SAT",
+          "SUN"
+        ],
+        "title": "DayOfWeek",
+        "type": "string"
+      },
       "DemographicProfileResponse": {
         "description": "Respuesta del comando: la sección con el `user_id` del token.",
         "properties": {
@@ -1431,6 +1445,18 @@
         "title": "FoodUnit",
         "type": "string"
       },
+      "Goal": {
+        "description": "Catálogo de objetivos de ADR-034 (`primary_goal` de HU006).",
+        "enum": [
+          "HEALTH",
+          "PERFORMANCE",
+          "WEIGHT_MANAGEMENT",
+          "RECREATION",
+          "COMPETITION"
+        ],
+        "title": "Goal",
+        "type": "string"
+      },
       "GrantAuthorizationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1530,6 +1556,15 @@
         ],
         "title": "HistoryFilters",
         "type": "object"
+      },
+      "Level": {
+        "enum": [
+          "BEGINNER",
+          "INTERMEDIATE",
+          "ADVANCED"
+        ],
+        "title": "Level",
+        "type": "string"
       },
       "LoginRequest": {
         "additionalProperties": false,
@@ -2697,6 +2732,61 @@
         "title": "PublishServiceResponse",
         "type": "object"
       },
+      "PublishTemplateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_weeks": {
+            "maximum": 52.0,
+            "minimum": 1.0,
+            "title": "Duration Weeks",
+            "type": "integer"
+          },
+          "goal": {
+            "$ref": "#/components/schemas/Goal",
+            "description": "Catálogo de objetivos de ADR-034."
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "objectives": {
+            "maxLength": 2000,
+            "minLength": 20,
+            "title": "Objectives",
+            "type": "string"
+          },
+          "sport": {
+            "$ref": "#/components/schemas/Sport",
+            "description": "Catálogo de deportes de HU010."
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Title",
+            "type": "string"
+          },
+          "weekly_sessions": {
+            "description": "Sesiones de una semana tipo, en el orden del profesional.",
+            "items": {
+              "$ref": "#/components/schemas/WeeklySessionRequest"
+            },
+            "maxItems": 14,
+            "minItems": 1,
+            "title": "Weekly Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "objectives",
+          "sport",
+          "goal",
+          "level",
+          "duration_weeks",
+          "weekly_sessions"
+        ],
+        "title": "PublishTemplateRequest",
+        "type": "object"
+      },
       "PublishedEventItem": {
         "properties": {
           "discipline": {
@@ -2868,6 +2958,22 @@
           "expected_version"
         ],
         "title": "RetireRouteRequest",
+        "type": "object"
+      },
+      "RetireTemplateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "description": "Versión vigente que conoce el cliente.",
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "RetireTemplateRequest",
         "type": "object"
       },
       "RoutePoint": {
@@ -3758,6 +3864,135 @@
         "title": "SubscriptionResponse",
         "type": "object"
       },
+      "TemplateResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration_weeks": {
+            "title": "Duration Weeks",
+            "type": "integer"
+          },
+          "goal": {
+            "$ref": "#/components/schemas/Goal"
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "objectives": {
+            "title": "Objectives",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "sport": {
+            "$ref": "#/components/schemas/Sport"
+          },
+          "status": {
+            "enum": [
+              "PUBLISHED",
+              "RETIRED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "weekly_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/WeeklySessionResponse"
+            },
+            "title": "Weekly Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "template_id",
+          "professional_id",
+          "title",
+          "objectives",
+          "sport",
+          "goal",
+          "level",
+          "duration_weeks",
+          "weekly_sessions",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "published_at",
+          "retired_at"
+        ],
+        "title": "TemplateResponse",
+        "type": "object"
+      },
+      "TemplatesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "TemplatesResponse",
+        "type": "object"
+      },
       "TrainingAthleteItem": {
         "properties": {
           "athlete_id": {
@@ -4082,12 +4317,61 @@
         ],
         "title": "WebSessionResponse",
         "type": "object"
+      },
+      "WeeklySessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "day_of_week": {
+            "$ref": "#/components/schemas/DayOfWeek"
+          },
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "maximum": 600.0,
+            "minimum": 10.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day_of_week",
+          "description",
+          "duration_minutes"
+        ],
+        "title": "WeeklySessionRequest",
+        "type": "object"
+      },
+      "WeeklySessionResponse": {
+        "properties": {
+          "day_of_week": {
+            "$ref": "#/components/schemas/DayOfWeek"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day_of_week",
+          "description",
+          "duration_minutes"
+        ],
+        "title": "WeeklySessionResponse",
+        "type": "object"
       }
     }
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.23.0"
+    "version": "0.24.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7902,6 +8186,132 @@
         ]
       }
     },
+    "/v1/me/training-plan-templates": {
+      "get": {
+        "description": "Plantillas publicadas y retiradas del profesional, orden `created_at` y `template_id` descendente; el cursor es opaco.",
+        "operationId": "my_templates_v1_me_training_plan_templates_get",
+        "parameters": [
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`training.plan.author`, solo profesional)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` del servicio en `query.limit` (`out_of_range`, también si no es entero) o `query.cursor` (`invalid_cursor`), sin alterar."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mis plantillas de plan (HU028, lectura CQRS)",
+        "tags": [
+          "training-plan-templates"
+        ]
+      }
+    },
     "/v1/nutrition-plans": {
       "post": {
         "operationId": "create_plan_v1_nutrition_plans_post",
@@ -9514,6 +9924,269 @@
         "summary": "Mi historial de entrenamiento (HU011)",
         "tags": [
           "training"
+        ]
+      }
+    },
+    "/v1/training-plan-templates": {
+      "post": {
+        "description": "La plantilla nace `PUBLISHED` en versión 1; no es un plan asignado. Reintentar con la misma `Idempotency-Key` (24 horas) devuelve la misma plantilla.",
+        "operationId": "publish_template_v1_training_plan_templates_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`training.plan.author`, solo profesional)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` por campo (forma del cuerpo y reglas del servicio, sin alterar). Nada se publica."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Publicar una plantilla de plan de entrenamiento (HU028)",
+        "tags": [
+          "training-plan-templates"
+        ]
+      }
+    },
+    "/v1/training-plan-templates/{template_id}/retire": {
+      "post": {
+        "description": "`PUBLISHED` → `RETIRED` con la versión siguiente; la plantilla se conserva y deja de sugerirse. Una plantilla ya retirada se devuelve tal cual.",
+        "operationId": "retire_template_v1_training_plan_templates__template_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Template Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`training.plan.author`, solo profesional)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`template_not_found`: no existe o es de otro profesional."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict`: `details[0]` = `{field: expected_version, issue: <versión vigente>}`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `body.expected_version`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Retirar una plantilla propia (HU028)",
+        "tags": [
+          "training-plan-templates"
         ]
       }
     },

@@ -1567,6 +1567,193 @@
         "title": "SuggestionSource",
         "type": "object"
       },
+      "TemplateReference": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "training_plan_template",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "title": "TemplateReference",
+        "type": "object"
+      },
+      "TemplateSuggestionItem": {
+        "properties": {
+          "author_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nombre del profesional; `null` si Usuarios no respondió.",
+            "title": "Author Name"
+          },
+          "duration_weeks": {
+            "title": "Duration Weeks",
+            "type": "integer"
+          },
+          "goal": {
+            "enum": [
+              "HEALTH",
+              "PERFORMANCE",
+              "WEIGHT_MANAGEMENT",
+              "RECREATION",
+              "COMPETITION"
+            ],
+            "title": "Goal",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "BEGINNER",
+              "INTERMEDIATE",
+              "ADVANCED"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "professional_id": {
+            "description": "Profesional autor (para el enlace informativo de HU010).",
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "published_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "reasons": {
+            "description": "Motivos de la sugerencia; vacío en la lista no personalizada.",
+            "items": {
+              "enum": [
+                "SPORT_MATCH",
+                "GOAL_MATCH"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/TemplateReference"
+          },
+          "sport": {
+            "enum": [
+              "running",
+              "cycling",
+              "swimming",
+              "strength",
+              "other"
+            ],
+            "title": "Sport",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Objetivos de la plantilla.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Título de la plantilla.",
+            "title": "Title",
+            "type": "string"
+          },
+          "weekly_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/WeeklySession"
+            },
+            "title": "Weekly Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reference",
+          "title",
+          "summary",
+          "reasons",
+          "template_id",
+          "professional_id",
+          "sport",
+          "goal",
+          "level",
+          "duration_weeks",
+          "weekly_sessions",
+          "published_at",
+          "author_name"
+        ],
+        "title": "TemplateSuggestionItem",
+        "type": "object"
+      },
+      "TemplateSuggestionsResponse": {
+        "properties": {
+          "generated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateSuggestionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "missing_context": {
+            "description": "Datos del perfil que faltan (`sports` y `primary_goal` de HU006); ambos si Usuarios no respondió. Sin `primary_goal` la lista sigue personalizada por deporte.",
+            "items": {
+              "enum": [
+                "sports",
+                "primary_goal"
+              ],
+              "type": "string"
+            },
+            "title": "Missing Context",
+            "type": "array"
+          },
+          "personalized": {
+            "description": "`false` sin deportes registrados o si Usuarios no respondió: últimas plantillas publicadas, sin motivos.",
+            "title": "Personalized",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "personalized",
+          "missing_context",
+          "generated_at",
+          "sources"
+        ],
+        "title": "TemplateSuggestionsResponse",
+        "type": "object"
+      },
       "TrainingDashboardResponse": {
         "properties": {
           "by_source": {
@@ -1919,12 +2106,44 @@
         ],
         "title": "WeekBreakdown",
         "type": "object"
+      },
+      "WeeklySession": {
+        "properties": {
+          "day_of_week": {
+            "enum": [
+              "MON",
+              "TUE",
+              "WED",
+              "THU",
+              "FRI",
+              "SAT",
+              "SUN"
+            ],
+            "title": "Day Of Week",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day_of_week",
+          "description",
+          "duration_minutes"
+        ],
+        "title": "WeeklySession",
+        "type": "object"
       }
     }
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.10.0"
+    "version": "0.11.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2684,6 +2903,114 @@
           }
         },
         "summary": "Rutas sugeridas (HU026)",
+        "tags": [
+          "suggestions"
+        ]
+      }
+    },
+    "/v1/me/suggestions/training-plan-templates": {
+      "get": {
+        "description": "Plantillas publicadas por profesionales para los deportes del deportista: primero las de su objetivo, luego las más recientes, con `reasons`. Sin deportes registrados o sin respuesta de Usuarios: las últimas publicadas, `personalized: false` y `missing_context`. Una plantilla retirada no se sugiere. Sugerir no asigna ni inicia el plan.",
+        "operationId": "template_suggestions_v1_me_suggestions_training_plan_templates_get",
+        "parameters": [
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateSuggestionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.plans.suggest`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.limit` (`out_of_range`, también si no es un entero)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: plan no verificable o Entrenamientos caído (si solo falla Usuarios, la lista se entrega sin personalizar)."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: plan o Entrenamientos sin respuesta."
+          }
+        },
+        "summary": "Plantillas de plan sugeridas (HU028)",
         "tags": [
           "suggestions"
         ]

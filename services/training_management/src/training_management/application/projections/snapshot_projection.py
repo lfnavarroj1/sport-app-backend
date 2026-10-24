@@ -16,6 +16,7 @@ HU034 (ADR-030): `indicador.calculado.v1` se despacha a `ProjectMetricCalculated
 
 HU014 (ADR-037): `plan.alimentacion_creado.v1` se despacha a `ProjectNutritionPlanCreated`.
 HU026 (ADR-041): `ruta.publicada.v1` y `ruta.retirada.v1` se despachan a `ProjectRouteChanged`.
+HU028 (ADR-041): `plantilla_entrenamiento.*.v1` se despachan a `ProjectTemplateChanged`.
 """
 
 from collections.abc import Callable
@@ -28,6 +29,7 @@ from training_management.application.messages import (
     RouteChangedEvent,
     SessionFinishedEvent,
     SessionStartedEvent,
+    TemplateChangedEvent,
     TrainingEvent,
 )
 from training_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
@@ -42,6 +44,9 @@ from training_management.application.projections.plan_projection import (
     ProjectPlanCreated,
 )
 from training_management.application.projections.route_projection import ProjectRouteChanged
+from training_management.application.projections.template_projection import (
+    ProjectTemplateChanged,
+)
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
 from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
 
@@ -140,6 +145,7 @@ class TrainingProjector:
         self._metrics = ProjectMetricCalculated(unit_of_work=unit_of_work, clock=clock)
         self._nutrition = ProjectNutritionPlanCreated(unit_of_work=unit_of_work, clock=clock)
         self._routes = ProjectRouteChanged(unit_of_work=unit_of_work, clock=clock)
+        self._templates = ProjectTemplateChanged(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
@@ -157,6 +163,8 @@ class TrainingProjector:
             return self._nutrition(event)
         if isinstance(event, RouteChangedEvent):
             return self._routes(event)
+        if isinstance(event, TemplateChangedEvent):
+            return self._templates(event)
         if isinstance(event, SessionFinishedEvent):
             return self._sessions(event)
         raise TypeError(type(event).__name__)

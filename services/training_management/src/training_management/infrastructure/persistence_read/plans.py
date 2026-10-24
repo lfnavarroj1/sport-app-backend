@@ -24,6 +24,7 @@ from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.events import planned_session_id
 from training_management.domain.routes.model import Route
+from training_management.domain.templates.model import TrainingPlanTemplate
 from training_management.infrastructure.persistence_read.metrics import (
     metric_result,
     metric_result_values,
@@ -38,11 +39,15 @@ from training_management.infrastructure.persistence_read.models import (
     TrainingAuthorizationViewRow,
     TrainingMetricResultRow,
     TrainingPlanSessionViewRow,
+    TrainingPlanTemplateViewRow,
     TrainingPlanViewRow,
     TrainingSessionHistoryRow,
 )
 from training_management.infrastructure.persistence_read.nutrition import nutrition_plan_values
 from training_management.infrastructure.persistence_read.routes import route_view_values
+from training_management.infrastructure.persistence_read.templates import (
+    template_view_values,
+)
 
 
 def _sessions_document(view: PlanView) -> list[dict[str, Any]]:
@@ -320,6 +325,24 @@ class SqlAlchemyProjectionUnitOfWork:
             statement.on_conflict_do_update(
                 index_elements=["route_id"],
                 set_={key: statement.excluded[key] for key in values if key != "route_id"},
+            )
+        )
+
+    def template_version(self, template_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(TrainingPlanTemplateViewRow.version)
+            .where(TrainingPlanTemplateViewRow.template_id == template_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
+        values = template_view_values(template, projected_at)
+        statement = insert(TrainingPlanTemplateViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["template_id"],
+                set_={key: statement.excluded[key] for key in values if key != "template_id"},
             )
         )
 

@@ -2,7 +2,8 @@
 
 - `POST /v1/events/{event_id}/publish`: sin cuerpo, con `Idempotency-Key`; `200` con el
   agregado completo (`Idempotent-Replayed: true` al repetir la clave).
-- `GET /v1/me/events?status&limit&cursor`: eventos propios con el mismo agregado.
+- `GET /v1/me/events?status&limit&cursor`: eventos propios con el mismo agregado y, desde
+  HU025, `registration_count` (base de escritura, ADR-040).
 El organizador sale del token; un evento ajeno o inexistente es `404 event_not_found`.
 Instantes en UTC (`Z`) con la zona declarada: la conversión corresponde al frontend.
 """
@@ -24,6 +25,7 @@ from events_management.api.identity import (
     correlation_uuid,
     forbidden,
 )
+from events_management.api.registrations import EventFee
 from events_management.application.commands.publish_event import (
     PublishEvent,
     PublishEventCommand,
@@ -38,7 +40,10 @@ from events_management.application.queries.my_events import (
 )
 from events_management.application.queries.published_events import InvalidEventsQuery
 from events_management.domain.sport_events.model import EventNotFound
-from events_management.domain.sport_events.published import aggregate_document
+from events_management.domain.sport_events.published import (
+    aggregate_document,
+    owned_event_document,
+)
 from events_management.domain.validation import InvalidSportEvent
 from sportapp_platform.errors import ErrorDetail, ErrorResponse, error_response
 
@@ -67,10 +72,30 @@ class EventAggregateResponse(BaseModel):
     published_at: Annotated[
         datetime | None, Field(description="Instante de la publicación; `null` en borrador.")
     ]
+    fee: Annotated[
+        EventFee | None,
+        Field(description="Tarifa informativa (HU025); `null` sin tarifa. No es un cobro."),
+    ]
+    fee_updated_at: Annotated[
+        datetime | None,
+        Field(description="Último cambio de la tarifa; `null` si nunca se definió."),
+    ]
+
+
+class OwnEventResponse(EventAggregateResponse):
+    """El agregado como lo ve su organizador (HU025)."""
+
+    registration_count: Annotated[
+        int,
+        Field(
+            description="Inscripciones vigentes; cambiar la tarifa no las modifica (cada una "
+            "conserva su `applied_fee`)."
+        ),
+    ]
 
 
 class MyEventsResponse(BaseModel):
-    items: list[EventAggregateResponse]
+    items: list[OwnEventResponse]
     next_cursor: str | None = Field(
         description="Cursor opaco de la página siguiente; `null` si no hay más."
     )
@@ -238,7 +263,9 @@ def build_publication_router(
                 "La consulta no es válida.",
             )
         body = {
-            "items": [aggregate_document(item) for item in page.items],
+            "items": [
+                owned_event_document(item, page.registration_count(item)) for item in page.items
+            ],
             "next_cursor": page.next_cursor,
         }
         return JSONResponse(body, headers={"Cache-Control": "no-store"})

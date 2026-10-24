@@ -7,7 +7,8 @@
 - `GET /v1/me/event-registrations?status&limit&cursor`.
 Inscribirse y listar: solo `athlete`; el deportista sale del token y `athlete_id` no
 viaja en las respuestas.
-Instantes en UTC (`Z`); `fee` y `applied_fee` son informativos (`null` sin HU025).
+Instantes en UTC (`Z`); `fee` (HU025, ADR-040) y `applied_fee` son informativos y `null` sin
+tarifa. El organizador propietario recibe además `registration_count` en el detalle.
 """
 
 from datetime import datetime
@@ -51,6 +52,7 @@ from events_management.domain.registrations.model import (
     EventRegistrationClosed,
 )
 from events_management.domain.sport_events.created import utc_instant
+from events_management.domain.sport_events.fee import fee_document
 from sportapp_platform.errors import ErrorDetail, ErrorResponse, error_response
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
@@ -69,7 +71,7 @@ class Fee(BaseModel):
 
 
 class EventFee(Fee):
-    billing_unit: str
+    """Tarifa informativa del evento (ADR-040): `{amount, currency}`; `0.00` es gratuito."""
 
 
 class RegistrationEvent(BaseModel):
@@ -116,8 +118,15 @@ class EventDetailResponse(BaseModel):
         Field(description="`DRAFT` solo lo recibe el organizador propietario (HU024)."),
     ]
     version: int
-    fee: Annotated[EventFee | None, Field(description="`null` hasta HU025.")]
+    fee: Annotated[EventFee | None, Field(description="Informativa; `null` sin tarifa (HU025).")]
     my_registration: MyRegistration | None
+    registration_count: Annotated[
+        int | None,
+        Field(
+            description="Inscripciones vigentes; solo para el organizador propietario (HU025), "
+            "`null` para los demás actores."
+        ),
+    ]
 
 
 def _detail_document(view: EventDetailView) -> dict[str, object]:
@@ -138,7 +147,7 @@ def _detail_document(view: EventDetailView) -> dict[str, object]:
         "capacity": view.capacity,
         "status": event.status,
         "version": event.version,
-        "fee": None,
+        "fee": fee_document(event.fee),
         "my_registration": None
         if mine is None
         else {
@@ -146,6 +155,7 @@ def _detail_document(view: EventDetailView) -> dict[str, object]:
             "status": mine.status.value,
             "registered_at": utc_instant(mine.registered_at),
         },
+        "registration_count": view.registration_count,
     }
 
 

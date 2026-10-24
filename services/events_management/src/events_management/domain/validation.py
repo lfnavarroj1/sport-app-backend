@@ -17,6 +17,10 @@ class Issue(StrEnum):
     OUT_OF_RANGE = "out_of_range"
     TIME_ZONE_UNKNOWN = "time_zone_unknown"
     TIME_ZONE_OFFSET_MISMATCH = "time_zone_offset_mismatch"
+    # HU025 (ADR-040, catálogo de importes de ADR-027).
+    UNSUPPORTED_CURRENCY = "unsupported_currency"
+    TOO_MANY_DECIMALS = "too_many_decimals"
+    EVENT_ALREADY_STARTED = "event_already_started"
 
 
 @dataclass(frozen=True)

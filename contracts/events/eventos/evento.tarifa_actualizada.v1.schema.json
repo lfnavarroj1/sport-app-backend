@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/eventos/evento.tarifa_actualizada.v1.schema.json",
+  "title": "evento.tarifa_actualizada.v1",
+  "description": "Publicado en sportapp.eventos.v1 con ordering_key = event_id (= aggregate_id) cuando el organizador propietario asigna (PUT) o retira (DELETE) la tarifa informativa de su evento (HU025, ADR-040, CMP-004). aggregate_version es la versión resultante del cambio. Lleva el estado completo del evento (DRAFT o PUBLISHED) incluida la tarifa; eventos-read-projector lo aplica a event_read si la versión es mayor que la proyectada o inserta la fila si no existe. Instantes en UTC con sufijo Z. No transporta inscripciones, conteos, cobros, estados de pago ni credenciales; cambiar la tarifa no modifica el applied_fee de las inscripciones existentes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador del mensaje; el proyector deduplica por este valor en processed_event."
+    },
+    "event_type": {
+      "const": "evento.tarifa_actualizada.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "events-management"
+    },
+    "aggregate_type": {
+      "const": "event"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "event_id del agregado: una secuencia de versiones por evento masivo."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "Versión del evento después del cambio de tarifa."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Idempotency-Key del comando que cambió la tarifa."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "organizer_id",
+        "name",
+        "description",
+        "discipline",
+        "location",
+        "starts_at",
+        "ends_at",
+        "time_zone",
+        "duration_minutes",
+        "capacity",
+        "status",
+        "version",
+        "created_at",
+        "updated_at",
+        "published_at",
+        "fee",
+        "fee_updated_at"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organizer_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 2000
+        },
+        "discipline": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "address",
+            "city",
+            "country_code"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 120
+            },
+            "address": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 200
+            },
+            "city": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 80
+            },
+            "country_code": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$",
+              "description": "ISO 3166-1 alfa-2."
+            }
+          }
+        },
+        "starts_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "ends_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "starts_at + duration_minutes, calculado por el backend."
+        },
+        "time_zone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "duration_minutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 1440
+        },
+        "capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "status": {
+          "enum": [
+            "DRAFT",
+            "PUBLISHED"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "Igual a aggregate_version."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "published_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "Instante de la publicación; null en borrador."
+        },
+        "fee": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "properties": {
+            "amount": {
+              "type": "string",
+              "pattern": "^[0-9]{1,8}\\.[0-9]{2}$",
+              "description": "Cadena decimal con dos decimales entre 0.00 (gratuito) y 99999999.99."
+            },
+            "currency": {
+              "const": "COP"
+            }
+          },
+          "description": "Tarifa informativa del evento (HU025, ADR-040); null sin tarifa. No es un cobro."
+        },
+        "fee_updated_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "Último cambio de la tarifa (asignada o retirada); null si nunca se definió."
+        }
+      }
+    }
+  }
+}

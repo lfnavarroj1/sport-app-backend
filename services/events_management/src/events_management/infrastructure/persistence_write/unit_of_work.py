@@ -1,4 +1,5 @@
-"""Unidades de trabajo SQLAlchemy de la base de escritura de eventos (HU021, HU024, HU041)."""
+"""Unidades de trabajo SQLAlchemy de la base de escritura de eventos (HU021, HU024, HU025,
+HU041)."""
 
 from collections.abc import Mapping
 from types import TracebackType
@@ -17,6 +18,7 @@ from events_management.domain.registrations.model import (
     EventRegistration,
     RegistrationStatus,
 )
+from events_management.domain.sport_events.fee import EventFee
 from events_management.domain.sport_events.model import (
     EventDetails,
     EventStatus,
@@ -171,6 +173,25 @@ class SqlAlchemyEventCreationUnitOfWork(_WriteUnitOfWork):
         )
 
 
+def _event_fee(row: EventRow) -> EventFee | None:
+    if row.fee_amount is None or row.fee_currency is None:
+        return None
+    return EventFee(amount=row.fee_amount, currency=row.fee_currency)
+
+
+def registration_count(session: Session, event_id: UUID) -> int:
+    """Inscripciones del evento en la base de escritura (HU041 y HU025)."""
+    count: int = (
+        session.scalar(
+            select(func.count())
+            .select_from(EventRegistrationRow)
+            .where(EventRegistrationRow.event_id == event_id)
+        )
+        or 0
+    )
+    return count
+
+
 def _sport_event(row: EventRow) -> SportEvent:
     return SportEvent(
         event_id=row.event_id,
@@ -196,6 +217,8 @@ def _sport_event(row: EventRow) -> SportEvent:
         created_at=row.created_at,
         updated_at=row.updated_at,
         published_at=row.published_at,
+        fee=_event_fee(row),
+        fee_updated_at=row.fee_updated_at,
     )
 
 
@@ -217,6 +240,25 @@ class SqlAlchemyPublicationUnitOfWork(_WriteUnitOfWork):
         row.version = event.version
         row.updated_at = event.updated_at
         row.published_at = event.published_at
+
+
+class SqlAlchemyFeeUnitOfWork(SqlAlchemyPublicationUnitOfWork):
+    """HU025: evento bloqueado, tarifa, versión, idempotencia y
+    `evento.tarifa_actualizada.v1`."""
+
+    def update_fee(self, event: SportEvent) -> None:
+        row = self.session.get(EventRow, event.event_id)
+        if row is None:
+            raise RuntimeError("El evento bloqueado no está cargado.")
+        fee = event.fee
+        row.fee_amount = fee.amount if fee else None
+        row.fee_currency = fee.currency if fee else None
+        row.fee_updated_at = event.fee_updated_at
+        row.version = event.version
+        row.updated_at = event.updated_at
+
+    def count_registrations(self, event_id: UUID) -> int:
+        return registration_count(self.session, event_id)
 
 
 def _registration(row: EventRegistrationRow) -> EventRegistration:
@@ -252,12 +294,14 @@ class SqlAlchemyRegistrationUnitOfWork(_WriteUnitOfWork):
         )
         if row is None:
             return None
-        # Sin tarifa hasta HU025: `applied_fee` queda `null`.
+        # HU025: la tarifa vigente se conserva como `applied_fee` de la inscripción nueva.
+        fee = _event_fee(row)
         return EventForRegistration(
             event_id=row.event_id,
             status=EventStatus(row.status),
             starts_at=row.starts_at,
             capacity=row.capacity,
+            fee=AppliedFee(fee.amount, fee.currency) if fee else None,
         )
 
     def event_summary(self, event_id: UUID) -> EventSummary:
@@ -275,15 +319,7 @@ class SqlAlchemyRegistrationUnitOfWork(_WriteUnitOfWork):
         )
 
     def count_registrations(self, event_id: UUID) -> int:
-        count: int = (
-            self.session.scalar(
-                select(func.count())
-                .select_from(EventRegistrationRow)
-                .where(EventRegistrationRow.event_id == event_id)
-            )
-            or 0
-        )
-        return count
+        return registration_count(self.session, event_id)
 
     def find_registration(self, event_id: UUID, athlete_id: UUID) -> EventRegistration | None:
         row = self.session.scalar(

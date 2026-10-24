@@ -1,6 +1,6 @@
-"""`eventos-read-projector`: proyectar `evento.creado.v1` y `evento.publicado.v1` en
-`event_read` y `usuario.inscrito.v1` en `event_registration_read` (CMP-004, ADR-032,
-ADR-033).
+"""`eventos-read-projector`: proyectar `evento.creado.v1`, `evento.publicado.v1` y
+`evento.tarifa_actualizada.v1` en `event_read` y `usuario.inscrito.v1` en
+`event_registration_read` (CMP-004, ADR-032, ADR-033, ADR-040).
 
 Eventos (estado completo, ADR-033), en una sola transacción de la base de lectura:
 1. si el `event_id` del sobre ya está en `processed_event`, es una entrega repetida;
@@ -17,6 +17,8 @@ from collections.abc import Callable
 from enum import StrEnum
 
 from events_management.application.messages import (
+    EventCreatedMessage,
+    EventFeeUpdatedMessage,
     EventPublishedMessage,
     EventStateMessage,
     RegistrationCreatedMessage,
@@ -30,9 +32,16 @@ from events_management.application.ports import (
 )
 from events_management.domain.registrations.events import EVENT_TYPE as REGISTERED
 from events_management.domain.sport_events.created import EVENT_TYPE as CREATED
+from events_management.domain.sport_events.fee import EVENT_TYPE as FEE_UPDATED
 from events_management.domain.sport_events.published import EVENT_TYPE as PUBLISHED
 
 _logger = logging.getLogger("sportapp.projector")
+
+_EVENT_TYPES: dict[type[EventStateMessage], str] = {
+    EventCreatedMessage: CREATED,
+    EventPublishedMessage: PUBLISHED,
+    EventFeeUpdatedMessage: FEE_UPDATED,
+}
 
 
 class ProjectionConflict(Exception):
@@ -47,7 +56,8 @@ class ProjectionOutcome(StrEnum):
 
 
 class ProjectEventState:
-    """`evento.creado.v1` y `evento.publicado.v1` por estado completo y versión mayor."""
+    """`evento.creado.v1`, `evento.publicado.v1` y `evento.tarifa_actualizada.v1` por estado
+    completo y versión mayor; la tarifa es una columna más del estado (ADR-040)."""
 
     def __init__(self, *, unit_of_work: Callable[[], ProjectionUnitOfWork], clock: Clock) -> None:
         self._unit_of_work = unit_of_work
@@ -80,8 +90,9 @@ class ProjectEventState:
                 outcome = ProjectionOutcome.PROJECTED
             else:
                 outcome = ProjectionOutcome.STALE
-            event_type = PUBLISHED if isinstance(message, EventPublishedMessage) else CREATED
-            unit_of_work.add_processed(message.message_id, event_type, event.event_id, now)
+            unit_of_work.add_processed(
+                message.message_id, _EVENT_TYPES[type(message)], event.event_id, now
+            )
             unit_of_work.commit()
         return outcome
 

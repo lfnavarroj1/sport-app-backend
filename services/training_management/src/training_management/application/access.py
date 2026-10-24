@@ -15,6 +15,7 @@ ATHLETE = "athlete"
 PLAN_AUTHOR_PERMISSION = "training.plan.author"
 PLAN_MANAGE_CAPABILITY = "training.plan.manage"
 METRICS_CAPABILITY = "training.metrics.ftp_vo2max"
+DASHBOARD_CAPABILITY = "training.dashboard.view"
 NUTRITION_PLAN_AUTHOR_PERMISSION = "nutrition.plan.author"
 
 
@@ -47,4 +48,12 @@ def require_metrics_capability(caller: Caller, capabilities: CapabilityChecker) 
     `training.metrics.ftp_vo2max`. Consulta Afiliación fuera de cualquier transacción."""
     require_athlete(caller)
     if not capabilities.has_capability(caller.user_id, METRICS_CAPABILITY):
+        raise CapabilityRequired()
+
+
+def require_dashboard_capability(caller: Caller, capabilities: CapabilityChecker) -> None:
+    """HU033 (ADR-043): el tablero exige `athlete` con `training.dashboard.view`. Consulta
+    Afiliación antes de leer."""
+    require_athlete(caller)
+    if not capabilities.has_capability(caller.user_id, DASHBOARD_CAPABILITY):
         raise CapabilityRequired()

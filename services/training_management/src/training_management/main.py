@@ -18,6 +18,7 @@ from training_management.api.history import build_history_router
 from training_management.api.nutrition_plans import build_nutrition_plans_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
+from training_management.api.training_dashboard import build_training_dashboard_router
 from training_management.api.training_metrics import build_training_metrics_router
 from training_management.api.training_sessions import build_training_sessions_router
 from training_management.application.commands.authorizations import (
@@ -42,6 +43,7 @@ from training_management.application.queries.nutrition_plans import (
     ListMyNutritionPlans,
 )
 from training_management.application.queries.planned_sessions import GetPlannedSessions
+from training_management.application.queries.training_dashboard import GetTrainingDashboard
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.application.queries.training_metrics import (
     GetMetricCatalog,
@@ -54,6 +56,7 @@ from training_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
 )
 from training_management.infrastructure.integrations.users import UsersNutritionRestrictions
+from training_management.infrastructure.persistence_read.dashboard import SqlAlchemyDashboardReader
 from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyActiveSessionReader,
     SqlAlchemyAuthorizationReader,
@@ -82,7 +85,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.9.0"
+API_VERSION = "0.10.0"
 
 
 def create_app(
@@ -203,6 +206,12 @@ def create_app(
                     reader=SqlAlchemyMetricResultReader(reads),
                     capabilities=capabilities,
                     catalog=TRAINING_METRICS_CATALOG,
+                ),
+            ),
+            build_training_dashboard_router(
+                verify_token=verifier.verify,
+                get_dashboard=GetTrainingDashboard(
+                    reader=SqlAlchemyDashboardReader(reads), capabilities=capabilities, clock=clock
                 ),
             ),
             build_nutrition_plans_router(

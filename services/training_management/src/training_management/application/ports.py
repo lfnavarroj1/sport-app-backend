@@ -7,6 +7,11 @@ from typing import Any, Protocol, Self
 from uuid import UUID
 
 from training_management.domain.authorizations.model import TrainingAuthorization
+from training_management.domain.dashboard.model import (
+    DashboardPeriod,
+    LatestMetric,
+    SessionBucket,
+)
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.catalog import FoodCatalog
 from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
@@ -587,4 +592,21 @@ class NutritionPlanReader(Protocol):
     def list(self, query: NutritionPlanQuery) -> list[NutritionPlan]:
         """Hasta `limit` planes del deportista, del más reciente al más antiguo,
         estrictamente después de `after` en el orden (`created_at`, `plan_id`) desc."""
+        ...
+
+
+class DashboardReader(Protocol):
+    """HU033 (ADR-043): agregados del tablero desde la base de lectura.
+
+    Cada consulta lanza `DashboardSourceUnavailable` si la base de lectura no responde; el
+    tablero informa esa fuente como `UNAVAILABLE` y conserva la otra.
+    """
+
+    def session_buckets(self, athlete_id: UUID, period: DashboardPeriod) -> list[SessionBucket]:
+        """Sesiones terminadas en `[from, to)` agrupadas por deporte, semana ISO en la zona
+        del `from` y fuente."""
+        ...
+
+    def latest_metrics(self, athlete_id: UUID, period: DashboardPeriod) -> list[LatestMetric]:
+        """Último resultado por indicador con `measured_at` en `[from, to)`."""
         ...

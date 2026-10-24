@@ -79,10 +79,11 @@ class EventPublishedContractTest(unittest.TestCase):
         self.assertEqual(payload["published_at"], "2026-10-12T23:10:00Z")
         self.assertEqual(payload["updated_at"], payload["published_at"])
 
-    def test_schema_rejects_drafts_fees_registrations_and_local_instants(self) -> None:
+    def test_schema_rejects_drafts_invalid_fees_registrations_and_local_instants(self) -> None:
         cases = {
             "borrador": {"status": "DRAFT"},
-            "tarifa": {"fee": {"amount": "10000.00", "currency": "COP"}},
+            "tarifa en otra moneda": {"fee": {"amount": "10000.00", "currency": "USD"}},
+            "tarifa con tres decimales": {"fee": {"amount": "1.000", "currency": "COP"}},
             "inscritos": {"registration_count": 3},
             "sin fecha": {"published_at": None},
             "local": {"published_at": "2026-10-12T18:10:00-05:00"},
@@ -117,6 +118,23 @@ class EventPublishedContractTest(unittest.TestCase):
         body["payload"]["status"] = "DRAFT"
         with self.assertRaises(InvalidEvent):
             parse_sport_event_message(body)
+
+    def test_fee_is_part_of_the_full_state_and_optional_for_older_messages(self) -> None:
+        """HU025 (por ratificar): el estado completo publicado incluye la tarifa; un mensaje
+        anterior sin `fee` sigue siendo válido y equivale a un evento sin tarifa."""
+        body = json.loads(json.dumps(publication_envelope()))
+        self.assertEqual((body["payload"]["fee"], body["payload"]["fee_updated_at"]), (None, None))
+        older = json.loads(json.dumps(publication_envelope()))
+        del older["payload"]["fee"], older["payload"]["fee_updated_at"]
+        priced = json.loads(json.dumps(publication_envelope()))
+        priced["payload"]["fee"] = {"amount": "85000.00", "currency": "COP"}
+        priced["payload"]["fee_updated_at"] = "2026-10-12T22:00:00Z"
+
+        for case in (older, priced):
+            self.validator.validate(case)
+        self.assertIsNone(parse_sport_event_message(older).event.fee)  # type: ignore[union-attr]
+        fee = parse_sport_event_message(priced).event.fee  # type: ignore[union-attr]
+        self.assertEqual((str(fee.amount), fee.currency) if fee else None, ("85000.00", "COP"))
 
 
 if __name__ == "__main__":

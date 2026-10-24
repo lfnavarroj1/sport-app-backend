@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sportapp/contracts/events/eventos/evento.publicado.v1.schema.json",
   "title": "evento.publicado.v1",
-  "description": "Publicado en sportapp.eventos.v1 con ordering_key = event_id (= aggregate_id) cuando el organizador propietario publica un borrador (HU024, ADR-033, CMP-004). aggregate_version es la versión resultante de la publicación (2 si no hubo otros cambios). Lleva el estado completo del evento más published_at; eventos-read-projector lo aplica a event_read si la versión es mayor que la proyectada o inserta la fila si no existe. Instantes en UTC con sufijo Z; time_zone conserva la zona IANA declarada. Sin tarifa, inscripciones ni credenciales.",
+  "description": "Publicado en sportapp.eventos.v1 con ordering_key = event_id (= aggregate_id) cuando el organizador propietario publica un borrador (HU024, ADR-033, CMP-004). aggregate_version es la versión resultante de la publicación (2 si no hubo otros cambios). Lleva el estado completo del evento más published_at; eventos-read-projector lo aplica a event_read si la versión es mayor que la proyectada o inserta la fila si no existe. Instantes en UTC con sufijo Z; time_zone conserva la zona IANA declarada. Desde HU025 (ADR-040, por ratificar) el estado completo incluye fee y fee_updated_at, opcionales para los mensajes anteriores: sin ellos, publicar un borrador con tarifa la borraría de event_read. Sin inscripciones ni credenciales.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -188,6 +188,37 @@
           "format": "date-time",
           "pattern": "Z$",
           "description": "Instante de la publicación asignado por el servidor."
+        },
+        "fee": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "properties": {
+            "amount": {
+              "type": "string",
+              "pattern": "^[0-9]{1,8}\\.[0-9]{2}$",
+              "description": "Cadena decimal con dos decimales entre 0.00 (gratuito) y 99999999.99."
+            },
+            "currency": {
+              "const": "COP"
+            }
+          },
+          "description": "Tarifa informativa del evento (HU025, ADR-040); null sin tarifa. No es un cobro."
+        },
+        "fee_updated_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "Último cambio de la tarifa (asignada o retirada); null si nunca se definió."
         }
       }
     }

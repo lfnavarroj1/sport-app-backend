@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from registration_fakes import (
     NOW,
     InMemoryEventDetailReader,
+    InMemoryRegistrationCounter,
     InMemoryRegistrationReader,
     InMemoryRegistrationStore,
     InMemoryRegistrationUnitOfWork,
@@ -221,7 +222,10 @@ class RegistrationsApiTest(unittest.TestCase):
             routers=[
                 build_registrations_router(
                     verify_token=VERIFIER.verify,
-                    get_event=GetPublishedEvent(reader=InMemoryEventDetailReader(self.details)),
+                    get_event=GetPublishedEvent(
+                        reader=InMemoryEventDetailReader(self.details),
+                        counter=InMemoryRegistrationCounter(),
+                    ),
                     register=RegisterForEvent(
                         unit_of_work=lambda: InMemoryRegistrationUnitOfWork(self.store),
                         clock=FixedClock(NOW),

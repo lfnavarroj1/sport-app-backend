@@ -211,6 +211,7 @@ class PublishedEventsApiTest(unittest.TestCase):
                 "time_zone",
                 "status",
                 "version",
+                "fee",
             },
         )
         self.assertNotIn("organizer_id", response.text)

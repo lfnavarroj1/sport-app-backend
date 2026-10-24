@@ -1,5 +1,6 @@
 """Puertos que la aplicación necesita; la infraestructura los implementa."""
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from types import TracebackType
@@ -10,6 +11,7 @@ from events_management.domain.registrations.model import (
     EventForRegistration,
     EventRegistration,
 )
+from events_management.domain.sport_events.fee import EventFee
 from events_management.domain.sport_events.model import SportEvent
 
 
@@ -74,6 +76,8 @@ class CalendarEventView:
     time_zone: str
     status: str
     version: int
+    # HU025 (ADR-040): tarifa informativa proyectada; `None` sin tarifa.
+    fee: EventFee | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,15 @@ class OwnEventReader(Protocol):
     def list(self, query: OwnEventsQuery) -> list[SportEvent]:
         """Hasta `limit` eventos propios en orden `starts_at`, `event_id` y estrictamente
         después de `after`."""
+        ...
+
+
+class RegistrationCounter(Protocol):
+    """HU025 (ADR-040): inscripciones de cada evento contadas en la base de escritura (el
+    dominio posee ambas tablas); no hay contador en `event_read` (CMP-004)."""
+
+    def counts(self, event_ids: Collection[UUID]) -> dict[UUID, int]:
+        """Conteo por evento; un evento sin inscripciones no aparece (equivale a 0)."""
         ...
 
 
@@ -188,6 +201,34 @@ class PublicationUnitOfWork(Transaction, Protocol):
         ...
 
 
+class FeeUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU025: evento bloqueado, tarifa, versión, idempotencia y outbox."""
+
+    def find_idempotency(
+        self, actor_id: UUID, operation: str, key: UUID
+    ) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def lock_event(self, event_id: UUID) -> SportEvent | None:
+        """Bloquea la fila del evento: dos cambios concurrentes se aplican en serie."""
+        ...
+
+    def update_fee(self, event: SportEvent) -> None:
+        """Guarda tarifa, `fee_updated_at`, versión y `updated_at` del evento bloqueado."""
+        ...
+
+    def count_registrations(self, event_id: UUID) -> int: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
 class RegistrationUnitOfWork(Transaction, Protocol):
     """Transacción local de HU041: evento bloqueado, inscripción, idempotencia y outbox."""
 
@@ -248,6 +289,10 @@ class EventDetailView:
     description: str
     capacity: int
     my_registration: EventRegistration | None
+    # HU025: el organizador que consulta es el propietario; solo entonces se compone
+    # `registration_count` (base de escritura).
+    owned_by_caller: bool = False
+    registration_count: int | None = None
 
 
 @dataclass(frozen=True)

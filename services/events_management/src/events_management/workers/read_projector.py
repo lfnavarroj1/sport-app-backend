@@ -2,8 +2,8 @@
 
 Ejecución: `python -m events_management.workers.read_projector`.
 
-- Proyecta `evento.creado.v1` y `evento.publicado.v1` por estado completo (ADR-033) y
-  `usuario.inscrito.v1` (HU041).
+- Proyecta `evento.creado.v1`, `evento.publicado.v1` y `evento.tarifa_actualizada.v1`
+  (HU025, ADR-040) por estado completo (ADR-033) y `usuario.inscrito.v1` (HU041).
 - Consume `sportapp.eventos.v1` por la suscripción ordenada `proyector-eventos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de `event_read` y `processed_event`.
 - Un mensaje inválido o un fallo de procesamiento no se confirma:

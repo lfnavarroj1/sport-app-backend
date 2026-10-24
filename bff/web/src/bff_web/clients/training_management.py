@@ -1,4 +1,5 @@
-"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU014 y HU026).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU014, HU026 y
+HU028).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad,
 permiso, capacidad y autorización del deportista.
@@ -99,6 +100,32 @@ class TrainingManagementClient:
     def list_my_routes(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU026: rutas del organizador del token (lectura CQRS)."""
         return self._send("GET", "/v1/me/routes", access_token, params=params)
+
+    def publish_training_plan_template(
+        self, access_token: str, payload: dict[str, Any], idempotency_key: UUID
+    ) -> httpx.Response:
+        """HU028: publicar una plantilla de plan (ADR-041)."""
+        return self._send(
+            "POST",
+            "/v1/training-plan-templates",
+            access_token,
+            json=payload,
+            headers={IDEMPOTENCY_HEADER: str(idempotency_key)},
+        )
+
+    def retire_training_plan_template(
+        self, access_token: str, template_id: UUID, payload: dict[str, Any]
+    ) -> httpx.Response:
+        """HU028: retirar una plantilla propia con `expected_version`."""
+        return self._send(
+            "POST", f"/v1/training-plan-templates/{template_id}/retire", access_token, json=payload
+        )
+
+    def list_my_training_plan_templates(
+        self, access_token: str, params: dict[str, str]
+    ) -> httpx.Response:
+        """HU028: plantillas del profesional del token (lectura CQRS)."""
+        return self._send("GET", "/v1/me/training-plan-templates", access_token, params=params)
 
     def _send(
         self,

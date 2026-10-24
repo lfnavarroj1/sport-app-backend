@@ -6,8 +6,12 @@ from fastapi import FastAPI
 from bff_mobile.api.calendar import build_calendar_router
 from bff_mobile.api.capabilities import build_capabilities_router
 from bff_mobile.api.event_registrations import build_event_registrations_router
-from bff_mobile.api.route_suggestions import build_route_suggestions_router
+from bff_mobile.api.route_suggestions import (
+    AthleteContextCache,
+    build_route_suggestions_router,
+)
 from bff_mobile.api.sessions import build_sessions_router
+from bff_mobile.api.template_suggestions import build_template_suggestions_router
 from bff_mobile.api.training_dashboard import build_training_dashboard_router
 from bff_mobile.api.training_metrics import build_training_metrics_router
 from bff_mobile.api.training_sessions import build_training_sessions_router
@@ -22,7 +26,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.10.0"
+API_VERSION = "0.11.0"
 CHANNEL = "mobile"
 
 
@@ -58,6 +62,8 @@ def create_app(
     training = TrainingManagementClient(training_http)
     events = EventsManagementClient(events_http)
     affiliation = AffiliationManagementClient(affiliation_http)
+    # Una sola caché del contexto del deportista para todas las sugerencias (ADR-041).
+    contexts = AthleteContextCache()
     verifier = CachedJwksVerifier(
         users.jwks, issuer=settings.jwt_issuer, audience=settings.jwt_audience
     )
@@ -97,6 +103,14 @@ def create_app(
                 athlete_snapshot=affiliation.user_capabilities,
                 users=users,
                 training=training,
+                cache=contexts,
+            ),
+            build_template_suggestions_router(
+                verify_token=verifier.verify,
+                athlete_snapshot=affiliation.user_capabilities,
+                users=users,
+                training=training,
+                cache=contexts,
             ),
         ],
         shutdown_hooks=[

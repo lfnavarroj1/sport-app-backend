@@ -365,3 +365,45 @@ class RouteRow(WriteBase):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingPlanTemplateRow(WriteBase):
+    """Plantilla de plan publicada por un profesional (HU028, ADR-041); al retirarse se
+    conserva. No es un plan asignado: no tiene deportista ni fechas.
+
+    `professional_id` es un identificador de Usuarios, sin clave foránea entre bases.
+    """
+
+    __tablename__ = "training_plan_template"
+    __table_args__ = (
+        CheckConstraint("status IN ('PUBLISHED', 'RETIRED')", name="status"),
+        CheckConstraint(
+            "sport IN ('running', 'cycling', 'swimming', 'strength', 'other')", name="sport"
+        ),
+        CheckConstraint(
+            "goal IN ('HEALTH', 'PERFORMANCE', 'WEIGHT_MANAGEMENT', 'RECREATION', 'COMPETITION')",
+            name="goal",
+        ),
+        CheckConstraint("level IN ('BEGINNER', 'INTERMEDIATE', 'ADVANCED')", name="level"),
+        CheckConstraint("duration_weeks BETWEEN 1 AND 52", name="duration_weeks"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'RETIRED') = (retired_at IS NOT NULL)", name="retired_at"),
+    )
+
+    template_id: Mapped[UUID] = mapped_column(primary_key=True)
+    professional_id: Mapped[UUID] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    objectives: Mapped[str] = mapped_column(String(2000))
+    sport: Mapped[str] = mapped_column(String(16))
+    goal: Mapped[str] = mapped_column(String(32))
+    level: Mapped[str] = mapped_column(String(16))
+    duration_weeks: Mapped[int] = mapped_column(SmallInteger)
+    # De 1 a 14 sesiones `{day_of_week, description, duration_minutes}` en el orden del
+    # profesional.
+    weekly_sessions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

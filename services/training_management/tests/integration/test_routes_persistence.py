@@ -358,14 +358,14 @@ class RouteMigrationTest(unittest.TestCase):
             ),
         ):
             with self.subTest(table=table), temporary_database(f"hu026_{table}") as url:
-                upgrade(history, url)
+                upgrade(history, url, head)
                 self.assertEqual(current_revision(url), head)
                 self.assertTrue(indexes <= _indexes(url, table))
 
                 downgrade(history, url, previous)
 
                 self.assertNotIn(table, _tables(url))
-                upgrade(history, url)
+                upgrade(history, url, head)
                 self.assertEqual(current_revision(url), head)
 
 

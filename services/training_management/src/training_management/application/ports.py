@@ -19,6 +19,8 @@ from training_management.domain.plans.model import Sport, TrainingPlan
 from training_management.domain.routes.model import Route
 from training_management.domain.routes.suggestions import SuggestionContext
 from training_management.domain.sessions.model import TrainingSession
+from training_management.domain.templates.model import TrainingPlanTemplate
+from training_management.domain.templates.suggestions import TemplateSuggestionContext
 
 
 class Clock(Protocol):
@@ -531,6 +533,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         """HU026: inserta o reemplaza el estado completo de la ruta en `route_view`."""
         ...
 
+    def template_version(self, template_id: UUID) -> int | None:
+        """HU028: versión proyectada de la plantilla; bloquea la fila."""
+        ...
+
+    def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
+        """HU028: inserta o reemplaza el estado completo en `training_plan_template_view`."""
+        ...
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None: ...
@@ -679,4 +689,64 @@ class RouteReader(Protocol):
         """Rutas `PUBLISHED`. Con deportes: las de esos deportes, ciudad coincidente primero,
         luego `distance_km` y `route_id` ascendentes. Sin deportes: las últimas publicadas
         (`published_at` desc, `route_id` desc). Como mucho `limit`."""
+        ...
+
+
+class TemplateUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU028: plantilla, outbox e idempotencia (`command_idempotency`)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_template_for_update(self, template_id: UUID) -> TrainingPlanTemplate | None:
+        """Bloquea la fila hasta el fin de la transacción (retiro)."""
+        ...
+
+    def add_template(self, template: TrainingPlanTemplate) -> None: ...
+
+    def update_template(self, template: TrainingPlanTemplate) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class TemplatePosition:
+    """Última plantilla entregada en el orden `created_at` desc, `template_id` desc."""
+
+    created_at: datetime
+    template_id: UUID
+
+
+@dataclass(frozen=True)
+class MyTemplatesQuery:
+    professional_id: UUID
+    limit: int
+    after: TemplatePosition | None
+
+
+@dataclass(frozen=True)
+class TemplateSuggestionQuery:
+    context: TemplateSuggestionContext
+    limit: int
+
+
+class TemplateReader(Protocol):
+    """Proyección `training_plan_template_view` (HU028, lectura CQRS)."""
+
+    def list_by_professional(self, query: MyTemplatesQuery) -> list[TrainingPlanTemplate]:
+        """Plantillas del profesional en cualquier estado, orden `created_at` desc,
+        `template_id` desc, estrictamente después de `after`."""
+        ...
+
+    def suggest(self, query: TemplateSuggestionQuery) -> list[TrainingPlanTemplate]:
+        """Plantillas `PUBLISHED`. Con deportes: las de esos deportes, objetivo coincidente
+        primero, luego `published_at` y `template_id` desc. Sin deportes: las últimas
+        publicadas. Como mucho `limit`."""
         ...

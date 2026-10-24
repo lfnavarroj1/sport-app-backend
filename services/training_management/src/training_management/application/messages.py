@@ -4,7 +4,7 @@ Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
 (HU011), `entrenamiento.iniciado.v1` (HU032), `indicador.calculado.v1` (HU034) y
 `plan.alimentacion_creado.v1` (HU014), `ruta.publicada.v1` y `ruta.retirada.v1`
-(HU026). Cada
+(HU026) y `plantilla_entrenamiento.publicada.v1` / `.retirada.v1` (HU028). Cada
 uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
 no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
 tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
@@ -28,6 +28,10 @@ from training_management.application.ports import (
 from training_management.application.route_documents import (
     InvalidRouteDocument,
     route_from_document,
+)
+from training_management.application.template_documents import (
+    InvalidTemplateDocument,
+    template_from_document,
 )
 from training_management.domain.authorizations.events import (
     GRANTED,
@@ -93,6 +97,17 @@ from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FIN
 from training_management.domain.sessions.events import SCHEMA_VERSION as SESSION_SCHEMA
 from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
 from training_management.domain.sessions.events import SessionStatus
+from training_management.domain.templates.events import (
+    EVENT_TYPE_BY_STATUS as TEMPLATE_EVENT_BY_STATUS,
+)
+from training_management.domain.templates.events import (
+    PUBLISHED_EVENT_TYPE as TEMPLATE_PUBLISHED,
+)
+from training_management.domain.templates.events import (
+    RETIRED_EVENT_TYPE as TEMPLATE_RETIRED,
+)
+from training_management.domain.templates.events import SCHEMA_VERSION as TEMPLATE_SCHEMA
+from training_management.domain.templates.model import TrainingPlanTemplate
 
 
 class InvalidEvent(Exception):
@@ -164,6 +179,14 @@ class RouteChangedEvent:
     route: Route
 
 
+@dataclass(frozen=True)
+class TemplateChangedEvent:
+    event_id: UUID
+    event_type: str
+    correlation_id: UUID | None
+    template: TrainingPlanTemplate
+
+
 TrainingEvent = (
     PlanCreatedEvent
     | AuthorizationChangedEvent
@@ -172,6 +195,7 @@ TrainingEvent = (
     | MetricCalculatedEvent
     | NutritionPlanCreatedEvent
     | RouteChangedEvent
+    | TemplateChangedEvent
 )
 
 
@@ -573,6 +597,27 @@ def _route_changed(envelope: dict[str, Any], event_type: str) -> RouteChangedEve
     )
 
 
+def _template_changed(envelope: dict[str, Any], event_type: str) -> TemplateChangedEvent:
+    payload = _payload(envelope, TEMPLATE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        template = template_from_document(payload)
+    except InvalidTemplateDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != template.template_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if template.version != version:
+        raise InvalidEvent("template_version_mismatch")
+    if TEMPLATE_EVENT_BY_STATUS[template.status] != event_type:
+        raise InvalidEvent("status_mismatch")
+    return TemplateChangedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        event_type=event_type,
+        correlation_id=_correlation(envelope),
+        template=template,
+    )
+
+
 def parse_training_event(envelope: object) -> TrainingEvent:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -598,4 +643,6 @@ def _parse_snapshot(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
         return _nutrition_plan_created(envelope)
     if event_type in (ROUTE_PUBLISHED, ROUTE_RETIRED):
         return _route_changed(envelope, event_type)
+    if event_type in (TEMPLATE_PUBLISHED, TEMPLATE_RETIRED):
+        return _template_changed(envelope, event_type)
     raise UnsupportedEvent(event_type)

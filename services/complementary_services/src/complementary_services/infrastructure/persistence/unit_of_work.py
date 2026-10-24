@@ -1,4 +1,4 @@
-"""Unidades de trabajo SQLAlchemy de la base única de servicios (HU015, HU019)."""
+"""Unidades de trabajo SQLAlchemy de la base única de servicios (HU015, HU019, HU017)."""
 
 from collections.abc import Iterable
 from datetime import UTC
@@ -10,8 +10,15 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from complementary_services.application.errors import IdempotencyKeyConflict
+from complementary_services.application.errors import (
+    ActiveAssociationConflict,
+    IdempotencyKeyConflict,
+)
 from complementary_services.application.ports import IdempotencyRecord, OutboxMessage
+from complementary_services.domain.association.association import (
+    AssociationStatus,
+    ServiceAssociation,
+)
 from complementary_services.domain.availability.intervals import AvailabilityInterval
 from complementary_services.domain.catalog.offer import (
     BillingUnit,
@@ -23,9 +30,11 @@ from complementary_services.domain.catalog.offer import (
     ServiceStatus,
 )
 from complementary_services.infrastructure.persistence.models import (
+    ACTIVE_ASSOCIATION_INDEX,
     IDEMPOTENCY_PRIMARY_KEY,
     IdempotencyKeyRow,
     OutboxEventRow,
+    ServiceAssociationRow,
     ServiceAvailabilityRow,
     ServiceRow,
 )
@@ -230,3 +239,86 @@ class SqlAlchemyPublicationUnitOfWork(_UnitOfWork):
                 next_attempt_at=message.occurred_at,
             )
         )
+
+
+def service_association(row: ServiceAssociationRow) -> ServiceAssociation:
+    """Agregado a partir de su fila; los instantes se devuelven siempre en UTC."""
+    return ServiceAssociation(
+        association_id=row.association_id,
+        service_id=row.service_id,
+        athlete_id=row.athlete_id,
+        status=AssociationStatus(row.status),
+        associated_at=row.associated_at.astimezone(UTC),
+        version=row.version,
+        ended_at=row.ended_at.astimezone(UTC) if row.ended_at else None,
+    )
+
+
+class SqlAlchemyAssociationUnitOfWork(_UnitOfWork):
+    """HU017: asociación del deportista e idempotencia; sin outbox (no hay eventos)."""
+
+    def service(self, service_id: UUID) -> ServiceOffer | None:
+        row = self.session.get(ServiceRow, service_id)
+        return service_offer(row, ()) if row is not None else None
+
+    def active_association(self, athlete_id: UUID, service_id: UUID) -> ServiceAssociation | None:
+        with self.session.no_autoflush:
+            row = self.session.scalar(
+                select(ServiceAssociationRow).where(
+                    ServiceAssociationRow.athlete_id == athlete_id,
+                    ServiceAssociationRow.service_id == service_id,
+                    ServiceAssociationRow.status == AssociationStatus.ACTIVE.value,
+                )
+            )
+        return service_association(row) if row is not None else None
+
+    def add_association(self, association: ServiceAssociation) -> None:
+        self.session.add(
+            ServiceAssociationRow(
+                association_id=association.association_id,
+                service_id=association.service_id,
+                athlete_id=association.athlete_id,
+                status=association.status.value,
+                associated_at=association.associated_at,
+                ended_at=association.ended_at,
+                version=association.version,
+            )
+        )
+
+    def lock_association(self, association_id: UUID) -> ServiceAssociation | None:
+        row = self.session.scalar(
+            select(ServiceAssociationRow)
+            .where(ServiceAssociationRow.association_id == association_id)
+            .with_for_update()
+        )
+        return service_association(row) if row is not None else None
+
+    def save_end(self, association: ServiceAssociation) -> None:
+        # La fila está bloqueada; la versión anterior se exige igualmente como defensa.
+        result = self.session.execute(
+            update(ServiceAssociationRow)
+            .where(
+                ServiceAssociationRow.association_id == association.association_id,
+                ServiceAssociationRow.version == association.version - 1,
+            )
+            .values(
+                status=association.status.value,
+                ended_at=association.ended_at,
+                version=association.version,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise RuntimeError("La asociación bloqueada cambió de versión.")
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            constraint = _violated_constraint(error)
+            if constraint == IDEMPOTENCY_PRIMARY_KEY:
+                raise IdempotencyKeyConflict() from None
+            if constraint == ACTIVE_ASSOCIATION_INDEX:
+                raise ActiveAssociationConflict() from None
+            raise

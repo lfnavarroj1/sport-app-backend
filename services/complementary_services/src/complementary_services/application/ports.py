@@ -7,6 +7,10 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
+from complementary_services.domain.association.association import (
+    AssociationStatus,
+    ServiceAssociation,
+)
 from complementary_services.domain.availability.intervals import AvailabilityInterval
 from complementary_services.domain.catalog.offer import (
     BillingUnit,
@@ -319,4 +323,148 @@ class ServiceCatalogReader(Protocol):
     def published_availability(self, query: AvailabilityQuery) -> list[ServiceOffer]:
         """Servicios ordenados por `name` y `service_id`, estrictamente después de `after`,
         hasta `limit`; cada oferta trae solo sus intervalos dentro del rango."""
+        ...
+
+
+@dataclass(frozen=True)
+class AssociatedService:
+    """Resumen del servicio asociado (ADR-038): sin datos del profesional ni de salud."""
+
+    name: str
+    category: Category
+    modality: Modality
+    fee: Price
+
+    @classmethod
+    def of(cls, offer: ServiceOffer) -> "AssociatedService":
+        return cls(
+            name=offer.name, category=offer.category, modality=offer.modality, fee=offer.price
+        )
+
+
+@dataclass(frozen=True)
+class AssociationView:
+    """Asociación tal como se responde (HU017); instantes en UTC `Z`."""
+
+    association: ServiceAssociation
+    service: AssociatedService
+
+    def to_document(self) -> dict[str, Any]:
+        association, service = self.association, self.service
+        return {
+            "association_id": str(association.association_id),
+            "service_id": str(association.service_id),
+            "service": {
+                "name": service.name,
+                "category": service.category.value,
+                "modality": service.modality.value,
+                "fee": {
+                    "amount": str(service.fee.amount),
+                    "currency": service.fee.currency.value,
+                    "billing_unit": service.fee.billing_unit.value,
+                },
+            },
+            "status": association.status.value,
+            "associated_at": utc_instant(association.associated_at),
+            "ended_at": utc_instant(association.ended_at) if association.ended_at else None,
+            "version": association.version,
+        }
+
+    @classmethod
+    def from_document(cls, document: dict[str, Any], athlete_id: UUID) -> "AssociationView":
+        """`athlete_id` no se responde: es el del token que guardó el resultado."""
+        service, fee = document["service"], document["service"]["fee"]
+        return cls(
+            association=ServiceAssociation(
+                association_id=UUID(document["association_id"]),
+                service_id=UUID(document["service_id"]),
+                athlete_id=athlete_id,
+                status=AssociationStatus(document["status"]),
+                associated_at=datetime.fromisoformat(document["associated_at"]),
+                version=int(document["version"]),
+                ended_at=_optional_instant(document.get("ended_at")),
+            ),
+            service=AssociatedService(
+                name=service["name"],
+                category=Category(service["category"]),
+                modality=Modality(service["modality"]),
+                fee=Price(
+                    amount=Decimal(fee["amount"]),
+                    currency=Currency(fee["currency"]),
+                    billing_unit=BillingUnit(fee["billing_unit"]),
+                ),
+            ),
+        )
+
+
+class AssociationUnitOfWork(Protocol):
+    """Transacción local de HU017: asociación e idempotencia del deportista juntas.
+
+    Reutiliza la tabla de idempotencia de HU015/HU019, con la clave por usuario autenticado.
+    """
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None: ...
+
+    def find_idempotency(self, provider_id: UUID, key: UUID) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, provider_id: UUID, key: UUID) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def service(self, service_id: UUID) -> ServiceOffer | None:
+        """El servicio sin su disponibilidad (la asociación no la usa)."""
+        ...
+
+    def active_association(
+        self, athlete_id: UUID, service_id: UUID
+    ) -> ServiceAssociation | None: ...
+
+    def add_association(self, association: ServiceAssociation) -> None: ...
+
+    def lock_association(self, association_id: UUID) -> ServiceAssociation | None:
+        """La asociación bloqueada hasta el final de la transacción."""
+        ...
+
+    def save_end(self, association: ServiceAssociation) -> None:
+        """Estado, `ended_at` y versión de la asociación bloqueada."""
+        ...
+
+    def commit(self) -> None:
+        """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict` y la
+        asociación activa duplicada a `ActiveAssociationConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class AssociationPosition:
+    """Posición keyset de «mis asociaciones»: `associated_at` y `association_id`,
+    descendentes."""
+
+    associated_at: datetime
+    association_id: UUID
+
+
+@dataclass(frozen=True)
+class OwnAssociationsQuery:
+    """`status` en `None` incluye activas e inactivas (`ALL`)."""
+
+    athlete_id: UUID
+    status: AssociationStatus | None
+    after: AssociationPosition | None
+    limit: int
+
+
+class AssociationReader(Protocol):
+    """Asociaciones propias del deportista con el resumen del servicio (HU017)."""
+
+    def list_own(self, query: OwnAssociationsQuery) -> list[AssociationView]:
+        """Ordenadas por `associated_at` y `association_id` descendentes, estrictamente
+        después de `after`, hasta `limit`."""
         ...

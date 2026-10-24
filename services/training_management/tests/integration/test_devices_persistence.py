@@ -28,6 +28,7 @@ from training_management.application.commands.measurements import (
     IngestMeasurementsCommand,
 )
 from training_management.application.errors import TrainingSessionAlreadyFinished
+from training_management.application.monitoring_threshold import ResolveThreshold
 from training_management.application.queries.devices import ListMyDevices
 from training_management.domain.devices.model import (
     DeviceAlreadyRegistered,
@@ -44,12 +45,20 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyDeviceReader,
     SqlAlchemyDeviceUnitOfWork,
     SqlAlchemyMeasurementUnitOfWork,
+    SqlAlchemyMonitoringSettingsUnitOfWork,
 )
 
 
 class AlwaysCapable:
     def has_capability(self, user_id: Any, capability: str) -> bool:
         return True
+
+
+class NoBirthDate:
+    """Contexto de Usuarios sin perfil demográfico: umbral por defecto 171 (HU036)."""
+
+    def birth_date(self, athlete_id: Any) -> None:
+        return None
 
 
 def device_hash(address: str, user_id: Any) -> str:
@@ -110,6 +119,11 @@ class DevicePersistenceTest(unittest.TestCase):
         self.ingest = IngestMeasurements(
             unit_of_work=lambda: SqlAlchemyMeasurementUnitOfWork(self.db.writes),
             capabilities=AlwaysCapable(),
+            thresholds=ResolveThreshold(
+                unit_of_work=lambda: SqlAlchemyMonitoringSettingsUnitOfWork(self.db.writes),
+                birth_dates=NoBirthDate(),
+                clock=clock,
+            ),
             clock=clock,
         )
 

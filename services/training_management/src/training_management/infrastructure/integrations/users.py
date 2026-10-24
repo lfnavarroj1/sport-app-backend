@@ -90,9 +90,12 @@ class UsersAthleteBirthDates:
     """HU036: `birth_date` del contrato interno `GET /v1/users/{user_id}/athlete-context`
     (ADR-041; sin token, dentro de la red de la plataforma) para el umbral por defecto.
 
-    `200` con `birth_date` en `null` (sin perfil demográfico) → `None`. Un timeout, un error de
-    red, un `404`, otra respuesta o un documento inesperado es indisponibilidad: el lote no se
-    evalúa con un umbral supuesto. Solo se lee `birth_date`; nada se registra en logs.
+    `200` con `birth_date` en `null` (sin perfil demográfico) → `None`. `404 user_not_found`
+    para un deportista ya autenticado solo significa que el directorio proyectado de Usuarios
+    todavía no lo tiene, así que tampoco hay perfil demográfico proyectado → `None` (umbral
+    `171`). Un timeout, un error de red, otra respuesta o un documento inesperado es
+    indisponibilidad: el lote no se evalúa con un umbral supuesto. Solo se lee `birth_date`;
+    nada se registra en logs.
     """
 
     def __init__(self, http: httpx.Client) -> None:
@@ -107,6 +110,8 @@ class UsersAthleteBirthDates:
             self._unavailable("timeout")
         except httpx.HTTPError:
             self._unavailable("transport_error")
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return None
         if response.status_code != httpx.codes.OK:
             self._unavailable(f"status_{response.status_code}")
         try:

@@ -67,6 +67,10 @@ class UsersAthleteBirthDatesTest(unittest.TestCase):
         self.respond(lambda _: httpx.Response(200, json={"birth_date": None, "sports": []}))
         self.assertIsNone(self.client.birth_date(uuid.uuid4()))
 
+    def test_athlete_not_yet_in_the_projected_directory_is_none(self) -> None:
+        self.respond(lambda _: httpx.Response(404, json={"code": "user_not_found"}))
+        self.assertIsNone(self.client.birth_date(uuid.uuid4()))
+
     def test_any_other_answer_is_unavailable_and_logs_no_values(self) -> None:
         def timeout(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("lento", request=request)
@@ -77,7 +81,7 @@ class UsersAthleteBirthDatesTest(unittest.TestCase):
         cases: list[tuple[Handler, str]] = [
             (timeout, "timeout"),
             (broken, "transport_error"),
-            (lambda _: httpx.Response(404, json={"code": "user_not_found"}), "status_404"),
+            (lambda _: httpx.Response(500, json={"code": "internal"}), "status_500"),
             (lambda _: httpx.Response(200, text="no-json"), "invalid_json"),
             (lambda _: httpx.Response(200, json=[]), "invalid_document"),
             (lambda _: httpx.Response(200, json={"sports": []}), "invalid_document"),

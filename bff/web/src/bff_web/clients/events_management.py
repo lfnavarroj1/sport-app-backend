@@ -50,6 +50,14 @@ class EventsManagementClient:
         """ADR-033: detalle visible para quien llama (`DRAFT` solo para su organizador)."""
         return self._send("GET", f"/v1/events/{event_id}", access_token)
 
+    def list_attendees(
+        self, access_token: str, event_id: UUID, params: dict[str, str]
+    ) -> httpx.Response:
+        """HU022 (ADR-039): inscritos de un evento propio; parámetros tal como llegaron."""
+        return self._send(
+            "GET", f"/v1/me/events/{event_id}/registrations", access_token, params=params
+        )
+
     def _send(
         self,
         method: str,

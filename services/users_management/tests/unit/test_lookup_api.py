@@ -1,5 +1,5 @@
-"""Contratos internos `POST /v1/users/lookup` (HU010) y `POST /v1/users/lookup-batch`
-(HU011, CA5) con un directorio en memoria."""
+"""Contratos internos `POST /v1/users/lookup` (HU010), `POST /v1/users/lookup-batch` (HU011,
+CA5) y `POST /v1/users/directory-lookup` (HU022, ADR-039) con un directorio en memoria."""
 
 import unittest
 import uuid
@@ -10,6 +10,7 @@ from sportapp_platform.app import create_service_app
 from sportapp_platform.config import ServiceSettings
 from users_management.api.lookup import build_lookup_router
 from users_management.application.ports import UserDisplay, UserReference
+from users_management.application.queries.directory_lookup import LookupDirectoryNames
 from users_management.application.queries.lookup_user import LookupUserByEmail
 from users_management.application.queries.lookup_users_batch import LookupUsersByIds
 from users_management.domain.account.model import ActorType
@@ -49,7 +50,9 @@ class LookupApiTest(unittest.TestCase):
             settings=ServiceSettings(app_env="test"),  # type: ignore[call-arg]
             routers=[
                 build_lookup_router(
-                    LookupUserByEmail(self.directory), LookupUsersByIds(self.directory)
+                    LookupUserByEmail(self.directory),
+                    LookupUsersByIds(self.directory),
+                    LookupDirectoryNames(LookupUsersByIds(self.directory)),
                 )
             ],
         )
@@ -125,6 +128,53 @@ class LookupApiTest(unittest.TestCase):
         )
         self.assertEqual(extra.status_code, 422)
         self.assertEqual(self.directory.batches, [])
+
+    # --- HU022 (ADR-039): directorio de nombres para los inscritos del organizador ---
+
+    def test_directory_lookup_returns_only_names_in_request_order(self) -> None:
+        """Identidad mínima: `full_name` sin correo; las cuentas no encontradas se omiten."""
+        missing = uuid.uuid4()
+        ids = [str(self.luis.user_id), str(missing), str(self.ana.user_id)]
+
+        with self.assertLogs("sportapp.audit", level="INFO") as audit:
+            response = self.client.post("/v1/users/directory-lookup", json={"user_ids": ids})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(
+            response.json(),
+            {
+                "items": [
+                    {"user_id": str(self.luis.user_id), "full_name": "Luis Gómez"},
+                    {"user_id": str(self.ana.user_id), "full_name": "Ana Pérez"},
+                ]
+            },
+        )
+        self.assertNotIn("example.com", response.text)
+        [record] = [r for r in audit.records if r.getMessage() == "audit.directory_lookup"]
+        self.assertEqual(record.fields, {"requested": 3, "found": 2})  # type: ignore[attr-defined]
+        rendered = " ".join(audit.output) + str(record.fields)  # type: ignore[attr-defined]
+        for value in ("Luis", "Ana", str(self.ana.user_id)):
+            self.assertNotIn(value, rendered)
+
+    def test_directory_lookup_limits_are_the_batch_limits(self) -> None:
+        cases = {
+            "vacío": ([], ("body.user_ids", "too_short")),
+            "más de 100": ([str(uuid.uuid4()) for _ in range(101)], ("body.user_ids", "too_long")),
+            "repetidos": ([str(self.ana.user_id)] * 2, ("body.user_ids", "duplicate_value")),
+            "no UUID": (["no-es-uuid"], ("body.user_ids.0", "uuid_parsing")),
+        }
+        for name, (ids, (field, issue)) in cases.items():
+            with self.subTest(case=name):
+                response = self.client.post("/v1/users/directory-lookup", json={"user_ids": ids})
+
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["details"], [{"field": field, "issue": issue}])
+        hundred = [str(uuid.uuid4()) for _ in range(100)]
+        self.assertEqual(
+            self.client.post("/v1/users/directory-lookup", json={"user_ids": hundred}).status_code,
+            200,
+        )
 
 
 if __name__ == "__main__":

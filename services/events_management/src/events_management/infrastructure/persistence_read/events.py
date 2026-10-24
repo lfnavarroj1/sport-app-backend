@@ -16,6 +16,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from events_management.application.ports import (
+    AttendeePage,
+    AttendeesQuery,
     CalendarEventView,
     ConcurrentEventView,
     DuplicateDelivery,
@@ -279,6 +281,53 @@ class SqlAlchemyRegistrationReader:
                 RegistrationView(registration=_registration(row), event=_summary(event_row))
                 for row, event_row in session.execute(statement)
             ]
+
+
+class SqlAlchemyAttendeeReader:
+    """HU022 (ADR-039): inscritos de un evento propio, con conteo por estado.
+
+    Propiedad, conteo y página se leen en una transacción `REPEATABLE READ`: los tres ven la
+    misma foto de la proyección aunque el proyector confirme entre una sentencia y otra. El
+    orden `registered_at`, `registration_id` usa el índice
+    `ix_event_registration_read_event_order` (migración de lectura `0006`).
+    """
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def attendees(self, query: AttendeesQuery) -> AttendeePage | None:
+        registration = EventRegistrationReadRow
+        with self._session_factory() as session:
+            session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+            owned = session.scalar(
+                select(EventReadRow.event_id).where(
+                    EventReadRow.event_id == query.event_id,
+                    EventReadRow.organizer_id == query.organizer_id,
+                )
+            )
+            if owned is None:
+                return None
+            counts = session.execute(
+                select(registration.status, func.count())
+                .where(registration.event_id == query.event_id)
+                .group_by(registration.status)
+            ).all()
+            statement = select(registration).where(registration.event_id == query.event_id)
+            if query.status is not None:
+                statement = statement.where(registration.status == query.status)
+            if query.after is not None:
+                statement = statement.where(
+                    tuple_(registration.registered_at, registration.registration_id)
+                    > tuple_(query.after.registered_at, query.after.registration_id)
+                )
+            rows = session.scalars(
+                statement.order_by(registration.registered_at, registration.registration_id).limit(
+                    query.limit
+                )
+            ).all()
+        by_status = {status.value: 0 for status in RegistrationStatus}
+        by_status.update({str(status): int(count) for status, count in counts})
+        return AttendeePage(items=tuple(_registration(row) for row in rows), by_status=by_status)
 
 
 class SqlAlchemyProjectionUnitOfWork:

@@ -56,8 +56,8 @@ class EventReadRow(ReadBase):
 
 
 class EventRegistrationReadRow(ReadBase):
-    """Inscripción proyectada (HU041) a partir de `usuario.inscrito.v1`; HU022 la reutilizará
-    para listar inscritos. Sin contador en `event_read` (clave caliente, CMP-004)."""
+    """Inscripción proyectada (HU041) a partir de `usuario.inscrito.v1`; HU022 la usa para
+    listar inscritos. Sin contador en `event_read` (clave caliente, CMP-004)."""
 
     __tablename__ = "event_registration_read"
     __table_args__ = (
@@ -65,6 +65,13 @@ class EventRegistrationReadRow(ReadBase):
             "event_id", "athlete_id", name="uq_event_registration_read_event_id_athlete_id"
         ),
         Index("ix_event_registration_read_athlete_registered", "athlete_id", "registered_at"),
+        # HU022: inscritos de un evento en orden `registered_at`, `registration_id` (keyset).
+        Index(
+            "ix_event_registration_read_event_order",
+            "event_id",
+            "registered_at",
+            "registration_id",
+        ),
     )
 
     registration_id: Mapped[UUID] = mapped_column(primary_key=True)

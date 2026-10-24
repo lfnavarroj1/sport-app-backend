@@ -6,6 +6,7 @@ import httpx
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
+from events_management.api.attendees import build_attendees_router
 from events_management.api.events import build_events_router
 from events_management.api.publication import build_publication_router
 from events_management.api.published_events import build_published_events_router
@@ -13,6 +14,7 @@ from events_management.api.registrations import build_registrations_router
 from events_management.application.commands.create_event import CreateEvent
 from events_management.application.commands.publish_event import PublishEvent
 from events_management.application.commands.register_for_event import RegisterForEvent
+from events_management.application.queries.attendees import ListEventAttendees
 from events_management.application.queries.my_events import ListMyEvents
 from events_management.application.queries.published_events import ListPublishedEvents
 from events_management.application.queries.registrations import (
@@ -25,6 +27,7 @@ from events_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
 )
 from events_management.infrastructure.persistence_read.events import (
+    SqlAlchemyAttendeeReader,
     SqlAlchemyEventDetailReader,
     SqlAlchemyOwnEventReader,
     SqlAlchemyPublishedEventReader,
@@ -43,7 +46,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "events-management"
-API_VERSION = "0.6.0"
+API_VERSION = "0.7.0"
 
 
 def create_app(
@@ -121,6 +124,12 @@ def create_app(
                     clock=SystemClock(),
                 ),
                 list_registrations=ListMyRegistrations(reader=SqlAlchemyRegistrationReader(reads)),
+            ),
+            build_attendees_router(
+                verify_token=verifier.verify,
+                list_attendees=ListEventAttendees(
+                    reader=SqlAlchemyAttendeeReader(reads), permissions=permissions
+                ),
             ),
         ],
         shutdown_hooks=[

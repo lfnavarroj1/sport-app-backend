@@ -19,7 +19,7 @@ HISTORIES = {
     ),
     "read": (
         "events_management.infrastructure.persistence_read:migrations",
-        "0005_event_read_publication",
+        "0006_registration_event_order",
     ),
 }
 

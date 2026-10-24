@@ -133,14 +133,14 @@ class AttendeesPersistenceTest(unittest.TestCase):
 class AttendeesMigrationTest(unittest.TestCase):
     def test_index_is_created_and_reverted(self) -> None:
         with temporary_database("events_read_0006") as url:
-            upgrade(READ_HISTORY, url)
+            upgrade(READ_HISTORY, url, revision="0006_registration_event_order")
             self.assertEqual(current_revision(url), "0006_registration_event_order")
             self.assertIn(INDEX, _indexes(url))
 
             downgrade(READ_HISTORY, url, "0005_event_read_publication")
 
             self.assertNotIn(INDEX, _indexes(url))
-            upgrade(READ_HISTORY, url)
+            upgrade(READ_HISTORY, url, revision="0006_registration_event_order")
             self.assertEqual(current_revision(url), "0006_registration_event_order")
 
 

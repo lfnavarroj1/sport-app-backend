@@ -36,7 +36,8 @@ class WriteBase(DeclarativeBase):
 
 class EventRow(WriteBase):
     """Agregado evento masivo (HU021); restricciones equivalentes a ADR-028. HU024
-    (ADR-033): `published_at` existe si y solo si el evento está `PUBLISHED`."""
+    (ADR-033): `published_at` existe si y solo si el evento está `PUBLISHED`. HU025
+    (ADR-040): tarifa informativa opcional en `COP` entre 0.00 y 99999999.99."""
 
     __tablename__ = "event"
     __table_args__ = (
@@ -55,6 +56,10 @@ class EventRow(WriteBase):
         ),
         CheckConstraint("version >= 1", name="version"),
         CheckConstraint("(status = 'PUBLISHED') = (published_at IS NOT NULL)", name="published_at"),
+        CheckConstraint("(fee_amount IS NULL) = (fee_currency IS NULL)", name="fee"),
+        CheckConstraint("fee_currency = 'COP'", name="fee_currency"),
+        CheckConstraint("fee_amount BETWEEN 0 AND 99999999.99", name="fee_amount"),
+        CheckConstraint("fee_amount IS NULL OR fee_updated_at IS NOT NULL", name="fee_updated_at"),
     )
 
     event_id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -76,6 +81,9 @@ class EventRow(WriteBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    fee_currency: Mapped[str | None] = mapped_column(String(3))
+    fee_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class OutboxEventRow(WriteBase):

@@ -1,6 +1,6 @@
 """Dobles en memoria para probar HU041 sin infraestructura."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from types import TracebackType
@@ -164,7 +164,24 @@ class InMemoryEventDetailReader:
         mine = detail.my_registration
         if mine is not None and mine.athlete_id != athlete_id:
             mine = None
-        return EventDetailView(detail.event, detail.description, detail.capacity, mine)
+        owned = owner_id is not None and self.owners.get(event_id) == owner_id
+        return EventDetailView(
+            detail.event, detail.description, detail.capacity, mine, owned_by_caller=owned
+        )
+
+
+class InMemoryRegistrationCounter:
+    """HU025: inscripciones por evento de la base de escritura."""
+
+    def __init__(self, counts: dict[UUID, int] | None = None) -> None:
+        self.values = counts if counts is not None else {}
+        self.queries: list[list[UUID]] = []
+
+    def counts(self, event_ids: Collection[UUID]) -> dict[UUID, int]:
+        self.queries.append(list(event_ids))
+        return {
+            event_id: self.values[event_id] for event_id in event_ids if event_id in self.values
+        }
 
 
 class InMemoryRegistrationReader:

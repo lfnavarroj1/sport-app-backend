@@ -13,7 +13,11 @@ from publication_fakes import (
     PublishPermissions,
     draft,
 )
-from registration_fakes import InMemoryEventDetailReader, calendar_view
+from registration_fakes import (
+    InMemoryEventDetailReader,
+    InMemoryRegistrationCounter,
+    calendar_view,
+)
 from test_create_event import VERIFIER, token
 
 from events_management.api.publication import build_publication_router
@@ -47,6 +51,8 @@ AGGREGATE_FIELDS = {
     "created_at",
     "updated_at",
     "published_at",
+    "fee",
+    "fee_updated_at",
 }
 
 
@@ -60,6 +66,7 @@ class PublicationApiTest(unittest.TestCase):
         self.own: list[SportEvent] = []
         self.details: dict[UUID, EventDetailView] = {}
         self.owners: dict[UUID, UUID] = {}
+        self.counter = InMemoryRegistrationCounter()
         app = create_service_app(
             service_name="events-management",
             title="t",
@@ -73,12 +80,15 @@ class PublicationApiTest(unittest.TestCase):
                         permissions=PublishPermissions(),
                         clock=self.clock,
                     ),
-                    list_my_events=ListMyEvents(reader=InMemoryOwnEventReader(self.own)),
+                    list_my_events=ListMyEvents(
+                        reader=InMemoryOwnEventReader(self.own), counter=self.counter
+                    ),
                 ),
                 build_registrations_router(
                     verify_token=VERIFIER.verify,
                     get_event=GetPublishedEvent(
-                        reader=InMemoryEventDetailReader(self.details, self.owners)
+                        reader=InMemoryEventDetailReader(self.details, self.owners),
+                        counter=self.counter,
                     ),
                     register=RegisterForEvent(unit_of_work=lambda: None, clock=self.clock),  # type: ignore[arg-type,return-value]
                     list_registrations=ListMyRegistrations(reader=None),  # type: ignore[arg-type]
@@ -192,7 +202,7 @@ class PublicationApiTest(unittest.TestCase):
         expected = sorted([*published, *drafts], key=lambda e: e.details.starts_at)
         self.assertEqual(ids, [str(e.event_id) for e in expected])
         self.assertIsNone(rest.json()["next_cursor"])
-        self.assertEqual(set(first.json()["items"][0]), AGGREGATE_FIELDS)
+        self.assertEqual(set(first.json()["items"][0]), {*AGGREGATE_FIELDS, "registration_count"})
         self.assertEqual({i["status"] for i in only_drafts.json()["items"]}, {"DRAFT"})
         self.assertEqual({i["published_at"] for i in only_drafts.json()["items"]}, {None})
         self.assertTrue(

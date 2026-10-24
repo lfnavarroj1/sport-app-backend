@@ -1,4 +1,5 @@
-"""Cliente HTTP de `events_management` según su OpenAPI 0.6.0 (HU021, HU024, HU023).
+"""Cliente HTTP de `events_management` según su OpenAPI 0.8.0 (HU021, HU024, HU023, HU022,
+HU025).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad, permiso y
 propiedad.
@@ -35,6 +36,34 @@ class EventsManagementClient:
             "POST",
             f"/v1/events/{event_id}/publish",
             access_token,
+            idempotency_key=idempotency_key,
+        )
+
+    def put_event_fee(
+        self, access_token: str, event_id: UUID, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU025: cuerpo y clave tal cual; el servicio responde los errores de ADR-040."""
+        return self._send(
+            "PUT",
+            f"/v1/events/{event_id}/fee",
+            access_token,
+            json=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def delete_event_fee(
+        self,
+        access_token: str,
+        event_id: UUID,
+        params: dict[str, str],
+        idempotency_key: str | None,
+    ) -> httpx.Response:
+        """HU025: `expected_version` y la clave tal como llegaron."""
+        return self._send(
+            "DELETE",
+            f"/v1/events/{event_id}/fee",
+            access_token,
+            params=params,
             idempotency_key=idempotency_key,
         )
 

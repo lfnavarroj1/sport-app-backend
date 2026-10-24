@@ -82,6 +82,16 @@ class TrainingManagementClient:
         """HU033: tablero propio; `from`/`to` tal como llegaron."""
         return self._send("GET", "/v1/me/training-dashboard", access_token, params=params)
 
+    def route_suggestions(self, access_token: str, params: list[tuple[str, str]]) -> httpx.Response:
+        """HU026: rutas sugeridas con el contexto del deportista como filtros explícitos
+        (`sport` repetible, `city`, `country_code`) y el `limit` recibido."""
+        return self._send(
+            "GET",
+            "/v1/me/suggestions/routes",
+            access_token,
+            params=httpx.QueryParams(tuple(params)),
+        )
+
     def _send(
         self,
         method: str,
@@ -90,7 +100,7 @@ class TrainingManagementClient:
         *,
         body: Any = None,
         idempotency_key: str | None = None,
-        params: dict[str, str] | None = None,
+        params: dict[str, str] | httpx.QueryParams | None = None,
         if_none_match: str | None = None,
     ) -> httpx.Response:
         """Cuerpo y clave viajan tal cual: el servicio responde los errores de ADR-029/030."""

@@ -1109,6 +1109,202 @@
         "title": "RegistrationsResponse",
         "type": "object"
       },
+      "RoutePoint": {
+        "properties": {
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lng": {
+            "title": "Lng",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lat",
+          "lng"
+        ],
+        "title": "RoutePoint",
+        "type": "object"
+      },
+      "RouteSuggestionItem": {
+        "properties": {
+          "author_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nombre del organizador; `null` si Usuarios no respondió.",
+            "title": "Author Name"
+          },
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "difficulty": {
+            "enum": [
+              "LOW",
+              "MODERATE",
+              "HIGH"
+            ],
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "distance_km": {
+            "description": "Kilómetros con exactamente un decimal.",
+            "title": "Distance Km",
+            "type": "string"
+          },
+          "published_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "reasons": {
+            "description": "Motivos de la sugerencia; vacío en la lista no personalizada.",
+            "items": {
+              "enum": [
+                "SPORT_MATCH",
+                "CITY_MATCH"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/SuggestionReference"
+          },
+          "route_id": {
+            "format": "uuid",
+            "title": "Route Id",
+            "type": "string"
+          },
+          "source": {
+            "const": "ORGANIZER",
+            "title": "Source",
+            "type": "string"
+          },
+          "sport": {
+            "enum": [
+              "running",
+              "cycling",
+              "swimming",
+              "strength",
+              "other"
+            ],
+            "title": "Sport",
+            "type": "string"
+          },
+          "start_point": {
+            "$ref": "#/components/schemas/RoutePoint",
+            "description": "Se abre en la aplicación de mapas con `geo:lat,lng`."
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Descripción de la ruta, si la tiene.",
+            "title": "Summary"
+          },
+          "title": {
+            "description": "Nombre de la ruta.",
+            "title": "Title",
+            "type": "string"
+          },
+          "waypoints": {
+            "description": "Puntos intermedios, en orden.",
+            "items": {
+              "$ref": "#/components/schemas/RoutePoint"
+            },
+            "title": "Waypoints",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reference",
+          "title",
+          "summary",
+          "reasons",
+          "route_id",
+          "sport",
+          "distance_km",
+          "difficulty",
+          "city",
+          "country_code",
+          "start_point",
+          "waypoints",
+          "source",
+          "published_at",
+          "author_name"
+        ],
+        "title": "RouteSuggestionItem",
+        "type": "object"
+      },
+      "RouteSuggestionsResponse": {
+        "properties": {
+          "generated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RouteSuggestionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "missing_context": {
+            "description": "Datos del perfil que faltan para personalizar (`sports` de HU006, `city` de HU005); ambos si Usuarios no respondió.",
+            "items": {
+              "enum": [
+                "sports",
+                "city"
+              ],
+              "type": "string"
+            },
+            "title": "Missing Context",
+            "type": "array"
+          },
+          "personalized": {
+            "description": "`false` sin deportes registrados o si Usuarios no respondió: últimas rutas publicadas (como mucho 20), sin motivos.",
+            "title": "Personalized",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "personalized",
+          "missing_context",
+          "generated_at",
+          "sources"
+        ],
+        "title": "RouteSuggestionsResponse",
+        "type": "object"
+      },
       "SessionCalendarItem": {
         "properties": {
           "duration_minutes": {
@@ -1326,6 +1522,49 @@
           "distance_meters"
         ],
         "title": "SportBreakdown",
+        "type": "object"
+      },
+      "SuggestionReference": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "route",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "title": "SuggestionReference",
+        "type": "object"
+      },
+      "SuggestionSource": {
+        "properties": {
+          "source": {
+            "const": "users",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "OK",
+              "UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "status"
+        ],
+        "title": "SuggestionSource",
         "type": "object"
       },
       "TrainingDashboardResponse": {
@@ -1685,7 +1924,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.9.0"
+    "version": "0.10.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2339,6 +2578,114 @@
         "summary": "Mis inscripciones a eventos (HU041)",
         "tags": [
           "event-registrations"
+        ]
+      }
+    },
+    "/v1/me/suggestions/routes": {
+      "get": {
+        "description": "Rutas publicadas por organizadores para los deportes del deportista: primero las de su ciudad, luego por distancia, con `reasons`. Sin deportes registrados o sin respuesta de Usuarios: las últimas publicadas, `personalized: false` y `missing_context`. Una ruta retirada no se sugiere. Una sugerencia no garantiza la seguridad de la ruta.",
+        "operationId": "route_suggestions_v1_me_suggestions_routes_get",
+        "parameters": [
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteSuggestionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.routes.suggest`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.limit` (`out_of_range`, también si no es un entero)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: plan no verificable o Entrenamientos caído (si solo falla Usuarios, la lista se entrega sin personalizar)."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: plan o Entrenamientos sin respuesta."
+          }
+        },
+        "summary": "Rutas sugeridas (HU026)",
+        "tags": [
+          "suggestions"
         ]
       }
     },

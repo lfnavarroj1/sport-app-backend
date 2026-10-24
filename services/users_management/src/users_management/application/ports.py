@@ -179,6 +179,36 @@ class NutritionRestrictions:
     version: int | None
 
 
+class AthleteContextReader(Protocol):
+    """Contexto del deportista proyectado en `athlete_profile_view` (ADR-041, HU026).
+
+    `None` si no hay una cuenta activa con ese identificador; los campos vacíos o `None` si
+    la cuenta aún no registró la sección correspondiente (HU005 o HU006).
+    `ReadModelUnavailable` si la base de lectura no responde.
+    """
+
+    def find(self, user_id: UUID) -> "AthleteContext | None": ...
+
+
+@dataclass(frozen=True)
+class AthleteContext:
+    """Contrato interno de ADR-041: deportes y objetivo (HU006), ciudad, país y fecha de
+    nacimiento (HU005). Datos personales: nunca en trazas ni logs."""
+
+    sports: tuple[str, ...]
+    primary_goal: str | None
+    city: str | None
+    country_code: str | None
+    birth_date: str | None
+
+    def __repr__(self) -> str:
+        return f"AthleteContext(sports={len(self.sports)})"
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.sports and self.city is None and self.birth_date is None
+
+
 @dataclass(frozen=True)
 class UserDisplay:
     """Nombre y correo de una cuenta activa (HU011, CA5). Datos personales: solo los recibe el

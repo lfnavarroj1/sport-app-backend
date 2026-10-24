@@ -140,7 +140,7 @@ class AthleteCapabilitiesTest(unittest.TestCase):
         )
         self.assertEqual(body["capabilities"], FREE_CAPABILITIES)
         self.assertEqual(body["permissions"], [])
-        self.assertEqual(body["authorization_policy_version"], "actor-permissions.v1")
+        self.assertEqual(body["authorization_policy_version"], "actor-permissions.v2")
         self.assertEqual(
             upstream.affiliation_paths, [f"/v1/subscriptions/by-user/{user_id}/capabilities"]
         )

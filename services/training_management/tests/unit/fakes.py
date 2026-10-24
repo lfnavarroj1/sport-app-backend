@@ -26,6 +26,7 @@ from training_management.domain.authorizations.model import TrainingAuthorizatio
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import TrainingPlan
+from training_management.domain.routes.model import Route
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
 
@@ -190,6 +191,7 @@ class InMemoryReadStore:
     planned: dict[UUID, PlanView] = field(default_factory=dict)
     metric_results: dict[UUID, TrainingMetricCalculation] = field(default_factory=dict)
     nutrition_plans: dict[UUID, NutritionPlan] = field(default_factory=dict)
+    routes: dict[UUID, Route] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -245,6 +247,7 @@ class InMemoryProjectionUnitOfWork:
         self._planned: list[PlanView] = []
         self._metrics: list[TrainingMetricCalculation] = []
         self._nutrition: list[NutritionPlan] = []
+        self._routes: list[Route] = []
 
     def __enter__(self) -> Self:
         return self
@@ -257,7 +260,7 @@ class InMemoryProjectionUnitOfWork:
     ) -> None:
         self._views, self._processed, self._authorizations, self._sessions = [], [], [], []
         self._active, self._removed, self._planned, self._metrics = [], [], [], []
-        self._nutrition = []
+        self._nutrition, self._routes = [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -311,6 +314,13 @@ class InMemoryProjectionUnitOfWork:
     def save_nutrition_plan_view(self, plan: NutritionPlan, projected_at: datetime) -> None:
         self._nutrition.append(plan)
 
+    def route_version(self, route_id: UUID) -> int | None:
+        route = self.store.routes.get(route_id)
+        return route.version if route is not None else None
+
+    def save_route_view(self, route: Route, projected_at: datetime) -> None:
+        self._routes.append(route)
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -339,6 +349,8 @@ class InMemoryProjectionUnitOfWork:
             self.store.metric_results[calculation.calculation_id] = calculation
         for plan in self._nutrition:
             self.store.nutrition_plans[plan.plan_id] = plan
+        for route in self._routes:
+            self.store.routes[route.route_id] = route
         for event_id, event_type, aggregate_id in self._processed:
             self.store.processed[event_id] = (event_type, aggregate_id)
 

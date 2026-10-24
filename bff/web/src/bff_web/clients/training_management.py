@@ -1,4 +1,4 @@
-"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011 y HU014).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU014 y HU026).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad,
 permiso, capacidad y autorización del deportista.
@@ -77,6 +77,28 @@ class TrainingManagementClient:
         """HU014: catálogo cerrado de alimentos con `ETag`; `304` si `If-None-Match` coincide."""
         headers = {IF_NONE_MATCH_HEADER: if_none_match} if if_none_match is not None else None
         return self._send("GET", "/v1/food-catalog", access_token, headers=headers)
+
+    def publish_route(
+        self, access_token: str, payload: dict[str, Any], idempotency_key: UUID
+    ) -> httpx.Response:
+        """HU026: publicar una ruta (ADR-041)."""
+        return self._send(
+            "POST",
+            "/v1/routes",
+            access_token,
+            json=payload,
+            headers={IDEMPOTENCY_HEADER: str(idempotency_key)},
+        )
+
+    def retire_route(
+        self, access_token: str, route_id: UUID, payload: dict[str, Any]
+    ) -> httpx.Response:
+        """HU026: retirar una ruta propia con `expected_version`."""
+        return self._send("POST", f"/v1/routes/{route_id}/retire", access_token, json=payload)
+
+    def list_my_routes(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU026: rutas del organizador del token (lectura CQRS)."""
+        return self._send("GET", "/v1/me/routes", access_token, params=params)
 
     def _send(
         self,

@@ -18,6 +18,7 @@ from training_management.api.history import build_history_router
 from training_management.api.nutrition_plans import build_nutrition_plans_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
+from training_management.api.routes import build_routes_router
 from training_management.api.training_dashboard import build_training_dashboard_router
 from training_management.api.training_metrics import build_training_metrics_router
 from training_management.api.training_sessions import build_training_sessions_router
@@ -30,6 +31,7 @@ from training_management.application.commands.calculate_training_metric import (
 )
 from training_management.application.commands.create_nutrition_plan import CreateNutritionPlan
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
+from training_management.application.commands.routes import PublishRoute, RetireRoute
 from training_management.application.commands.training_sessions import (
     FinishTrainingSession,
     StartTrainingSession,
@@ -43,6 +45,7 @@ from training_management.application.queries.nutrition_plans import (
     ListMyNutritionPlans,
 )
 from training_management.application.queries.planned_sessions import GetPlannedSessions
+from training_management.application.queries.routes import ListMyRoutes, SuggestRoutes
 from training_management.application.queries.training_dashboard import GetTrainingDashboard
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.application.queries.training_metrics import (
@@ -71,6 +74,7 @@ from training_management.infrastructure.persistence_read.nutrition import (
     SqlAlchemyNutritionPlanReader,
 )
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
+from training_management.infrastructure.persistence_read.routes import SqlAlchemyRouteReader
 from training_management.infrastructure.persistence_write.food_catalog import (
     FoodCatalogReadinessCheck,
     SqlAlchemyFoodCatalogReader,
@@ -80,12 +84,13 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyMetricUnitOfWork,
     SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
+    SqlAlchemyRouteUnitOfWork,
     SqlAlchemySessionUnitOfWork,
 )
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.10.0"
+API_VERSION = "0.11.0"
 
 
 def create_app(
@@ -124,6 +129,7 @@ def create_app(
     capabilities = AffiliationCapabilityChecker(affiliation_http)
     food_catalog = SqlAlchemyFoodCatalogReader(writes)
     authorization_views = SqlAlchemyAuthorizationReader(reads)
+    route_views = SqlAlchemyRouteReader(reads)
     return create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - Entrenamientos",
@@ -232,6 +238,21 @@ def create_app(
             ),
             build_food_catalog_router(
                 verify_token=verifier.verify, get_catalog=GetFoodCatalog(catalog=food_catalog)
+            ),
+            build_routes_router(
+                verify_token=verifier.verify,
+                publish=PublishRoute(
+                    unit_of_work=lambda: SqlAlchemyRouteUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                retire=RetireRoute(
+                    unit_of_work=lambda: SqlAlchemyRouteUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                list_routes=ListMyRoutes(reader=route_views, permissions=permissions),
+                suggest=SuggestRoutes(reader=route_views, capabilities=capabilities),
             ),
         ],
         shutdown_hooks=[

@@ -17,6 +17,8 @@ PLAN_MANAGE_CAPABILITY = "training.plan.manage"
 METRICS_CAPABILITY = "training.metrics.ftp_vo2max"
 DASHBOARD_CAPABILITY = "training.dashboard.view"
 NUTRITION_PLAN_AUTHOR_PERMISSION = "nutrition.plan.author"
+ROUTE_AUTHOR_PERMISSION = "training.routes.author"
+ROUTE_SUGGEST_CAPABILITY = "training.routes.suggest"
 
 
 def require_plan_author(caller: Caller, permissions: PermissionPolicy) -> None:
@@ -28,6 +30,13 @@ def require_nutrition_plan_author(caller: Caller, permissions: PermissionPolicy)
     """HU014 (ADR-037): crear o consultar como autor un plan de alimentación exige el permiso
     por actor `nutrition.plan.author`."""
     if not permissions.allows(caller.actor_type, NUTRITION_PLAN_AUTHOR_PERMISSION):
+        raise PermissionRequired()
+
+
+def require_route_author(caller: Caller, permissions: PermissionPolicy) -> None:
+    """HU026 (ADR-041): publicar, retirar y listar rutas propias exige el permiso por actor
+    `training.routes.author` (`actor-permissions.v2`, solo `organizer` en web)."""
+    if not permissions.allows(caller.actor_type, ROUTE_AUTHOR_PERMISSION):
         raise PermissionRequired()
 
 
@@ -56,4 +65,12 @@ def require_dashboard_capability(caller: Caller, capabilities: CapabilityChecker
     Afiliación antes de leer."""
     require_athlete(caller)
     if not capabilities.has_capability(caller.user_id, DASHBOARD_CAPABILITY):
+        raise CapabilityRequired()
+
+
+def require_route_suggest_capability(caller: Caller, capabilities: CapabilityChecker) -> None:
+    """HU026 (ADR-041): las sugerencias de rutas exigen `athlete` con
+    `training.routes.suggest`. Consulta Afiliación antes de leer."""
+    require_athlete(caller)
+    if not capabilities.has_capability(caller.user_id, ROUTE_SUGGEST_CAPABILITY):
         raise CapabilityRequired()

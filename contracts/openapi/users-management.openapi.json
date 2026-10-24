@@ -33,6 +33,75 @@
         "title": "Allergy",
         "type": "string"
       },
+      "AthleteContextResponse": {
+        "properties": {
+          "birth_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fecha de nacimiento de HU005; `null` sin perfil demográfico.",
+            "title": "Birth Date"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ciudad de HU005; `null` sin perfil demográfico.",
+            "title": "City"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 3166-1 alfa-2 de HU005; `null` sin perfil demográfico.",
+            "title": "Country Code"
+          },
+          "primary_goal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrimaryGoal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Objetivo principal de HU006; `null` si no lo registró."
+          },
+          "sports": {
+            "description": "Deportes de HU006 en el orden del catálogo; vacío sin hábitos.",
+            "items": {
+              "$ref": "#/components/schemas/Sport"
+            },
+            "title": "Sports",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sports",
+          "primary_goal",
+          "city",
+          "country_code",
+          "birth_date"
+        ],
+        "title": "AthleteContextResponse",
+        "type": "object"
+      },
       "AthleteProfileResponse": {
         "properties": {
           "demographic": {
@@ -1639,7 +1708,7 @@
   },
   "info": {
     "title": "SportApp - Usuarios",
-    "version": "0.11.0"
+    "version": "0.12.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3218,6 +3287,98 @@
           }
         },
         "summary": "Nombre y correo de un lote de cuentas activas (interno, HU011)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/{user_id}/athlete-context": {
+      "get": {
+        "description": "Solo para `bff-mobile` (HU026), dentro de la red de la plataforma y sin token. Una cuenta activa sin perfil responde con `sports` vacío y los demás campos en `null`. Datos personales: `no-store`.",
+        "operationId": "athlete_context_v1_users__user_id__athlete_context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "No se envía: con ella la solicitud se rechaza (`403`).",
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "No se envía: con ella la solicitud se rechaza (`403`).",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AthleteContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: la solicitud trae `Authorization` (un cliente no puede usar este contrato interno)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`user_not_found`: no hay una cuenta activa con ese identificador."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: la base de lectura no responde."
+          }
+        },
+        "summary": "Contexto del deportista para sugerencias (interno, ADR-041)",
         "tags": [
           "users"
         ]

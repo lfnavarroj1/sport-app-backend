@@ -23,6 +23,7 @@ from training_management.application.ports import (
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.events import planned_session_id
+from training_management.domain.routes.model import Route
 from training_management.infrastructure.persistence_read.metrics import (
     metric_result,
     metric_result_values,
@@ -33,6 +34,7 @@ from training_management.infrastructure.persistence_read.models import (
     ActiveTrainingSessionRow,
     NutritionPlanViewRow,
     ProcessedEventRow,
+    RouteViewRow,
     TrainingAuthorizationViewRow,
     TrainingMetricResultRow,
     TrainingPlanSessionViewRow,
@@ -40,6 +42,7 @@ from training_management.infrastructure.persistence_read.models import (
     TrainingSessionHistoryRow,
 )
 from training_management.infrastructure.persistence_read.nutrition import nutrition_plan_values
+from training_management.infrastructure.persistence_read.routes import route_view_values
 
 
 def _sessions_document(view: PlanView) -> list[dict[str, Any]]:
@@ -301,6 +304,22 @@ class SqlAlchemyProjectionUnitOfWork:
             statement.on_conflict_do_update(
                 index_elements=["plan_id"],
                 set_={key: statement.excluded[key] for key in values if key != "plan_id"},
+            )
+        )
+
+    def route_version(self, route_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(RouteViewRow.version).where(RouteViewRow.route_id == route_id).with_for_update()
+        )
+        return version
+
+    def save_route_view(self, route: Route, projected_at: datetime) -> None:
+        values = route_view_values(route, projected_at)
+        statement = insert(RouteViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["route_id"],
+                set_={key: statement.excluded[key] for key in values if key != "route_id"},
             )
         )
 

@@ -159,6 +159,7 @@ class CapabilitiesFlowTest(unittest.TestCase):
 
         self.assertEqual(organizer_view["subscription_status"], "NOT_APPLICABLE")
         self.assertIn("events.create", organizer_view["permissions"])
+        self.assertIn("training.routes.author", organizer_view["permissions"])
         self.assertNotIn("services.create", organizer_view["permissions"])
         self.assertIn("services.create", provider_view["permissions"])
         self.assertIn("services.publish", provider_view["permissions"])

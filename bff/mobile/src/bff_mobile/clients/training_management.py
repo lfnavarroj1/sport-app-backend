@@ -132,6 +132,14 @@ class TrainingManagementClient:
             body=body,
         )
 
+    def monitoring_settings(self, access_token: str) -> httpx.Response:
+        """HU036: umbral de alerta vigente del deportista del token."""
+        return self._send("GET", "/v1/me/monitoring-settings", access_token)
+
+    def update_monitoring_settings(self, access_token: str, body: Any) -> httpx.Response:
+        """HU036: reemplazar el umbral; el cuerpo viaja tal cual (PUT idempotente)."""
+        return self._send("PUT", "/v1/me/monitoring-settings", access_token, body=body)
+
     def _send(
         self,
         method: str,
@@ -157,6 +165,8 @@ class TrainingManagementClient:
                 return self._http.get(path, headers=headers, params=params)
             if method == "DELETE":
                 return self._http.delete(path, headers=headers)
+            if method == "PUT":
+                return self._http.put(path, json=body, headers=headers)
             return self._http.post(path, json=body, headers=headers)
         except httpx.TimeoutException:
             raise UpstreamTimeout() from None

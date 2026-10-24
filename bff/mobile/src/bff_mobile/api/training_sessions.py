@@ -5,11 +5,14 @@ clave de idempotencia y correlación sin reinterpretarlos: el deportista sale de
 y las reglas (capacidad, plan, transiciones, ventanas de tiempo, idempotencia) y sus
 errores los decide `training_management` y se entregan sin alterar. La app reintenta
 solo ante pérdida de red, `502`, `503` o `504`, con la misma clave (ADR-026, ADR-029).
+HU036 (ADR-044 §10): la finalización acepta `reason: RISK_STOP` («Detener la práctica») y la
+sesión lo devuelve en `end_reason`.
 """
 
 import logging
 from collections.abc import Callable
 from datetime import datetime
+from enum import StrEnum
 from http import HTTPStatus
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -36,6 +39,12 @@ _logger = logging.getLogger("sportapp.bff")
 Sport = Literal["running", "cycling", "swimming", "strength", "other"]
 
 
+class SessionEndReason(StrEnum):
+    """HU036: motivo de la finalización (catálogo del servicio; el BFF solo lo documenta)."""
+
+    RISK_STOP = "RISK_STOP"
+
+
 class StartTrainingSessionRequest(BaseModel):
     """Esquema documentado del inicio; la validación la hace el servicio (ADR-029)."""
 
@@ -54,6 +63,13 @@ class FinishTrainingSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ended_at: Annotated[datetime, Field(description=INSTANT, examples=["2026-10-12T13:15:00Z"])]
+    reason: Annotated[
+        SessionEndReason | None,
+        Field(
+            description="HU036: `RISK_STOP` al detener la práctica tras una alerta de riesgo; "
+            "opcional."
+        ),
+    ] = None
 
 
 class TrainingSessionResponse(BaseModel):
@@ -72,6 +88,10 @@ class TrainingSessionResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    end_reason: Annotated[
+        SessionEndReason | None,
+        Field(description="Motivo de la finalización (HU036); `null` si no se indicó."),
+    ] = None
 
 
 class ActiveTrainingSessionResponse(BaseModel):

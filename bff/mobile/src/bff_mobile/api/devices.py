@@ -1,8 +1,9 @@
-"""HU037 en el canal móvil: dispositivos de medición y mediciones en vivo (ADR-044).
+"""HU037 y HU036 en el canal móvil: dispositivos, mediciones en vivo y umbral (ADR-044).
 
 El BFF autentica (JWKS), exige `athlete` y la capacidad vigente en Afiliación antes de llamar
 a Entrenamientos: `devices.measurement.connect` para vincular, listar y revocar dispositivos;
-`training.realtime.monitor` para enviar mediciones de una sesión. Después reenvía cuerpo,
+`training.realtime.monitor` para enviar mediciones de una sesión y, desde HU036, para leer y
+configurar el umbral (`/v1/me/monitoring-settings`). Después reenvía cuerpo,
 `Idempotency-Key` y correlación sin reinterpretarlos: el deportista sale del token y las reglas
 (formato del `device_id`, nombre, idempotencia, ventanas de las muestras, sesión activa, estado
 del dispositivo) y sus errores los decide `training_management`, que vuelve a verificar todo.
@@ -25,6 +26,11 @@ from fastapi import APIRouter, Body, Header, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from bff_mobile.api.monitoring_settings import (
+    AlertSeverity,
+    EvaluationStatus,
+    add_monitoring_settings_routes,
+)
 from bff_mobile.clients.training_management import TrainingManagementClient
 from bff_mobile.clients.users_management import UpstreamTimeout, UpstreamUnavailable
 from sportapp_platform.errors import ErrorResponse, error_response
@@ -128,8 +134,30 @@ class RejectedSample(BaseModel):
     ]
 
 
+class RiskAlertResponse(BaseModel):
+    """HU036: alerta nueva del lote (como máximo una cada 60 s por sesión)."""
+
+    alert_id: Annotated[UUID, Field(description="Estable ante reenvíos del mismo lote.")]
+    rule: Literal["HR_ABOVE_THRESHOLD_V1"]
+    severity: AlertSeverity
+    message: Annotated[str, Field(description="Texto fijo aprobado, con el aviso no diagnóstico.")]
+    instruction: Annotated[str, Field(description="Reducir la intensidad o detener la práctica.")]
+    detected_at: Annotated[
+        datetime, Field(description="Instante UTC de la muestra que completó la ventana de 15 s.")
+    ]
+
+
+class EvaluationResponse(BaseModel):
+    """HU036: `NO_DATA` si la última muestra tiene más de 30 s (pérdida de monitoreo); `RISK`
+    con 15 s consecutivos sobre el umbral; `OK` en otro caso. No es un diagnóstico médico."""
+
+    status: EvaluationStatus
+    alerts: list[RiskAlertResponse]
+
+
 class MeasurementBatchResponse(BaseModel):
-    """Resultado del lote: aceptadas, duplicadas (idempotencia natural) y rechazadas."""
+    """Resultado del lote: aceptadas, duplicadas (idempotencia natural), rechazadas y la
+    evaluación de riesgo del mismo ciclo (HU036)."""
 
     session_id: UUID
     device_id: DeviceId
@@ -137,6 +165,7 @@ class MeasurementBatchResponse(BaseModel):
     accepted: int
     duplicates: int
     rejected: list[RejectedSample]
+    evaluation: EvaluationResponse
 
 
 def _request_body(model: type[BaseModel]) -> dict[str, Any]:
@@ -382,7 +411,7 @@ def build_devices_router(
     @router.post(
         "/v1/training-sessions/{session_id}/measurements",
         response_model=MeasurementBatchResponse,
-        summary="Enviar mediciones en vivo de una sesión propia (HU037)",
+        summary="Enviar mediciones en vivo y recibir su evaluación de riesgo (HU037, HU036)",
         openapi_extra=_request_body(MeasurementBatchRequest),
         responses={
             **_edge(REALTIME_CAPABILITY),
@@ -425,4 +454,13 @@ def build_devices_router(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    add_monitoring_settings_routes(
+        router,
+        authorized_token=lambda authorization: authorized_token(authorization, REALTIME_CAPABILITY),
+        relay=relay,
+        training=training,
+        responses=_edge(REALTIME_CAPABILITY),
+        edge_statuses=_EDGE_STATUSES,
+        request_body=_request_body,
+    )
     return router

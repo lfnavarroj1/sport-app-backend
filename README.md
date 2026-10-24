@@ -403,6 +403,13 @@ Detalles de HU024 (ADR-033, aceptada el 2026-10-12; decisiones de la tarea del 2
 - **Migraciones:** escritura `0004_event_publication` (`event.published_at` y la restricción `(status = 'PUBLISHED') = (published_at IS NOT NULL)`; un `PUBLISHED` sembrado antes recibe `published_at = updated_at`, decisión del responsable); lectura `0005_event_read_publication` (`event_read.published_at`). ADR-033 las sugería como `0003`/`0004`, que ya tomó HU041.
 - **Auditoría:** `audit.event_published` con resultado (`published`, `already_published`, `replayed`, `rejected` con `reason`), `event_id`, `organizer_id` y correlación; sin textos libres, ubicación ni token.
 
+Detalles de HU018 en Eventos (T-HU018-BE-EVT) (ADR-039, aceptada el 2026-10-12; tarea complementaria del 2026-10-24):
+
+- **Quién:** `GET /v1/events` (`events-management` 0.9.0) admite además `service_provider` con el permiso por actor `calendar.integrated.view` (`contracts/authorization/actor-permissions.v2.json`, canal web), sin consultar Afiliación. Es la fuente `EVENT_PUBLISHED` del calendario integrado del profesional que compone `bff-web` (ADR-039, tabla de fuentes). Sin el permiso, o cualquier actor distinto de `athlete`, `organizer` y `service_provider`, recibe `403 permission_required`.
+- **Semántica:** la misma consulta, filtros (`discipline`, `city`), límites (`limit` 1–200, ventana de 92 días), orden y cursor keyset que para los demás actores; solo eventos `PUBLISHED` (los `DRAFT` siguen ocultos) y sin `organizer_id`. El periodo sigue ADR-031 (`from ≤ to`, como el deportista); `from == to` solo es error para el organizador (HU023). Sin consultas, migraciones ni eventos nuevos.
+- **Pruebas:** unitarias de la consulta (superposición, igualdad con el resultado del deportista, permiso, filtros, periodo, límites y keyset), de API (esquema sin borradores, errores) y de contrato contra el `actor-permissions.v2` real (`tests/contract/test_provider_permission.py`).
+- **Por ratificar:** el permiso exigido es `calendar.integrated.view`, el que el contrato de permisos ya concede al profesional para HU018; ADR-039 no nombra un permiso propio para esta fuente.
+
 Detalles de HU022 (ADR-039, aceptada el 2026-10-12; tarea del 2026-10-24):
 
 - **Quién:** solo `organizer` con el permiso por actor `events.attendees.view`, filtrado en `bff-web` y de nuevo en el servicio (`403 permission_required`); el evento debe ser propio: uno ajeno o inexistente es `404 event_not_found`, sin revelar participantes (CA2).

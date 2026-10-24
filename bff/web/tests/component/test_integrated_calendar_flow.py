@@ -349,7 +349,7 @@ class IntegratedCalendarFlowTest(EventFlowCase):
         organizer = self.session_for("organizer")
         too_long = self.bff.get(
             PATH,
-            params={"from": "2099-01-01T00:00:00Z", "to": "2099-04-03T00:00:00Z"},
+            params={"from": "2099-01-01T00:00:00Z", "to": "2099-04-03T00:00:01Z"},
             headers=organizer,
         )
         self.assertEqual(too_long.status_code, 422)

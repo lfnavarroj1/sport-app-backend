@@ -1,8 +1,8 @@
 """Eventos de dominio de la cuenta.
 
-El payload es el mínimo aprobado para `usuario.registrado.v1`: identidad y
-perfil básico que necesita el proyector de lectura. Nunca incluye la
-contraseña ni su hash.
+El payload de `usuario.registrado.v1` es el mínimo aprobado: identidad y perfil básico que
+necesita el proyector de lectura. `usuario.actualizado.v1` (HU002, ADR-035) lleva el estado
+completo de la cuenta editable. Ninguno incluye la contraseña, su hash ni las políticas.
 """
 
 from dataclasses import dataclass
@@ -10,7 +10,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from users_management.domain.account.model import UserAccount
+from users_management.domain.account.model import AccountDetails, UserAccount
+from users_management.domain.profile.validation import format_instant
 
 AGGREGATE_TYPE = "user_account"
 
@@ -49,3 +50,25 @@ class UserRegistered:
             "status": self.status,
             "registered_at": self.registered_at.isoformat(),
         }
+
+
+def account_document(account: AccountDetails) -> dict[str, Any]:
+    """Cuenta confirmada: cuerpo de `PUT /v1/me/account` y payload de
+    `usuario.actualizado.v1`. Instantes en UTC con sufijo `Z`."""
+    return {
+        "user_id": str(account.user_id),
+        "full_name": account.full_name,
+        "email": account.email,
+        "actor_type": account.actor_type.value,
+        "status": account.status.value,
+        "version": account.version,
+        "updated_at": format_instant(account.updated_at),
+    }
+
+
+class UserUpdated:
+    """`usuario.actualizado.v1`: `aggregate_version` = versión de la cuenta y
+    `ordering_key = aggregate_id = user_id` (ADR-035)."""
+
+    EVENT_TYPE = "usuario.actualizado.v1"
+    SCHEMA_VERSION = 1

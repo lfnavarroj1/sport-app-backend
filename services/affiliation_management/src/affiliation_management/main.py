@@ -6,12 +6,17 @@ import httpx
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
+from affiliation_management.api.account_statement import build_account_statement_router
 from affiliation_management.api.capabilities import build_capabilities_router
 from affiliation_management.api.subscriptions import build_subscriptions_router
 from affiliation_management.application.commands.change_subscription import ChangeSubscription
+from affiliation_management.application.queries.account_statement import GetMyAccountStatement
 from affiliation_management.application.queries.subscriptions import GetMySubscription, ListPlans
 from affiliation_management.application.queries.user_capabilities import GetUserCapabilities
 from affiliation_management.infrastructure.clock import SystemClock
+from affiliation_management.infrastructure.persistence.account_statement import (
+    SqlAlchemyAccountStatementReader,
+)
 from affiliation_management.infrastructure.persistence.catalog import (
     CatalogReadinessCheck,
     SqlAlchemyCapabilitiesReader,
@@ -28,7 +33,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "affiliation-management"
-API_VERSION = "0.3.0"
+API_VERSION = "0.4.0"
 
 
 def create_app(
@@ -82,6 +87,12 @@ def create_app(
                     unit_of_work=lambda: SqlAlchemySubscriptionChangeUnitOfWork(sessions),
                     catalog=catalog,
                     clock=clock,
+                ),
+            ),
+            build_account_statement_router(
+                verify_token=verifier.verify,
+                get_statement=GetMyAccountStatement(
+                    reader=SqlAlchemyAccountStatementReader(sessions), clock=clock
                 ),
             ),
         ],

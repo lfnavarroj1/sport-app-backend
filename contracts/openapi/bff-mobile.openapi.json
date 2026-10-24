@@ -1118,6 +1118,34 @@
         "title": "MyRegistration",
         "type": "object"
       },
+      "NextInterval": {
+        "properties": {
+          "ends_at": {
+            "description": "Instante en UTC con sufijo `Z` (exclusivo).",
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el profesional; el cliente convierte.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "time_zone"
+        ],
+        "title": "NextInterval",
+        "type": "object"
+      },
       "RefreshSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1480,6 +1508,217 @@
         ],
         "title": "SampleIssue",
         "type": "string"
+      },
+      "ServiceFee": {
+        "description": "Tarifa informativa del servicio (ADR-027): no es un cobro ni una contratación.",
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal en COP, máximo dos decimales.",
+            "title": "Amount",
+            "type": "string"
+          },
+          "billing_unit": {
+            "enum": [
+              "SERVICE",
+              "SESSION",
+              "HOUR",
+              "DAY"
+            ],
+            "title": "Billing Unit",
+            "type": "string"
+          },
+          "currency": {
+            "const": "COP",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "billing_unit"
+        ],
+        "title": "ServiceFee",
+        "type": "object"
+      },
+      "ServiceReference": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "service",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "title": "ServiceReference",
+        "type": "object"
+      },
+      "ServiceSuggestionItem": {
+        "properties": {
+          "author_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nombre del profesional; `null` si Usuarios no respondió.",
+            "title": "Author Name"
+          },
+          "category": {
+            "enum": [
+              "COACHING",
+              "TRANSPORT",
+              "ACCOMPANIMENT"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "fee": {
+            "$ref": "#/components/schemas/ServiceFee"
+          },
+          "modality": {
+            "enum": [
+              "IN_PERSON",
+              "VIRTUAL",
+              "HYBRID"
+            ],
+            "title": "Modality",
+            "type": "string"
+          },
+          "next_interval": {
+            "$ref": "#/components/schemas/NextInterval",
+            "description": "Intervalo que justifica el motivo: el primero que coincide con un día de evento, o el primero disponible."
+          },
+          "reasons": {
+            "description": "`EVENT_LOGISTICS`: transporte o acompañamiento disponible el día de un evento inscrito (en la zona del evento); `UPCOMING_AVAILABILITY`: entrenamiento con disponibilidad en los próximos 31 días.",
+            "items": {
+              "enum": [
+                "EVENT_LOGISTICS",
+                "UPCOMING_AVAILABILITY"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/ServiceReference"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Descripción del servicio.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "description": "Nombre del servicio.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "title",
+          "summary",
+          "reasons",
+          "service_id",
+          "category",
+          "modality",
+          "fee",
+          "next_interval",
+          "author_name"
+        ],
+        "title": "ServiceSuggestionItem",
+        "type": "object"
+      },
+      "ServiceSuggestionSource": {
+        "properties": {
+          "source": {
+            "enum": [
+              "events",
+              "users"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "OK",
+              "UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "status"
+        ],
+        "title": "ServiceSuggestionSource",
+        "type": "object"
+      },
+      "ServiceSuggestionsResponse": {
+        "properties": {
+          "generated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceSuggestionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "missing_context": {
+            "description": "`event_registrations` sin inscripciones vigentes o si Eventos no respondió: solo se sugiere entrenamiento con disponibilidad próxima. Una lista vacía sin `missing_context` significa que no hay servicios que coincidan.",
+            "items": {
+              "const": "event_registrations",
+              "type": "string"
+            },
+            "title": "Missing Context",
+            "type": "array"
+          },
+          "personalized": {
+            "description": "`true` si se evaluaron inscripciones vigentes del deportista (eventos de los próximos 31 días).",
+            "title": "Personalized",
+            "type": "boolean"
+          },
+          "sources": {
+            "description": "Fuentes opcionales: `events` (motivo logístico) y `users` (nombre del profesional).",
+            "items": {
+              "$ref": "#/components/schemas/ServiceSuggestionSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "personalized",
+          "missing_context",
+          "generated_at",
+          "sources"
+        ],
+        "title": "ServiceSuggestionsResponse",
+        "type": "object"
       },
       "SessionCalendarItem": {
         "properties": {
@@ -2319,7 +2558,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.12.0"
+    "version": "0.13.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3465,6 +3704,114 @@
           }
         },
         "summary": "Rutas sugeridas (HU026)",
+        "tags": [
+          "suggestions"
+        ]
+      }
+    },
+    "/v1/me/suggestions/services": {
+      "get": {
+        "description": "Servicios publicados con disponibilidad en los próximos 31 días: transporte y acompañamiento disponibles el día de un evento inscrito (`EVENT_LOGISTICS`, primero) y entrenamiento con disponibilidad próxima (`UPCOMING_AVAILABILITY`), por inicio del intervalo. Nunca medicina deportiva. Sin inscripciones vigentes: `personalized: false` y `missing_context`. Si Eventos no responde, la lista llega sin el motivo logístico y `sources` lo declara. Sugerir no contrata ni reserva: la tarifa es informativa.",
+        "operationId": "service_suggestions_v1_me_suggestions_services_get",
+        "parameters": [
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceSuggestionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`services.support.suggest`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.limit` (`out_of_range`, también si no es un entero)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: plan no verificable o Servicios caído (si solo falla Eventos o Usuarios, la lista se entrega degradada)."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: plan o Servicios sin respuesta."
+          }
+        },
+        "summary": "Servicios de acompañamiento y logística sugeridos (HU029)",
         "tags": [
           "suggestions"
         ]

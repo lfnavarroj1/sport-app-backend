@@ -1,6 +1,194 @@
 {
   "components": {
     "schemas": {
+      "AccountReadResponse": {
+        "description": "Cuenta proyectada (consistencia eventual): tras un comando, si `version` es menor que\nla confirmada, el cliente conserva la respuesta del comando y reintenta la consulta.",
+        "properties": {
+          "actor_type": {
+            "enum": [
+              "athlete",
+              "organizer",
+              "service_provider"
+            ],
+            "title": "Actor Type",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "projected_at": {
+            "description": "Última proyección aplicada, en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Projected At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "disabled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "full_name",
+          "email",
+          "actor_type",
+          "status",
+          "version",
+          "projected_at"
+        ],
+        "title": "AccountReadResponse",
+        "type": "object"
+      },
+      "AccountResponse": {
+        "description": "Cuenta confirmada después del `COMMIT` (no espera la proyección).",
+        "properties": {
+          "actor_type": {
+            "enum": [
+              "athlete",
+              "organizer",
+              "service_provider"
+            ],
+            "title": "Actor Type",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "disabled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "full_name",
+          "email",
+          "actor_type",
+          "status",
+          "version",
+          "updated_at"
+        ],
+        "title": "AccountResponse",
+        "type": "object"
+      },
+      "AccountStatementResponse": {
+        "properties": {
+          "balance": {
+            "description": "Siempre `null`: no hay dominio de pagos (R-13).",
+            "title": "Balance",
+            "type": "null"
+          },
+          "commitments": {
+            "description": "De la suscripción vigente y de las anteriores cuyo periodo no terminó; orden `period_start` descendente.",
+            "items": {
+              "$ref": "#/components/schemas/CommitmentItem"
+            },
+            "title": "Commitments",
+            "type": "array"
+          },
+          "movements": {
+            "description": "Página de movimientos, orden `occurred_at DESC, movement_id DESC`.",
+            "items": {
+              "$ref": "#/components/schemas/MovementItem"
+            },
+            "title": "Movements",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente de movimientos; `null` si no hay más.",
+            "title": "Next Cursor"
+          },
+          "payments_status": {
+            "const": "NOT_INTEGRATED",
+            "description": "SportApp no registra pagos: la información financiera no está confirmada.",
+            "title": "Payments Status",
+            "type": "string"
+          },
+          "statement_status": {
+            "description": "`NOT_APPLICABLE`: organizador o profesional; `PROVISIONING`: alta gratuita en curso; `NONE`: sin suscripción activa pero con historial. `PROVISIONING` y `NOT_APPLICABLE` llevan listas vacías; ninguno es un error.",
+            "enum": [
+              "ACTIVE",
+              "PROVISIONING",
+              "NOT_APPLICABLE",
+              "NONE"
+            ],
+            "title": "Statement Status",
+            "type": "string"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "La vigente (como `GET /v1/me/subscription`); `null` sin activa."
+          }
+        },
+        "required": [
+          "statement_status",
+          "subscription",
+          "commitments",
+          "movements",
+          "next_cursor",
+          "payments_status",
+          "balance"
+        ],
+        "title": "AccountStatementResponse",
+        "type": "object"
+      },
       "AppliedFee": {
         "properties": {
           "amount": {
@@ -373,6 +561,82 @@
           "available"
         ],
         "title": "CatalogService",
+        "type": "object"
+      },
+      "CommitmentItem": {
+        "description": "Compromiso de pago informativo: SportApp no lo cobra ni lo marca pagado.",
+        "properties": {
+          "amount": {
+            "description": "Cadena decimal con dos decimales en COP, antes de impuestos (precio de referencia).",
+            "examples": [
+              "2400.00"
+            ],
+            "title": "Amount",
+            "type": "string"
+          },
+          "commitment_id": {
+            "format": "uuid",
+            "title": "Commitment Id",
+            "type": "string"
+          },
+          "currency": {
+            "const": "COP",
+            "title": "Currency",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Instante en UTC con sufijo `Z`. Pago anticipado: inicio.",
+            "format": "date-time",
+            "title": "Due At",
+            "type": "string"
+          },
+          "period_end": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "periodicity": {
+            "enum": [
+              "MONTHLY",
+              "QUARTERLY",
+              "ANNUAL"
+            ],
+            "title": "Periodicity",
+            "type": "string"
+          },
+          "plan_code": {
+            "title": "Plan Code",
+            "type": "string"
+          },
+          "status": {
+            "description": "`WAIVED`: condonado al volver a `FREE` antes del fin del periodo.",
+            "enum": [
+              "PENDING_EXTERNAL",
+              "WAIVED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commitment_id",
+          "plan_code",
+          "periodicity",
+          "amount",
+          "currency",
+          "period_start",
+          "period_end",
+          "due_at",
+          "status"
+        ],
+        "title": "CommitmentItem",
         "type": "object"
       },
       "CreateNutritionPlanRequest": {
@@ -1676,6 +1940,102 @@
         ],
         "title": "MealType",
         "type": "string"
+      },
+      "MovementItem": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cadena decimal con dos decimales en COP, antes de impuestos (precio de referencia). Importe del compromiso; `null` en los demás.",
+            "title": "Amount"
+          },
+          "commitment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Solo en `COMMITMENT_CREATED` y `COMMITMENT_WAIVED`.",
+            "title": "Commitment Id"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "const": "COP",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` sin importe.",
+            "title": "Currency"
+          },
+          "movement_id": {
+            "format": "uuid",
+            "title": "Movement Id",
+            "type": "string"
+          },
+          "movement_type": {
+            "enum": [
+              "FREE_ACTIVATED",
+              "PLAN_CHANGED",
+              "RETURNED_TO_FREE",
+              "COMMITMENT_CREATED",
+              "COMMITMENT_WAIVED"
+            ],
+            "title": "Movement Type",
+            "type": "string"
+          },
+          "occurred_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "periodicity": {
+            "enum": [
+              "NONE",
+              "MONTHLY",
+              "QUARTERLY",
+              "ANNUAL"
+            ],
+            "title": "Periodicity",
+            "type": "string"
+          },
+          "plan_code": {
+            "title": "Plan Code",
+            "type": "string"
+          },
+          "subscription_id": {
+            "format": "uuid",
+            "title": "Subscription Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "movement_id",
+          "movement_type",
+          "occurred_at",
+          "subscription_id",
+          "plan_code",
+          "periodicity",
+          "commitment_id",
+          "amount",
+          "currency"
+        ],
+        "title": "MovementItem",
+        "type": "object"
       },
       "MyEventsResponse": {
         "properties": {
@@ -4684,7 +5044,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.26.0"
+    "version": "0.28.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6019,6 +6379,391 @@
         "summary": "Catálogo cerrado de alimentos (HU014)",
         "tags": [
           "nutrition"
+        ]
+      }
+    },
+    "/v1/me/account": {
+      "get": {
+        "description": "Consulta la proyección `user_directory`: es eventual.",
+        "operationId": "get_account_v1_me_account_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountReadResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`user_not_found`: la cuenta aún no está proyectada; reintentar."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: el servicio o su base de lectura no están disponibles."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mi cuenta (HU002, ADR-035)",
+        "tags": [
+          "account"
+        ]
+      },
+      "put": {
+        "description": "Cualquier actor. El cambio de correo no revoca la sesión ni exige verificación en el MVP: la sesión vigente sigue renovándose y el siguiente inicio de sesión usa el correo nuevo.",
+        "operationId": "put_account_v1_me_account_put",
+        "parameters": [
+          {
+            "description": "UUID; obligatorio (lo valida el servicio).",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "UUID; obligatorio (lo valida el servicio).",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el servicio (ADR-035).\n\n`user_id`, `actor_type`, `status`, `password` o cualquier otro campo →\n`422 field_not_allowed`: solo se edita la cuenta del token.",
+                "properties": {
+                  "email": {
+                    "description": "Se normaliza a minúsculas. Igual al actual no es error ni crea versión; si pertenece a otra cuenta → `409 email_already_registered`.",
+                    "format": "email",
+                    "maxLength": 254,
+                    "title": "Email",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "description": "Obligatorio: `version` vigente de la cuenta.",
+                    "minimum": 1,
+                    "title": "Expected Version",
+                    "type": "integer"
+                  },
+                  "full_name": {
+                    "description": "Se recortan los espacios exteriores y se colapsan los internos.",
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "title": "Full Name",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expected_version",
+                  "full_name",
+                  "email"
+                ],
+                "title": "AccountUpdateRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            },
+            "description": "Cuenta confirmada (o reintento con la misma clave).",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` con `details=[{field: \"expected_version\", issue: \"<versión vigente>\"}]`; `email_already_registered` (sin revelar nada de la otra cuenta) o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (catálogo de ADR-034): `required`, `invalid_length`, `unknown_value`, `out_of_range`, `field_not_allowed`; incluye `Idempotency-Key` ausente (`required`) o que no es un UUID (`unknown_value`). Todo o nada."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Editar mi nombre y correo (HU002, ADR-035)",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/v1/me/account-statement": {
+      "get": {
+        "description": "Solo la cuenta propia, para `athlete`, `organizer` y `service_provider`. SportApp no registra pagos: la información financiera no está confirmada. Sin efectos.",
+        "operationId": "account_statement_v1_me_account_statement_get",
+        "parameters": [
+          {
+            "description": "1 a 100; por defecto 20.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 a 100; por defecto 20.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountStatementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: tipo de actor ausente o desconocido."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.limit` `out_of_range` o `query.cursor` `invalid_cursor`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mi estado de cuenta (HU007)",
+        "tags": [
+          "account-statement"
         ]
       }
     },

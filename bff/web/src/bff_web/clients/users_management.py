@@ -107,6 +107,19 @@ class UsersManagementClient:
         """HU005 (ADR-034): perfil proyectado del deportista del token."""
         return self._send_as_user("GET", "/v1/me/profile", access_token)
 
+    def put_account(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU002 (ADR-035): bytes del cuerpo y clave tal cual; el servicio valida y responde
+        el `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PUT", "/v1/me/account", access_token, content=body, idempotency_key=idempotency_key
+        )
+
+    def get_account(self, access_token: str) -> httpx.Response:
+        """HU002 (ADR-035): cuenta proyectada del titular del token."""
+        return self._send_as_user("GET", "/v1/me/account", access_token)
+
     def lookup_users_batch(self, user_ids: list[UUID]) -> list[dict[str, Any]]:
         """HU011 (CA5): nombre y correo de cuentas activas por identificador (contrato interno).
 

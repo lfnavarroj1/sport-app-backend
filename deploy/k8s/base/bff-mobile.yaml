@@ -47,6 +47,9 @@ spec:
             # HU035: Service interno del clúster. En Cloud Run la plataforma lo sustituye.
             - name: EVENTS_MANAGEMENT_BASE_URL
               value: http://events-management
+            # HU029: Service interno del clúster. En Cloud Run la plataforma lo sustituye.
+            - name: COMPLEMENTARY_SERVICES_BASE_URL
+              value: http://complementary-services
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

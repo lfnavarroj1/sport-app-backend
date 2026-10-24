@@ -85,7 +85,7 @@ class AccountRoutesTest(unittest.TestCase):
         return self.client.get(ACCOUNT, headers=sent)
 
     def test_contract_version(self) -> None:
-        self.assertEqual(API_VERSION, "0.27.0")
+        self.assertEqual(API_VERSION, "0.28.0")
 
     def test_every_actor_edits_and_reads_its_account(self) -> None:
         """CA1: los tres actores; sin `403` ni capacidad de plan."""

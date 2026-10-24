@@ -218,18 +218,21 @@ class SqlAlchemySubscriptionReader:
 
     def active(self, user_id: UUID) -> SubscriptionView | None:
         with self._session_factory() as session:
-            found = session.execute(_active_query(user_id)).one_or_none()
-            if found is None:
-                return None
-            row, catalog_version = found
-            price = (
-                session.scalar(
-                    select(PlanOfferRow.price).where(PlanOfferRow.offer_id == row.plan_offer_id)
-                )
-                if row.plan_offer_id is not None
-                else None
-            )
-            return SubscriptionView(subscription=_subscription(row, catalog_version), price=price)
+            return active_view(session, user_id)
+
+
+def active_view(session: Session, user_id: UUID) -> SubscriptionView | None:
+    """Suscripción `ACTIVE` del usuario con el precio de su oferta (también la usa HU007)."""
+    found = session.execute(_active_query(user_id)).one_or_none()
+    if found is None:
+        return None
+    row, catalog_version = found
+    price = (
+        session.scalar(select(PlanOfferRow.price).where(PlanOfferRow.offer_id == row.plan_offer_id))
+        if row.plan_offer_id is not None
+        else None
+    )
+    return SubscriptionView(subscription=_subscription(row, catalog_version), price=price)
 
 
 class SqlAlchemySubscriptionChangeUnitOfWork:

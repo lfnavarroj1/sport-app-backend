@@ -1,8 +1,9 @@
-"""Cliente HTTP de `affiliation_management` (OpenAPI 0.3.0).
+"""Cliente HTTP de `affiliation_management` (OpenAPI 0.4.0).
 
 - Contrato interno de capacidades (ADR-024), sin token.
 - HU016 (ADR-036): catálogo, suscripción y cambio de plan; reenvía el access token del
   deportista, que Afiliación vuelve a verificar.
+- HU007 (ADR-036): estado de cuenta de quien consulta, con el mismo reenvío del token.
 """
 
 from typing import Any
@@ -37,6 +38,11 @@ class AffiliationManagementClient:
             json=body,
             idempotency_key=idempotency_key,
         )
+
+    def account_statement(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU007 (ADR-036): estado de cuenta propio; `limit` y `cursor` tal como llegaron."""
+        query = f"?{httpx.QueryParams(params)}" if params else ""
+        return self._send_as_user("GET", f"/v1/me/account-statement{query}", access_token)
 
     def _send_as_user(
         self,

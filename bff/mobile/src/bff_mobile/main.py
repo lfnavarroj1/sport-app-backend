@@ -8,6 +8,7 @@ from bff_mobile.api.capabilities import build_capabilities_router
 from bff_mobile.api.devices import build_devices_router
 from bff_mobile.api.event_registrations import build_event_registrations_router
 from bff_mobile.api.event_suggestions import build_event_suggestions_router
+from bff_mobile.api.notifications import build_notifications_router
 from bff_mobile.api.route_suggestions import (
     AthleteContextCache,
     build_route_suggestions_router,
@@ -30,7 +31,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.15.0"
+API_VERSION = "0.16.0"
 CHANNEL = "mobile"
 
 
@@ -99,6 +100,7 @@ def create_app(
                 training=training,
             ),
             build_event_registrations_router(verify_token=verifier.verify, events=events),
+            build_notifications_router(verify_token=verifier.verify, events=events),
             build_training_metrics_router(
                 verify_token=verifier.verify,
                 athlete_snapshot=affiliation.user_capabilities,

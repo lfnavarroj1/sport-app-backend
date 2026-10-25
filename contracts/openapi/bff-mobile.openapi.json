@@ -1377,6 +1377,137 @@
         "title": "NextInterval",
         "type": "object"
       },
+      "NotificationPreferencesResponse": {
+        "properties": {
+          "event_matches": {
+            "description": "Eventos publicados que coinciden.",
+            "title": "Event Matches",
+            "type": "boolean"
+          },
+          "event_reminders": {
+            "description": "Recordatorios 24 h antes del inicio.",
+            "title": "Event Reminders",
+            "type": "boolean"
+          },
+          "push_enabled": {
+            "description": "Entrega push además de la bandeja.",
+            "title": "Push Enabled",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "`0` mientras rigen los valores por defecto.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_matches",
+          "event_reminders",
+          "push_enabled",
+          "version"
+        ],
+        "title": "NotificationPreferencesResponse",
+        "type": "object"
+      },
+      "NotificationResponse": {
+        "description": "Notificación de la bandeja: `EVENT_PUBLISHED_MATCH` (`NORMAL`) o `EVENT_REMINDER_24H`\n(`HIGH`).",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Instante UTC con sufijo `Z`; la app lo convierte a la zona del dispositivo.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "description": "Evento del detalle (HU041).",
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "notification_id": {
+            "format": "uuid",
+            "title": "Notification Id",
+            "type": "string"
+          },
+          "priority": {
+            "enum": [
+              "NORMAL",
+              "HIGH"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Instante UTC con sufijo `Z`; la app lo convierte a la zona del dispositivo. `null` mientras no se lea.",
+            "title": "Read At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "EVENT_PUBLISHED_MATCH",
+              "EVENT_REMINDER_24H"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "notification_id",
+          "type",
+          "priority",
+          "event_id",
+          "title",
+          "body",
+          "created_at",
+          "read_at"
+        ],
+        "title": "NotificationResponse",
+        "type": "object"
+      },
+      "NotificationsPageResponse": {
+        "description": "Página de la bandeja, `created_at DESC, notification_id DESC`.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` en la última página.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "NotificationsPageResponse",
+        "type": "object"
+      },
       "RefreshSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2882,7 +3013,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.15.0"
+    "version": "0.16.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4140,6 +4271,589 @@
         "summary": "Configurar el umbral de alerta de frecuencia cardiaca (HU036)",
         "tags": [
           "devices"
+        ]
+      }
+    },
+    "/v1/me/notification-preferences": {
+      "get": {
+        "operationId": "get_preferences_v1_me_notification_preferences_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: JWKS, base o servicio no disponibles."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mis preferencias de notificación (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "put": {
+        "description": "Control optimista: `expected_version` debe ser la versión vigente; la respuesta trae la siguiente.",
+        "operationId": "put_preferences_v1_me_notification_preferences_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del `PUT`; la validación la hace el servicio.",
+                "properties": {
+                  "event_matches": {
+                    "title": "Event Matches",
+                    "type": "boolean"
+                  },
+                  "event_reminders": {
+                    "title": "Event Reminders",
+                    "type": "boolean"
+                  },
+                  "expected_version": {
+                    "description": "Versión leída; `0` si nunca se configuraron.",
+                    "minimum": 0,
+                    "title": "Expected Version",
+                    "type": "integer"
+                  },
+                  "push_enabled": {
+                    "title": "Push Enabled",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "event_matches",
+                  "event_reminders",
+                  "push_enabled",
+                  "expected_version"
+                ],
+                "title": "NotificationPreferencesRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` con `details=[{field: \"expected_version\", issue: \"<versión vigente>\"}]`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: campo ausente, de más o con un valor no válido, o cuerpo ausente."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: JWKS, base o servicio no disponibles."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Reemplazar mis preferencias de notificación (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/me/notifications": {
+      "get": {
+        "operationId": "list_notifications_v1_me_notifications_get",
+        "parameters": [
+          {
+            "description": "1 a 50; por defecto 20.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 a 50; por defecto 20.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "Opaco, hasta 512 caracteres.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaco, hasta 512 caracteres.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `limit` fuera de 1-50 o `cursor` inválido."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: JWKS, base o servicio no disponibles."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mi bandeja de notificaciones de eventos (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/me/notifications/{notification_id}/read": {
+      "post": {
+        "description": "Idempotente: una notificación ya leída conserva su `read_at`.",
+        "operationId": "mark_read_v1_me_notifications__notification_id__read_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "title": "Notification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`notification_not_found`: inexistente, ajena o aún no disponible en la bandeja."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `notification_id` no es un UUID."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: JWKS, base o servicio no disponibles."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Marcar una notificación como leída (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/me/push-tokens": {
+      "put": {
+        "description": "Asocia el token FCM al deportista del token de acceso; si pertenecía a otro deportista, se reasigna.",
+        "operationId": "put_push_token_v1_me_push_tokens_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del registro del token FCM; la validación la hace el servicio.",
+                "properties": {
+                  "platform": {
+                    "const": "android",
+                    "title": "Platform",
+                    "type": "string"
+                  },
+                  "token": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token",
+                  "platform"
+                ],
+                "title": "PushTokenRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`push_not_enabled`: la entrega push no está habilitada."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `token` ausente o de longitud no válida, `platform` distinta de `android`, campo de más o cuerpo ausente."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: JWKS, base o servicio no disponibles."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Registrar el token push del dispositivo (HU039)",
+        "tags": [
+          "notifications"
         ]
       }
     },

@@ -1129,6 +1129,28 @@
         "title": "HealthStatus",
         "type": "object"
       },
+      "HydrationSetting": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "interval_minutes": {
+            "description": "Minutos entre recordatorios (10-60).",
+            "maximum": 60.0,
+            "minimum": 10.0,
+            "title": "Interval Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "interval_minutes"
+        ],
+        "title": "HydrationSetting",
+        "type": "object"
+      },
       "Location": {
         "properties": {
           "city": {
@@ -1508,6 +1530,28 @@
         "title": "NotificationsPageResponse",
         "type": "object"
       },
+      "NutritionSetting": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "interval_minutes": {
+            "description": "Minutos entre recordatorios (30-120).",
+            "maximum": 120.0,
+            "minimum": 30.0,
+            "title": "Interval Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "interval_minutes"
+        ],
+        "title": "NutritionSetting",
+        "type": "object"
+      },
       "RefreshSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1659,6 +1703,110 @@
         ],
         "title": "RejectedSample",
         "type": "object"
+      },
+      "ReminderPreferencesResponse": {
+        "properties": {
+          "hydration": {
+            "$ref": "#/components/schemas/HydrationSetting"
+          },
+          "nutrition": {
+            "$ref": "#/components/schemas/NutritionSetting"
+          },
+          "version": {
+            "description": "`0` sin preferencias guardadas (valores por defecto del ruleset); +1 en cada cambio.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hydration",
+          "nutrition",
+          "version"
+        ],
+        "title": "ReminderPreferencesResponse",
+        "type": "object"
+      },
+      "ReminderRuleResponse": {
+        "properties": {
+          "applies_after_minutes": {
+            "description": "La regla aplica cuando la sesión supera esta duración (`0`: desde el inicio; `NUTRITION`: más de 60 min).",
+            "title": "Applies After Minutes",
+            "type": "integer"
+          },
+          "default_interval_minutes": {
+            "description": "Intervalo por defecto.",
+            "title": "Default Interval Minutes",
+            "type": "integer"
+          },
+          "disclaimer": {
+            "description": "Aviso: no diagnostica ni prescribe.",
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "max": {
+            "description": "Intervalo máximo configurable, en minutos.",
+            "title": "Max",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Texto aprobado; el cliente no lo modifica.",
+            "title": "Message",
+            "type": "string"
+          },
+          "min": {
+            "description": "Intervalo mínimo configurable, en minutos.",
+            "title": "Min",
+            "type": "integer"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ReminderType"
+          }
+        },
+        "required": [
+          "type",
+          "default_interval_minutes",
+          "min",
+          "max",
+          "applies_after_minutes",
+          "message",
+          "disclaimer"
+        ],
+        "title": "ReminderRuleResponse",
+        "type": "object"
+      },
+      "ReminderRulesResponse": {
+        "description": "Ruleset versionado e inmutable por versión; el dispositivo lo evalúa sin red.",
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/ReminderRuleResponse"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "ruleset_version": {
+            "examples": [
+              "session-reminders-2026-10-13.v1"
+            ],
+            "title": "Ruleset Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ruleset_version",
+          "rules"
+        ],
+        "title": "ReminderRulesResponse",
+        "type": "object"
+      },
+      "ReminderType": {
+        "enum": [
+          "HYDRATION",
+          "NUTRITION"
+        ],
+        "title": "ReminderType",
+        "type": "string"
       },
       "RiskAlertResponse": {
         "description": "HU036: alerta nueva del lote (como máximo una cada 60 s por sesión).",
@@ -3013,7 +3161,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.16.0"
+    "version": "0.17.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4857,6 +5005,280 @@
         ]
       }
     },
+    "/v1/me/session-reminder-preferences": {
+      "get": {
+        "description": "Sin preferencias guardadas: valores por defecto del ruleset, ambos tipos habilitados y `version: 0`.",
+        "operationId": "get_session_reminder_preferences_v1_me_session_reminder_preferences_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderPreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`nutrition.session.reminders`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Mis preferencias de recordatorios durante la sesión (HU038)",
+        "tags": [
+          "session-reminders"
+        ]
+      },
+      "put": {
+        "description": "Reemplaza las preferencias con `expected_version` (la versión leída). Repetir los mismos valores no cambia la versión.",
+        "operationId": "put_session_reminder_preferences_v1_me_session_reminder_preferences_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del `PUT`; la validación la hace el servicio.",
+                "properties": {
+                  "expected_version": {
+                    "description": "Versión leída; `0` si aún no hay preferencias guardadas.",
+                    "minimum": 0,
+                    "title": "Expected Version",
+                    "type": "integer"
+                  },
+                  "hydration": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "enabled": {
+                        "title": "Enabled",
+                        "type": "boolean"
+                      },
+                      "interval_minutes": {
+                        "description": "Minutos entre recordatorios (10-60).",
+                        "maximum": 60,
+                        "minimum": 10,
+                        "title": "Interval Minutes",
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "enabled",
+                      "interval_minutes"
+                    ],
+                    "title": "HydrationSetting",
+                    "type": "object"
+                  },
+                  "nutrition": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "enabled": {
+                        "title": "Enabled",
+                        "type": "boolean"
+                      },
+                      "interval_minutes": {
+                        "description": "Minutos entre recordatorios (30-120).",
+                        "maximum": 120,
+                        "minimum": 30,
+                        "title": "Interval Minutes",
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "enabled",
+                      "interval_minutes"
+                    ],
+                    "title": "NutritionSetting",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "hydration",
+                  "nutrition",
+                  "expected_version"
+                ],
+                "title": "ReminderPreferencesRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderPreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`nutrition.session.reminders`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict`: `details[0]` = `{field: expected_version, issue: <versión vigente>}`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `required`, `unknown_value`, `out_of_range` o `field_not_allowed` en `hydration.*`, `nutrition.*` o `expected_version`; cuerpo ausente con `field: null`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Configurar mis recordatorios durante la sesión (HU038)",
+        "tags": [
+          "session-reminders"
+        ]
+      }
+    },
     "/v1/me/suggestions/events": {
       "get": {
         "description": "Eventos publicados que empiezan en los próximos 90 días: primero los que coinciden en deporte y ciudad, luego solo deporte, luego solo ciudad y al final los demás, cada grupo por `starts_at`, con `reasons`. Sin deportes, sin ciudad o sin respuesta de Usuarios: próximos eventos por fecha, `personalized: false` y `missing_context`. Cada ítem trae cupo declarado, tarifa informativa y la inscripción propia (`my_registration`). Sugerir no inscribe ni verifica cupo.",
@@ -5412,6 +5834,96 @@
         "summary": "Mi tablero de entrenamientos (HU033)",
         "tags": [
           "training-dashboard"
+        ]
+      }
+    },
+    "/v1/session-reminder-rules": {
+      "get": {
+        "description": "Ruleset `session-reminders-2026-10-13.v1`: `HYDRATION` y `NUTRITION` con intervalo por defecto, rango, `applies_after_minutes`, mensaje aprobado y aviso. La app lo guarda y lo evalúa sin red sobre el cronómetro de la sesión activa.",
+        "operationId": "get_session_reminder_rules_v1_session_reminder_rules_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderRulesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`nutrition.session.reminders`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Reglas versionadas de recordatorios durante la sesión (HU038)",
+        "tags": [
+          "session-reminders"
         ]
       }
     },

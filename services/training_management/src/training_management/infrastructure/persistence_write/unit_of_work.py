@@ -19,6 +19,7 @@ from training_management.application.errors import (
     IdempotencyKeyConflict,
     MonitoringSettingsConflict,
     SessionIdConflict,
+    SessionReminderPreferencesConflict,
 )
 from training_management.application.ports import (
     CommandRecord,
@@ -50,6 +51,7 @@ from training_management.domain.metrics.model import (
 from training_management.domain.monitoring.model import MonitoringSettings, RiskAlert
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import PlanStatus, Sport, TrainingPlan
+from training_management.domain.reminders.model import ReminderPreferences, ReminderSetting
 from training_management.domain.routes.model import (
     Difficulty,
     GeoPoint,
@@ -77,6 +79,7 @@ from training_management.infrastructure.persistence_write.models import (
     IDEMPOTENCY_PRIMARY_KEY,
     METRIC_CALCULATION_PRIMARY_KEY,
     MONITORING_SETTINGS_PRIMARY_KEY,
+    SESSION_REMINDER_PREFERENCE_PRIMARY_KEY,
     TRAINING_SESSION_PRIMARY_KEY,
     AthleteDeviceRow,
     CommandIdempotencyRow,
@@ -88,6 +91,7 @@ from training_management.infrastructure.persistence_write.models import (
     OutboxEventRow,
     RouteRow,
     SessionMonitoringStateRow,
+    SessionReminderPreferenceRow,
     TrainingAuthorizationRow,
     TrainingMeasurementRow,
     TrainingMetricCalculationRow,
@@ -996,6 +1000,68 @@ class SqlAlchemyMonitoringSettingsUnitOfWork(_SessionUnitOfWork):
             self.session.rollback()
             if _violated_constraint(error) == MONITORING_SETTINGS_PRIMARY_KEY:
                 raise MonitoringSettingsConflict() from None
+            raise
+
+
+def _preferences(row: SessionReminderPreferenceRow) -> ReminderPreferences:
+    return ReminderPreferences(
+        athlete_id=row.athlete_id,
+        hydration=ReminderSetting(row.hydration_enabled, row.hydration_interval_minutes),
+        nutrition=ReminderSetting(row.nutrition_enabled, row.nutrition_interval_minutes),
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+class SqlAlchemySessionReminderPreferencesUnitOfWork(_SessionUnitOfWork):
+    """HU038: preferencias de recordatorios en sesión del deportista."""
+
+    def get_preferences(
+        self, athlete_id: UUID, *, for_update: bool = False
+    ) -> ReminderPreferences | None:
+        statement = select(SessionReminderPreferenceRow).where(
+            SessionReminderPreferenceRow.athlete_id == athlete_id
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        row = self.session.scalar(statement)
+        return _preferences(row) if row is not None else None
+
+    def add_preferences(self, preferences: ReminderPreferences) -> None:
+        if preferences.created_at is None or preferences.updated_at is None:
+            raise RuntimeError("Las preferencias a guardar no tienen fechas.")
+        self.session.add(
+            SessionReminderPreferenceRow(
+                athlete_id=preferences.athlete_id,
+                hydration_enabled=preferences.hydration.enabled,
+                hydration_interval_minutes=preferences.hydration.interval_minutes,
+                nutrition_enabled=preferences.nutrition.enabled,
+                nutrition_interval_minutes=preferences.nutrition.interval_minutes,
+                version=preferences.version,
+                created_at=preferences.created_at,
+                updated_at=preferences.updated_at,
+            )
+        )
+
+    def update_preferences(self, preferences: ReminderPreferences) -> None:
+        row = self.session.get(SessionReminderPreferenceRow, preferences.athlete_id)
+        if row is None or preferences.updated_at is None:
+            raise RuntimeError("Las preferencias a actualizar no están cargadas.")
+        row.hydration_enabled = preferences.hydration.enabled
+        row.hydration_interval_minutes = preferences.hydration.interval_minutes
+        row.nutrition_enabled = preferences.nutrition.enabled
+        row.nutrition_interval_minutes = preferences.nutrition.interval_minutes
+        row.version = preferences.version
+        row.updated_at = preferences.updated_at
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            if _violated_constraint(error) == SESSION_REMINDER_PREFERENCE_PRIMARY_KEY:
+                raise SessionReminderPreferencesConflict() from None
             raise
 
 

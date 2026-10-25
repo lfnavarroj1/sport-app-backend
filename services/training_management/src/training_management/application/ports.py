@@ -20,6 +20,7 @@ from training_management.domain.monitoring.model import MonitoringSettings, Risk
 from training_management.domain.nutrition.catalog import FoodCatalog
 from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
 from training_management.domain.plans.model import Sport, TrainingPlan
+from training_management.domain.reminders.model import ReminderPreferences
 from training_management.domain.routes.model import Route
 from training_management.domain.routes.suggestions import SuggestionContext
 from training_management.domain.sessions.model import TrainingSession
@@ -903,6 +904,22 @@ class MonitoringSettingsUnitOfWork(Transaction, Protocol):
 
     def commit(self) -> None:
         """Traduce la fila duplicada a `MonitoringSettingsConflict`."""
+        ...
+
+
+class SessionReminderPreferencesUnitOfWork(Transaction, Protocol):
+    """HU038: preferencias de recordatorios del deportista (`session_reminder_preference`)."""
+
+    def get_preferences(
+        self, athlete_id: UUID, *, for_update: bool = False
+    ) -> ReminderPreferences | None: ...
+
+    def add_preferences(self, preferences: ReminderPreferences) -> None: ...
+
+    def update_preferences(self, preferences: ReminderPreferences) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la fila duplicada a `SessionReminderPreferencesConflict`."""
         ...
 
 

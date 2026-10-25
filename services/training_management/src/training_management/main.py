@@ -22,6 +22,7 @@ from training_management.api.nutrition_plans import build_nutrition_plans_router
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
 from training_management.api.routes import build_routes_router
+from training_management.api.session_reminders import build_session_reminders_router
 from training_management.api.training_dashboard import build_training_dashboard_router
 from training_management.api.training_metrics import build_training_metrics_router
 from training_management.api.training_plan_templates import (
@@ -43,6 +44,9 @@ from training_management.application.commands.monitoring_settings import (
     UpdateMonitoringSettings,
 )
 from training_management.application.commands.routes import PublishRoute, RetireRoute
+from training_management.application.commands.session_reminder_preferences import (
+    UpdateSessionReminderPreferences,
+)
 from training_management.application.commands.training_plan_templates import (
     PublishTemplate,
     RetireTemplate,
@@ -64,6 +68,10 @@ from training_management.application.queries.nutrition_plans import (
 )
 from training_management.application.queries.planned_sessions import GetPlannedSessions
 from training_management.application.queries.routes import ListMyRoutes, SuggestRoutes
+from training_management.application.queries.session_reminders import (
+    GetSessionReminderPreferences,
+    GetSessionReminderRules,
+)
 from training_management.application.queries.training_dashboard import GetTrainingDashboard
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.application.queries.training_metrics import (
@@ -115,13 +123,14 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemyRouteUnitOfWork,
+    SqlAlchemySessionReminderPreferencesUnitOfWork,
     SqlAlchemySessionUnitOfWork,
     SqlAlchemyTemplateUnitOfWork,
 )
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.14.0"
+API_VERSION = "0.15.0"
 
 
 def create_app(
@@ -336,6 +345,19 @@ def create_app(
                 get_settings=GetMonitoringSettings(resolve=thresholds, capabilities=capabilities),
                 update_settings=UpdateMonitoringSettings(
                     unit_of_work=lambda: SqlAlchemyMonitoringSettingsUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
+            ),
+            build_session_reminders_router(
+                verify_token=verifier.verify,
+                get_rules=GetSessionReminderRules(capabilities=capabilities),
+                get_preferences=GetSessionReminderPreferences(
+                    unit_of_work=lambda: SqlAlchemySessionReminderPreferencesUnitOfWork(writes),
+                    capabilities=capabilities,
+                ),
+                update_preferences=UpdateSessionReminderPreferences(
+                    unit_of_work=lambda: SqlAlchemySessionReminderPreferencesUnitOfWork(writes),
                     capabilities=capabilities,
                     clock=clock,
                 ),

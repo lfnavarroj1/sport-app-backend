@@ -14,6 +14,7 @@ from bff_mobile.api.route_suggestions import (
     build_route_suggestions_router,
 )
 from bff_mobile.api.service_suggestions import build_service_suggestions_router
+from bff_mobile.api.session_reminders import build_session_reminders_router
 from bff_mobile.api.sessions import build_sessions_router
 from bff_mobile.api.template_suggestions import build_template_suggestions_router
 from bff_mobile.api.training_dashboard import build_training_dashboard_router
@@ -31,7 +32,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.16.0"
+API_VERSION = "0.17.0"
 CHANNEL = "mobile"
 
 
@@ -140,6 +141,11 @@ def create_app(
                 services=services,
             ),
             build_devices_router(
+                verify_token=verifier.verify,
+                athlete_snapshot=affiliation.user_capabilities,
+                training=training,
+            ),
+            build_session_reminders_router(
                 verify_token=verifier.verify,
                 athlete_snapshot=affiliation.user_capabilities,
                 training=training,

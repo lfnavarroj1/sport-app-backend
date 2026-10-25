@@ -17,6 +17,7 @@ from device_fakes import (
 )
 from fakes import NOW, FakeCapabilities, FixedClock
 from fastapi.testclient import TestClient
+from leak_checks import leaks
 from test_api import VERIFIER, token
 
 from sportapp_platform.app import create_service_app
@@ -60,12 +61,16 @@ def samples(first: int, count: int, value: int) -> list[dict[str, Any]]:
 class MonitoringApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.store = InMemoryDeviceStore()
-        self.athlete_id = uuid4()
-        self.device_id = device_hash("AA:BB:CC:DD:EE:01", self.athlete_id)
-        self.capabilities = FakeCapabilities({self.athlete_id: {MONITOR}})
         self.birth_dates = FakeBirthDates()
         self.clock = FixedClock()
         self.ids: list[UUID] = []
+        self.arrange(uuid4(), uuid4())
+
+    def arrange(self, athlete_id: UUID, session_id: UUID) -> None:
+        """Deportista con banda registrada y una sesión activa."""
+        self.athlete_id = athlete_id
+        self.device_id = device_hash("AA:BB:CC:DD:EE:01", self.athlete_id)
+        self.capabilities = FakeCapabilities({self.athlete_id: {MONITOR}})
         self.client = self.client_with(self.capabilities)
         self.auth = {"Authorization": f"Bearer {token(self.athlete_id, 'athlete')}"}
         device = AthleteDevice.register(
@@ -78,7 +83,7 @@ class MonitoringApiTest(unittest.TestCase):
         self.store.devices[(self.athlete_id, self.device_id)] = device
         self.session = TrainingSession.start(
             athlete_id=self.athlete_id,
-            data=StartData(uuid4(), None, Sport.RUNNING, NOW - timedelta(minutes=10)),
+            data=StartData(session_id, None, Sport.RUNNING, NOW - timedelta(minutes=10)),
             now=NOW - timedelta(minutes=10),
         )
         self.store.sessions[self.session.session_id] = self.session
@@ -264,8 +269,35 @@ class MonitoringApiTest(unittest.TestCase):
             self.ingest(samples(-14, 15, 187))
         fields = captured.records[0].__dict__["fields"]
         self.assertEqual((fields["evaluation"], fields["alerts"]), ("RISK", 1))
-        values = [str(value) for value in fields.values()]
-        self.assertFalse(any("187" in value or "150" in value for value in values))
+        self.assertNotIn("187", captured.output[0])
+        self.assertNotIn("150", captured.output[0])
+        self.assertEqual(leaks(fields, ("187", "150")), [])
+
+    def test_audit_check_tolerates_ids_with_the_digits_and_detects_real_leaks(self) -> None:
+        """Regresión: un UUID aleatorio con `187` o `150` hacía fallar la prueba anterior."""
+        athlete_id = UUID("00000187-0000-4000-8000-000000000150")
+        session_id = UUID("15018700-0000-4000-8000-000000000187")
+        self.arrange(athlete_id, session_id)
+        self.store.settings[athlete_id] = custom_settings(athlete_id, 150, NOW)
+        with self.assertLogs("sportapp.audit", level=logging.INFO) as captured:
+            self.ingest(samples(-14, 15, 187))
+        fields = captured.records[0].__dict__["fields"]
+        self.assertEqual(
+            (fields["athlete_id"], fields["session_id"]), (str(athlete_id), str(session_id))
+        )
+        self.assertEqual(leaks(fields, ("187", "150")), [])
+
+        # Una filtración real se sigue detectando, incluso junto a un UUID.
+        leaked = {
+            **fields,
+            "threshold": 150,
+            "reason": "max 187 bpm",
+            "session_id": f"{session_id} 187",
+        }
+        self.assertEqual(
+            leaks(leaked, ("187", "150")),
+            ["session_id: 187", "session_id: 150", "threshold: 150", "reason: 187"],
+        )
 
     # ------------------------------------------------------------ umbral
 

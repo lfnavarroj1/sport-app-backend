@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/reporte_salud.registrado.v1.schema.json",
+  "title": "reporte_salud.registrado.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = report_id (= aggregate_id) cuando un deportista reporta una molestia, incapacidad o lesión (HU042, ADR-037). Estado completo del reporte, versión de agregado 1 (nace OPEN; el cierre queda fuera de HU042); entrenamientos-read-projector construye health_report_view aplicando solo versiones mayores. Solo catálogos cerrados, fechas en UTC con sufijo Z e identificadores: sin texto libre, diagnóstico, recomendación ni otros datos personales.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "reporte_salud.registrado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "training-management"},
+    "aggregate_type": {"const": "health_report"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "report_id generado por el cliente (UUID v4)."
+    },
+    "aggregate_version": {"const": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Idempotency-Key del comando de reporte."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_id",
+        "athlete_id",
+        "type",
+        "body_area",
+        "severity",
+        "occurred_at",
+        "session_id",
+        "expected_recovery_days",
+        "consent",
+        "status",
+        "reported_at"
+      ],
+      "properties": {
+        "report_id": {"type": "string", "format": "uuid"},
+        "athlete_id": {"type": "string", "format": "uuid"},
+        "type": {"enum": ["DISCOMFORT", "INJURY", "INCAPACITY"]},
+        "body_area": {
+          "enum": [
+            "HEAD",
+            "NECK",
+            "SHOULDER",
+            "ARM",
+            "ELBOW",
+            "WRIST_HAND",
+            "CHEST",
+            "BACK",
+            "HIP",
+            "THIGH",
+            "KNEE",
+            "LOWER_LEG",
+            "ANKLE_FOOT",
+            "OTHER"
+          ]
+        },
+        "severity": {"enum": ["LOW", "MODERATE", "HIGH"]},
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+          "description": "Momento de la molestia, incapacidad o lesión informado por el deportista, en segundos y UTC."
+        },
+        "session_id": {
+          "type": ["string", "null"],
+          "format": "uuid",
+          "description": "Sesión propia de entrenamiento (HU032) o null."
+        },
+        "expected_recovery_days": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 365
+        },
+        "consent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "HEALTH_DATA_CONSENT_VERSION aceptada al reportar."
+            }
+          }
+        },
+        "status": {"const": "OPEN"},
+        "reported_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "Instante en que el backend confirmó el reporte."
+        }
+      }
+    }
+  }
+}

@@ -89,6 +89,16 @@ class CalculationIdConflict(Exception):
     """Otra solicitud concurrente insertó primero el mismo `calculation_id`."""
 
 
+class ReportIdReused(Exception):
+    """HU042: el `report_id` ya existe con otros datos o pertenece a otra persona."""
+
+    code = "report_id_reused"
+
+
+class ReportIdConflict(Exception):
+    """Otra solicitud concurrente insertó primero el mismo `report_id`."""
+
+
 class NutritionPlanNotFound(Exception):
     """HU014: el plan de alimentación no existe, no es visible para quien consulta o aún no
     está proyectado."""

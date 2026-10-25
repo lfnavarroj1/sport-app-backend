@@ -20,6 +20,7 @@ HU026 (ADR-041): `ruta.publicada.v1` y `ruta.retirada.v1` se despachan a `Projec
 HU028 (ADR-041): `plantilla_entrenamiento.*.v1` se despachan a `ProjectTemplateChanged`.
 HU036 (ADR-044): `medicion.recibida.v1` y `riesgo.detectado.v1` se despachan a
 `ProjectMeasurementReceived` y `ProjectRiskDetected`.
+HU042 (ADR-037): `reporte_salud.registrado.v1` se despacha a `ProjectHealthReportRegistered`.
 """
 
 from collections.abc import Callable
@@ -27,6 +28,7 @@ from collections.abc import Callable
 from training_management.application.messages import (
     AuthorizationChangedEvent,
     FoodIntakeRegisteredEvent,
+    HealthReportRegisteredEvent,
     MeasurementReceivedEvent,
     MetricCalculatedEvent,
     NutritionPlanCreatedEvent,
@@ -41,6 +43,9 @@ from training_management.application.messages import (
 from training_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
 from training_management.application.projections.food_intake_projection import (
     ProjectFoodIntakeRegistered,
+)
+from training_management.application.projections.health_projection import (
+    ProjectHealthReportRegistered,
 )
 from training_management.application.projections.metric_projection import (
     ProjectMetricCalculated,
@@ -162,6 +167,7 @@ class TrainingProjector:
         self._templates = ProjectTemplateChanged(unit_of_work=unit_of_work, clock=clock)
         self._measurements = ProjectMeasurementReceived(unit_of_work=unit_of_work, clock=clock)
         self._risks = ProjectRiskDetected(unit_of_work=unit_of_work, clock=clock)
+        self._health_reports = ProjectHealthReportRegistered(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
@@ -187,6 +193,12 @@ class TrainingProjector:
             return self._routes(event)
         if isinstance(event, TemplateChangedEvent):
             return self._templates(event)
+        return self._project_finished(event)
+
+    def _project_finished(self, event: TrainingEvent) -> ProjectionOutcome:
+        """Fin de sesión (HU032) y reporte de salud (HU042)."""
         if isinstance(event, SessionFinishedEvent):
             return self._sessions(event)
+        if isinstance(event, HealthReportRegisteredEvent):
+            return self._health_reports(event)
         raise TypeError(type(event).__name__)

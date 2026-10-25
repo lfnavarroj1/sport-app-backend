@@ -25,6 +25,9 @@ class TrainingManagementSettings(ServiceSettings, DatabasePoolSettings):
     # HU010: identidad (JWKS de users-management) y capacidades del deportista (Afiliación).
     users_management_base_url: AnyHttpUrl
     affiliation_management_base_url: AnyHttpUrl
+    # HU042 (ADR-037): versión vigente del consentimiento de datos de salud (ADR-034); sin ella
+    # el servicio no arranca.
+    health_data_consent_version: Annotated[str, Field(min_length=1, max_length=64)]
     upstream_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)

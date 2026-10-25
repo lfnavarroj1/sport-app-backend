@@ -126,6 +126,7 @@ class FoodIntakeHistoryFlowTest(unittest.TestCase):
                         database_read_url=urls["training_r"],  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
                         affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
+                        health_data_consent_version="health-test.v1",
                     ),
                     users_http=users,
                     affiliation_http=affiliation,

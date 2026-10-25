@@ -17,6 +17,7 @@ from training_management.api.devices import build_devices_router
 from training_management.api.food_catalog import build_food_catalog_router
 from training_management.api.food_intake_history import build_food_intake_history_router
 from training_management.api.food_intakes import build_food_intakes_router
+from training_management.api.health_reports import build_health_reports_router
 from training_management.api.history import build_history_router
 from training_management.api.measurements import build_measurements_router
 from training_management.api.monitoring_settings import build_monitoring_settings_router
@@ -46,6 +47,7 @@ from training_management.application.commands.monitoring_settings import (
     UpdateMonitoringSettings,
 )
 from training_management.application.commands.register_food_intake import RegisterFoodIntake
+from training_management.application.commands.report_health import ReportHealth
 from training_management.application.commands.routes import PublishRoute, RetireRoute
 from training_management.application.commands.session_reminder_preferences import (
     UpdateSessionReminderPreferences,
@@ -123,6 +125,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyDeviceReader,
     SqlAlchemyDeviceUnitOfWork,
     SqlAlchemyFoodIntakeUnitOfWork,
+    SqlAlchemyHealthReportUnitOfWork,
     SqlAlchemyMeasurementUnitOfWork,
     SqlAlchemyMetricUnitOfWork,
     SqlAlchemyMonitoringSettingsUnitOfWork,
@@ -264,6 +267,14 @@ def create_app(
                     reader=SqlAlchemyMetricResultReader(reads),
                     capabilities=capabilities,
                     catalog=TRAINING_METRICS_CATALOG,
+                ),
+            ),
+            build_health_reports_router(
+                verify_token=verifier.verify,
+                report_health=ReportHealth(
+                    unit_of_work=lambda: SqlAlchemyHealthReportUnitOfWork(writes),
+                    clock=clock,
+                    consent_version=settings.health_data_consent_version,
                 ),
             ),
             build_training_dashboard_router(

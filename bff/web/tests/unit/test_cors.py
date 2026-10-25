@@ -162,6 +162,20 @@ class CorsMiddlewareTest(unittest.TestCase):
         self.assertIn("if-none-match", preflight.headers["access-control-allow-headers"].lower())
         self.assertIn("etag", response.headers["access-control-expose-headers"].lower())
 
+    def test_sport_habits_patch_preflight_is_allowed(self) -> None:
+        """HU008: la web edita parcialmente sus hábitos deportivos con `PATCH`."""
+        response = self.client.options(
+            "/v1/me/sport-habits",
+            headers={
+                "Origin": WEB_DEV_SERVER,
+                "Access-Control-Request-Method": "PATCH",
+                "Access-Control-Request-Headers": "authorization, content-type, idempotency-key",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("PATCH", response.headers["access-control-allow-methods"])
+
     def test_unknown_origin_gets_no_cors_headers_on_actual_request(self) -> None:
         response = self.client.get("/health/live", headers={"Origin": OTHER_ORIGIN})
 

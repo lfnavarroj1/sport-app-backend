@@ -1,4 +1,4 @@
-"""HU005, HU006 y HU009 en el canal web: perfil del deportista (ADR-034 y ADR-035).
+"""HU005, HU006, HU008 y HU009 en el canal web: perfil del deportista (ADR-034 y ADR-035).
 
 El BFF autentica, aplica el filtro de borde por actor (`athlete`, sin capacidad de plan)
 y reenvía el cuerpo, la clave de idempotencia y el token sin reinterpretarlos: las reglas
@@ -202,6 +202,37 @@ class SportHabitsRequest(BaseModel):
     sports: Annotated[list[SportHabit], Field(min_length=1, max_length=5)]
     availability: SportAvailability
     primary_goal: PrimaryGoal | None = None
+
+
+class SportHabitsPatchRequest(BaseModel):
+    """Edición parcial de los hábitos deportivos (HU008, ADR-035): una o más secciones; cada
+    sección enviada reemplaza completa a la vigente y las no enviadas se conservan.
+    `primary_goal: null` borra el objetivo. Sin secciones → `422 required` (`field: null`)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "anyOf": [
+                {"required": ["sports"]},
+                {"required": ["availability"]},
+                {"required": ["primary_goal"]},
+            ]
+        },
+    )
+
+    expected_version: Annotated[
+        int, Field(ge=1, description="Obligatoria: la versión vigente de los hábitos.")
+    ]
+    sports: Annotated[
+        list[SportHabit] | None,
+        Field(min_length=1, max_length=5, description="Reemplaza la lista completa."),
+    ] = None
+    availability: Annotated[
+        SportAvailability | None, Field(description="Reemplaza días y franjas.")
+    ] = None
+    primary_goal: Annotated[
+        PrimaryGoal | None, Field(description="Enviado como `null`, borra el objetivo.")
+    ] = None
 
 
 class NutritionHabitsRequest(BaseModel):
@@ -432,6 +463,32 @@ _COMMAND_ERRORS: dict[int | str, dict[str, Any]] = {
     },
 }
 _IDEMPOTENCY_DESCRIPTION = "UUID; obligatorio (lo valida el servicio)."
+_PATCH_ERRORS: dict[int | str, dict[str, Any]] = {
+    **_COMMAND_ERRORS,
+    HTTPStatus.NOT_FOUND.value: {
+        "model": ErrorResponse,
+        "description": "`sport_habits_not_found`: primero se registran los hábitos (HU006).",
+    },
+    HTTPStatus.CONFLICT.value: {
+        "model": ErrorResponse,
+        "description": '`version_conflict` con `details=[{field: "expected_version", issue: '
+        '"<versión vigente>"}]`, o `idempotency_key_reused` (la clave ya se usó con otro cuerpo '
+        "o por otro deportista).",
+    },
+}
+# Estados del servicio que se entregan tal cual; cualquier otro es `upstream_unavailable`.
+_PUT_STATUSES = frozenset(
+    {
+        HTTPStatus.OK,
+        HTTPStatus.CREATED,
+        HTTPStatus.UNAUTHORIZED,
+        HTTPStatus.FORBIDDEN,
+        HTTPStatus.CONFLICT,
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+    }
+)
+# HU008: el `PATCH` solo edita (nunca `201`) y responde `404` si la sección no existe.
+_PATCH_STATUSES = (_PUT_STATUSES - {HTTPStatus.CREATED}) | {HTTPStatus.NOT_FOUND}
 
 
 def build_profile_router(
@@ -458,6 +515,7 @@ def build_profile_router(
         body: bytes,
         idempotency_key: str | None,
         authorization: str | None,
+        expected: frozenset[HTTPStatus] = _PUT_STATUSES,
     ) -> Response:
         session = athlete_session(authorization)
         if isinstance(session, Response):
@@ -469,14 +527,7 @@ def build_profile_router(
         return private(
             _passthrough(
                 upstream,
-                {
-                    HTTPStatus.OK,
-                    HTTPStatus.CREATED,
-                    HTTPStatus.UNAUTHORIZED,
-                    HTTPStatus.FORBIDDEN,
-                    HTTPStatus.CONFLICT,
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                },
+                set(expected),
                 headers=(REPLAYED_HEADER, CACHE_CONTROL_HEADER),
                 source=SOURCE,
             )
@@ -584,6 +635,39 @@ def build_profile_router(
             await request.body(),
             idempotency_key,
             authorization,
+        )
+
+    @router.patch(
+        "/v1/me/sport-habits",
+        response_model=SportHabitsResponse,
+        summary="Actualizar parcialmente mis hábitos deportivos (HU008, ADR-035)",
+        description="Cada sección enviada (`sports`, `availability`, `primary_goal`) reemplaza "
+        "completa a la vigente y las demás se conservan; se revalida el agregado completo. No "
+        "modifica planes de entrenamiento vigentes.",
+        openapi_extra=_request_body(SportHabitsPatchRequest),
+        responses={
+            HTTPStatus.OK.value: {
+                "description": "Secciones actualizadas (o reintento): estado completo con la "
+                "versión nueva.",
+                "headers": _COMMAND_HEADERS_DOC,
+            },
+            **_PATCH_ERRORS,
+        },
+    )
+    async def patch_sport_habits(
+        request: Request,
+        idempotency_key: Annotated[
+            str | None, Header(alias=IDEMPOTENCY_HEADER, description=_IDEMPOTENCY_DESCRIPTION)
+        ] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            put_section,
+            users.patch_sport_habits,
+            await request.body(),
+            idempotency_key,
+            authorization,
+            _PATCH_STATUSES,
         )
 
     @router.put(

@@ -4,7 +4,8 @@ Ejecución: `python -m events_management.workers.outbox_publisher`.
 
 - Reclama lotes con arrendamiento y `SKIP LOCKED`; publica sin transacción abierta.
 - Publica en `sportapp.eventos.v1` con `aggregate_id` como clave de orden
-  (`event_id` para `evento.creado.v1`).
+  (`event_id` para `evento.creado.v1`) salvo que la outbox fije otra: `recipient_id` para
+  `notificacion.solicitada.v1` (HU039, ADR-045).
 - Marca `published_at` solo después de la confirmación de Pub/Sub.
 - Un fallo incrementa `attempts` y reprograma con backoff exponencial y jitter; el
   evento permanece en la outbox hasta confirmarse.
@@ -69,6 +70,10 @@ def build_envelope(event: ClaimedEvent) -> dict[str, Any]:
     }
 
 
+def ordering_key(event: ClaimedEvent) -> str:
+    return event.ordering_key or str(event.aggregate_id)
+
+
 def retry_delay_seconds(attempts: int) -> float:
     base = min(MAX_RETRY_SECONDS, 2.0 ** min(attempts, 10))
     # Jitter para dispersar reintentos; no tiene uso criptográfico.
@@ -107,7 +112,7 @@ class OutboxRelay:
             "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         }
         try:
-            self._publisher.publish(build_envelope(event), ordering_key=str(event.aggregate_id))
+            self._publisher.publish(build_envelope(event), ordering_key=ordering_key(event))
         except Exception as error:
             delay = retry_delay_seconds(event.attempts + 1)
             self._store.mark_failed(

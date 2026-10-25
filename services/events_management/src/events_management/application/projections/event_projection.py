@@ -1,6 +1,7 @@
 """`eventos-read-projector`: proyectar `evento.creado.v1`, `evento.publicado.v1` y
-`evento.tarifa_actualizada.v1` en `event_read` y `usuario.inscrito.v1` en
-`event_registration_read` (CMP-004, ADR-032, ADR-033, ADR-040).
+`evento.tarifa_actualizada.v1` en `event_read`, `usuario.inscrito.v1` en
+`event_registration_read` (CMP-004, ADR-032, ADR-033, ADR-040) y
+`notificacion.solicitada.v1` en `notification_inbox_view` (HU039, ADR-045).
 
 Eventos (estado completo, ADR-033), en una sola transacción de la base de lectura:
 1. si el `event_id` del sobre ya está en `processed_event`, es una entrega repetida;
@@ -10,6 +11,11 @@ Eventos (estado completo, ADR-033), en una sola transacción de la base de lectu
 4. si es menor o igual, el mensaje está superado y solo se registra como procesado.
 Si otro mensaje del mismo evento crea la vista en paralelo, se reaplica una vez por versión.
 El ACK lo envía el worker después de este COMMIT.
+
+Notificaciones: se insertan si aún no están en la bandeja (una entrega repetida o con otro
+`event_id` de mensaje no las recrea ni toca `read_at`). Con FCM habilitado, el envío *push*
+ocurre después del COMMIT y solo la primera vez que se proyecta; su resultado no cambia el
+de la proyección (CA4).
 """
 
 import logging
@@ -21,6 +27,7 @@ from events_management.application.messages import (
     EventFeeUpdatedMessage,
     EventPublishedMessage,
     EventStateMessage,
+    NotificationRequestedMessage,
     RegistrationCreatedMessage,
     SportEventMessage,
 )
@@ -30,6 +37,8 @@ from events_management.application.ports import (
     DuplicateDelivery,
     ProjectionUnitOfWork,
 )
+from events_management.domain.notifications.events import EVENT_TYPE as NOTIFICATION_REQUESTED
+from events_management.domain.notifications.model import Notification
 from events_management.domain.registrations.events import EVENT_TYPE as REGISTERED
 from events_management.domain.sport_events.created import EVENT_TYPE as CREATED
 from events_management.domain.sport_events.fee import EVENT_TYPE as FEE_UPDATED
@@ -139,14 +148,64 @@ class ProjectRegistrationCreated:
         return outcome
 
 
+class ProjectNotificationRequested:
+    def __init__(
+        self,
+        *,
+        unit_of_work: Callable[[], ProjectionUnitOfWork],
+        clock: Clock,
+        deliver_push: Callable[[Notification], None] | None = None,
+    ) -> None:
+        self._unit_of_work = unit_of_work
+        self._clock = clock
+        self._deliver_push = deliver_push
+
+    def __call__(self, message: NotificationRequestedMessage) -> ProjectionOutcome:
+        try:
+            outcome = self._project(message)
+        except DuplicateDelivery:
+            return ProjectionOutcome.DUPLICATE
+        if outcome is ProjectionOutcome.PROJECTED and self._deliver_push is not None:
+            self._deliver_push(message.notification)
+        return outcome
+
+    def _project(self, message: NotificationRequestedMessage) -> ProjectionOutcome:
+        now = self._clock.now()
+        notification = message.notification
+        with self._unit_of_work() as unit_of_work:
+            if unit_of_work.is_processed(message.message_id):
+                return ProjectionOutcome.DUPLICATE
+            if unit_of_work.inbox_contains(notification.notification_id):
+                outcome = ProjectionOutcome.STALE
+            else:
+                unit_of_work.add_inbox_item(notification, now)
+                outcome = ProjectionOutcome.PROJECTED
+            unit_of_work.add_processed(
+                message.message_id, NOTIFICATION_REQUESTED, notification.notification_id, now
+            )
+            unit_of_work.commit()
+        return outcome
+
+
 class EventsProjector:
     """Despacha cada mensaje validado de `sportapp.eventos.v1` a su proyección."""
 
-    def __init__(self, *, unit_of_work: Callable[[], ProjectionUnitOfWork], clock: Clock) -> None:
+    def __init__(
+        self,
+        *,
+        unit_of_work: Callable[[], ProjectionUnitOfWork],
+        clock: Clock,
+        deliver_push: Callable[[Notification], None] | None = None,
+    ) -> None:
         self._events = ProjectEventState(unit_of_work=unit_of_work, clock=clock)
         self._registrations = ProjectRegistrationCreated(unit_of_work=unit_of_work, clock=clock)
+        self._notifications = ProjectNotificationRequested(
+            unit_of_work=unit_of_work, clock=clock, deliver_push=deliver_push
+        )
 
     def __call__(self, message: SportEventMessage) -> ProjectionOutcome:
         if isinstance(message, RegistrationCreatedMessage):
             return self._registrations(message)
+        if isinstance(message, NotificationRequestedMessage):
+            return self._notifications(message)
         return self._events(message)

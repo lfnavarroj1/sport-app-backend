@@ -129,6 +129,7 @@ class _WriteUnitOfWork:
                 payload=message.payload,
                 attempts=0,
                 next_attempt_at=message.occurred_at,
+                ordering_key=message.ordering_key,
             )
         )
 

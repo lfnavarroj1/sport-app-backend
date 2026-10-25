@@ -28,6 +28,7 @@ from events_management.application.ports import (
     RegistrationsQuery,
     RegistrationView,
 )
+from events_management.domain.notifications.model import Notification
 from events_management.domain.registrations.model import (
     AppliedFee,
     EventRegistration,
@@ -43,10 +44,12 @@ from events_management.domain.sport_events.model import (
 from events_management.domain.sport_events.terms import ACCENTED, PLAIN
 from events_management.infrastructure.persistence_read.models import (
     EVENT_READ_PRIMARY_KEY,
+    INBOX_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     REGISTRATION_READ_PRIMARY_KEY,
     EventReadRow,
     EventRegistrationReadRow,
+    NotificationInboxViewRow,
     ProcessedEventRow,
 )
 
@@ -468,6 +471,25 @@ class SqlAlchemyProjectionUnitOfWork:
             )
         )
 
+    def inbox_contains(self, notification_id: UUID) -> bool:
+        return self.session.get(NotificationInboxViewRow, notification_id) is not None
+
+    def add_inbox_item(self, notification: Notification, projected_at: datetime) -> None:
+        self.session.add(
+            NotificationInboxViewRow(
+                notification_id=notification.notification_id,
+                recipient_id=notification.recipient_id,
+                type=notification.type.value,
+                priority=notification.priority.value,
+                event_id=notification.event_id,
+                title=notification.title,
+                body=notification.body,
+                created_at=notification.created_at,
+                read_at=None,
+                projected_at=projected_at,
+            )
+        )
+
     def add_processed(
         self, message_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -486,8 +508,13 @@ class SqlAlchemyProjectionUnitOfWork:
         except IntegrityError as error:
             self.session.rollback()
             constraint = _violated_constraint(error)
-            # Otra entrega del mismo mensaje (o de la misma inscripción) confirmó primero.
-            if constraint in {PROCESSED_EVENT_PRIMARY_KEY, REGISTRATION_READ_PRIMARY_KEY}:
+            # Otra entrega del mismo mensaje (o de la misma inscripción o notificación)
+            # confirmó primero.
+            if constraint in {
+                PROCESSED_EVENT_PRIMARY_KEY,
+                REGISTRATION_READ_PRIMARY_KEY,
+                INBOX_PRIMARY_KEY,
+            }:
                 raise DuplicateDelivery() from None
             # Otro mensaje del mismo evento creó la vista: se reaplica por versión (ADR-033).
             if constraint == EVENT_READ_PRIMARY_KEY:

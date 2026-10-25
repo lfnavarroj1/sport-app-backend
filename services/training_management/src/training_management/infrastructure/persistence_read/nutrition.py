@@ -1,5 +1,5 @@
 """Base de lectura de HU014 y HU043: filas de `nutrition_plan_view` y consultas del plan;
-filas de `food_intake_view`."""
+filas de `food_intake_view` y su historial paginado (HU013)."""
 
 from datetime import datetime
 from typing import Any
@@ -8,13 +8,17 @@ from uuid import UUID
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
+from training_management.application.intake_documents import intake_from_document
 from training_management.application.nutrition_documents import plan_from_document
-from training_management.application.ports import NutritionPlanQuery
+from training_management.application.ports import FoodIntakeQuery, NutritionPlanQuery
 from training_management.domain.nutrition.events import nutrition_plan_document
 from training_management.domain.nutrition.intake import FoodIntake
 from training_management.domain.nutrition.intake_events import food_intake_document
 from training_management.domain.nutrition.model import NutritionPlan
-from training_management.infrastructure.persistence_read.models import NutritionPlanViewRow
+from training_management.infrastructure.persistence_read.models import (
+    FoodIntakeViewRow,
+    NutritionPlanViewRow,
+)
 
 
 def nutrition_plan_values(plan: NutritionPlan, projected_at: datetime) -> dict[str, Any]:
@@ -64,3 +68,45 @@ class SqlAlchemyNutritionPlanReader:
         statement = statement.order_by(row.created_at.desc(), row.plan_id.desc()).limit(query.limit)
         with self._session_factory() as session:
             return [plan_from_document(document) for document in session.scalars(statement)]
+
+
+class SqlAlchemyFoodIntakeReader:
+    """HU013: consumos del deportista sobre `food_intake_view` con el índice de HU043."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def list(self, query: FoodIntakeQuery) -> list[FoodIntake]:
+        row = FoodIntakeViewRow
+        statement = select(row).where(row.athlete_id == query.athlete_id)
+        if query.consumed_from is not None:
+            statement = statement.where(row.consumed_at >= query.consumed_from)
+        if query.consumed_before is not None:
+            statement = statement.where(row.consumed_at < query.consumed_before)
+        if query.meal_type is not None:
+            statement = statement.where(row.meal_type == query.meal_type)
+        if query.after is not None:
+            # Keyset: estrictamente después del último entregado en el orden descendente.
+            statement = statement.where(
+                tuple_(row.consumed_at, row.intake_id)
+                < tuple_(query.after.consumed_at, query.after.intake_id)
+            )
+        statement = statement.order_by(row.consumed_at.desc(), row.intake_id.desc()).limit(
+            query.limit
+        )
+        with self._session_factory() as session:
+            return [
+                intake_from_document(
+                    {
+                        "intake_id": item.intake_id,
+                        "athlete_id": item.athlete_id,
+                        "consumed_at": item.consumed_at.isoformat(),
+                        "meal_type": item.meal_type,
+                        "items": item.items,
+                        "catalog_version": item.catalog_version,
+                        "version": item.version,
+                        "registered_at": item.registered_at.isoformat(),
+                    }
+                )
+                for item in session.scalars(statement)
+            ]

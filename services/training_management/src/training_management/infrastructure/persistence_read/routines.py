@@ -4,7 +4,8 @@ profesional y sugerencias (la exclusión por alérgenos y patrón ocurre en esta
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, case, not_, select, tuple_
+from sqlalchemy import Select, Text, case, cast, not_, select, tuple_
+from sqlalchemy.dialects.postgresql import ARRAY, array
 from sqlalchemy.orm import Session, sessionmaker
 
 from training_management.application.ports import MyRoutinesQuery, RoutineSuggestionQuery
@@ -48,9 +49,9 @@ def suggestion_statement(query: RoutineSuggestionQuery) -> Select[tuple[dict[str
         row.dietary_pattern.in_(sorted(item.value for item in context.accepted_patterns))
     )
     if context.exclude_allergens:
-        statement = statement.where(
-            not_(row.contains_allergens.has_any([item.value for item in context.exclude_allergens]))
-        )
+        # `?|` de JSONB exige un `text[]`, no otro JSONB.
+        excluded = cast(array([item.value for item in context.exclude_allergens]), ARRAY(Text))
+        statement = statement.where(not_(row.contains_allergens.has_any(excluded)))
     # Mismo orden que `domain.routines.suggestions.suggestion_order`.
     goal_value = context.primary_goal.value if context.primary_goal is not None else None
     goal_rank = case((row.goal == goal_value, 0), else_=1)

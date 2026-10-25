@@ -13,6 +13,7 @@ from bff_web.api.event_calendar import build_event_calendar_router
 from bff_web.api.event_fee import build_event_fee_router
 from bff_web.api.event_publication import build_event_publication_router
 from bff_web.api.events import build_events_router
+from bff_web.api.health_history import build_health_history_router
 from bff_web.api.integrated_calendar import build_integrated_calendar_router
 from bff_web.api.nutrition import build_nutrition_router
 from bff_web.api.profile import build_profile_router
@@ -42,7 +43,7 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.31.0"
+API_VERSION = "0.33.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
@@ -156,6 +157,12 @@ def create_app(
                 permissions=permissions,
                 training=training,
                 users=users,
+                channel=CHANNEL,
+            ),
+            build_health_history_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                training=training,
                 channel=CHANNEL,
             ),
             build_services_router(

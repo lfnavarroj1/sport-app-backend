@@ -29,6 +29,8 @@ from sportapp_platform.database import new_metadata
 IDEMPOTENCY_PRIMARY_KEY = "pk_idempotency_key"
 # HU017: una sola asociación `ACTIVE` por deportista y servicio.
 ACTIVE_ASSOCIATION_INDEX = "uq_service_association_active"
+# HU040: una sola cita `BOOKED` por deportista e intervalo.
+ACTIVE_APPOINTMENT_INDEX = "uq_appointment_booked"
 
 
 class Base(DeclarativeBase):
@@ -90,6 +92,8 @@ class ServiceAvailabilityRow(Base):
         CheckConstraint("ends_at > starts_at", name="interval"),
         CheckConstraint("ends_at - starts_at <= interval '24 hours'", name="duration"),
         CheckConstraint("capacity BETWEEN 1 AND 100", name="capacity"),
+        # HU040 (ADR-046): citas activas del intervalo, nunca más que su capacidad.
+        CheckConstraint("booked_count BETWEEN 0 AND capacity", name="booked_count"),
         # HU020 (ADR-038): intervalos de un servicio que empiezan en un rango.
         Index("ix_service_availability_service_id_starts_at", "service_id", "starts_at"),
     )
@@ -102,6 +106,11 @@ class ServiceAvailabilityRow(Base):
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     time_zone: Mapped[str] = mapped_column(String(64))
     capacity: Mapped[int] = mapped_column(SmallInteger)
+    # HU040: identificador estable del intervalo (lo asigna la base) y su ocupación.
+    availability_id: Mapped[UUID] = mapped_column(
+        unique=True, server_default=text("gen_random_uuid()")
+    )
+    booked_count: Mapped[int] = mapped_column(SmallInteger, server_default=text("0"))
 
 
 class IdempotencyKeyRow(Base):
@@ -200,4 +209,50 @@ class ServiceAssociationRow(Base):
     status: Mapped[str] = mapped_column(String(16))
     associated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+
+
+class AppointmentRow(Base):
+    """HU040 (ADR-046): cita virtual del deportista en un intervalo de un servicio.
+
+    `athlete_id` y `provider_id` son identificadores de Usuarios (sin clave foránea a otra
+    base); `starts_at`, `ends_at` y `time_zone` se copian del intervalo. Sin datos de salud;
+    `meeting_url` queda reservado y siempre nulo en el MVP. La cancelada se conserva.
+    """
+
+    __tablename__ = "appointment"
+    __table_args__ = (
+        CheckConstraint("status IN ('BOOKED', 'CANCELLED_BY_ATHLETE')", name="status"),
+        CheckConstraint(
+            "(status = 'BOOKED' AND cancelled_at IS NULL) "
+            "OR (status = 'CANCELLED_BY_ATHLETE' AND cancelled_at IS NOT NULL)",
+            name="cancelled_at",
+        ),
+        CheckConstraint("ends_at > starts_at", name="interval"),
+        Index(
+            ACTIVE_APPOINTMENT_INDEX,
+            "availability_id",
+            "athlete_id",
+            unique=True,
+            postgresql_where=text("status = 'BOOKED'"),
+        ),
+        # «Mis citas» del deportista y del profesional por `starts_at` y `appointment_id`.
+        Index("ix_appointment_athlete_id_starts_at", "athlete_id", "starts_at", "appointment_id"),
+        Index("ix_appointment_provider_id_starts_at", "provider_id", "starts_at", "appointment_id"),
+    )
+
+    appointment_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID]
+    provider_id: Mapped[UUID]
+    service_id: Mapped[UUID] = mapped_column(ForeignKey("service.service_id"))
+    availability_id: Mapped[UUID] = mapped_column(
+        ForeignKey("service_availability.availability_id")
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    time_zone: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32))
+    meeting_url: Mapped[str | None] = mapped_column(String(2048))
+    booked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(BigInteger)

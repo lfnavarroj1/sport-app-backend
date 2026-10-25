@@ -1,5 +1,5 @@
-"""Cliente HTTP de `complementary_services` según su OpenAPI 0.5.0 (HU015, HU019, HU020 y
-HU017).
+"""Cliente HTTP de `complementary_services` según su OpenAPI 0.6.0 (HU015, HU019, HU020,
+HU017 y HU040).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad y permiso.
 """
@@ -78,6 +78,11 @@ class ComplementaryServicesClient:
     def list_my_associations(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU017: asociaciones propias; los parámetros los valida el servicio."""
         return self._send("GET", "/v1/me/service-associations", access_token, params=params)
+
+    def list_my_appointments(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU040 (ADR-046): citas de los servicios del profesional; los parámetros los valida
+        el servicio."""
+        return self._send("GET", "/v1/me/appointments", access_token, params=params)
 
     def _send(
         self,

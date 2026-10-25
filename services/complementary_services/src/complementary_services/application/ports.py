@@ -7,6 +7,11 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
+from complementary_services.domain.appointments.appointment import (
+    Appointment,
+    AppointmentStatus,
+    BookableSlot,
+)
 from complementary_services.domain.association.association import (
     AssociationStatus,
     ServiceAssociation,
@@ -467,4 +472,167 @@ class AssociationReader(Protocol):
     def list_own(self, query: OwnAssociationsQuery) -> list[AssociationView]:
         """Ordenadas por `associated_at` y `association_id` descendentes, estrictamente
         después de `after`, hasta `limit`."""
+        ...
+
+
+@dataclass(frozen=True)
+class AppointmentView:
+    """Cita tal como se responde (HU040, ADR-046); instantes en UTC `Z`.
+
+    `service` reutiliza el resumen de HU017: nombre, categoría, modalidad y tarifa
+    informativa (reservar no cobra). `meeting_url` es siempre `null` en el MVP.
+    """
+
+    appointment: Appointment
+    service: AssociatedService
+
+    def to_document(self) -> dict[str, Any]:
+        appointment, service = self.appointment, self.service
+        return {
+            "appointment_id": str(appointment.appointment_id),
+            "athlete_id": str(appointment.athlete_id),
+            "provider_id": str(appointment.provider_id),
+            "service_id": str(appointment.service_id),
+            "availability_id": str(appointment.availability_id),
+            "service": {
+                "name": service.name,
+                "category": service.category.value,
+                "modality": service.modality.value,
+                "fee": {
+                    "amount": str(service.fee.amount),
+                    "currency": service.fee.currency.value,
+                    "billing_unit": service.fee.billing_unit.value,
+                },
+            },
+            "starts_at": utc_instant(appointment.starts_at),
+            "ends_at": utc_instant(appointment.ends_at),
+            "time_zone": appointment.time_zone,
+            "status": appointment.status.value,
+            "meeting_url": appointment.meeting_url,
+            "booked_at": utc_instant(appointment.booked_at),
+            "cancelled_at": (
+                utc_instant(appointment.cancelled_at) if appointment.cancelled_at else None
+            ),
+            "version": appointment.version,
+        }
+
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> "AppointmentView":
+        service, fee = document["service"], document["service"]["fee"]
+        return cls(
+            appointment=Appointment(
+                appointment_id=UUID(document["appointment_id"]),
+                athlete_id=UUID(document["athlete_id"]),
+                provider_id=UUID(document["provider_id"]),
+                service_id=UUID(document["service_id"]),
+                availability_id=UUID(document["availability_id"]),
+                starts_at=datetime.fromisoformat(document["starts_at"]),
+                ends_at=datetime.fromisoformat(document["ends_at"]),
+                time_zone=document["time_zone"],
+                status=AppointmentStatus(document["status"]),
+                booked_at=datetime.fromisoformat(document["booked_at"]),
+                version=int(document["version"]),
+                cancelled_at=_optional_instant(document.get("cancelled_at")),
+                meeting_url=document.get("meeting_url"),
+            ),
+            service=AssociatedService(
+                name=service["name"],
+                category=Category(service["category"]),
+                modality=Modality(service["modality"]),
+                fee=Price(
+                    amount=Decimal(fee["amount"]),
+                    currency=Currency(fee["currency"]),
+                    billing_unit=BillingUnit(fee["billing_unit"]),
+                ),
+            ),
+        )
+
+
+class AppointmentUnitOfWork(Protocol):
+    """Transacción local de HU040: intervalo bloqueado, cita, contador, outbox e
+    idempotencia del deportista juntos (reutiliza la tabla de idempotencia de HU015)."""
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None: ...
+
+    def find_idempotency(self, provider_id: UUID, key: UUID) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, provider_id: UUID, key: UUID) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def service(self, service_id: UUID) -> ServiceOffer | None:
+        """El servicio sin su disponibilidad."""
+        ...
+
+    def lock_slot(self, service_id: UUID, availability_id: UUID) -> BookableSlot | None:
+        """El intervalo del servicio con su ocupación, bloqueado hasta el final de la
+        transacción; `None` si no existe o es de otro servicio."""
+        ...
+
+    def save_booked_count(self, slot: BookableSlot) -> None:
+        """Ocupación del intervalo bloqueado."""
+        ...
+
+    def active_appointment(self, athlete_id: UUID, availability_id: UUID) -> Appointment | None:
+        """La cita `BOOKED` del deportista en el intervalo."""
+        ...
+
+    def appointment(self, appointment_id: UUID) -> Appointment | None:
+        """La cita sin bloquearla."""
+        ...
+
+    def lock_appointment(self, appointment_id: UUID) -> Appointment | None:
+        """La cita bloqueada hasta el final de la transacción (después del intervalo)."""
+        ...
+
+    def add_appointment(self, appointment: Appointment) -> None: ...
+
+    def save_cancellation(self, appointment: Appointment) -> None:
+        """Estado, `cancelled_at` y versión de la cita bloqueada."""
+        ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict` y la
+        cita activa duplicada a `ActiveAppointmentConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class AppointmentPosition:
+    """Posición keyset de «mis citas»: `starts_at` y `appointment_id`, ascendentes."""
+
+    starts_at: datetime
+    appointment_id: UUID
+
+
+@dataclass(frozen=True)
+class OwnAppointmentsQuery:
+    """Del deportista (`athlete_id`) o de los servicios del profesional (`provider_id`);
+    exactamente uno de los dos. `starts_from`/`starts_before` en `None` no acotan el inicio y
+    `status` en `None` incluye todos los estados."""
+
+    athlete_id: UUID | None
+    provider_id: UUID | None
+    starts_from: datetime | None
+    starts_before: datetime | None
+    status: AppointmentStatus | None
+    after: AppointmentPosition | None
+    limit: int
+
+
+class AppointmentReader(Protocol):
+    """Citas propias con el resumen del servicio (HU040)."""
+
+    def list_own(self, query: OwnAppointmentsQuery) -> list[AppointmentView]:
+        """Ordenadas por `starts_at` y `appointment_id` ascendentes, estrictamente después de
+        `after`, hasta `limit`."""
         ...

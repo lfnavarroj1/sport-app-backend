@@ -133,6 +133,12 @@ class MyServicesResponse(BaseModel):
     next_cursor: str | None
 
 
+class CatalogInterval(AvailabilityInterval):
+    """Intervalo del catálogo con su identificador (HU040, `complementary-services` 0.6.0)."""
+
+    availability_id: UUID
+
+
 class CatalogService(BaseModel):
     """HU020: servicio publicado con sus intervalos futuros que empiezan en el rango."""
 
@@ -143,7 +149,7 @@ class CatalogService(BaseModel):
     category: Category
     modality: Modality
     price: Annotated[ServicePrice, Field(description="Tarifa informativa: no es un cobro.")]
-    availability: list[AvailabilityInterval]
+    availability: list[CatalogInterval]
     available: Annotated[
         bool, Field(description="`false` solo con `availability=all` y sin intervalos.")
     ]

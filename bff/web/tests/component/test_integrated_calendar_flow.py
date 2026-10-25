@@ -248,8 +248,10 @@ class IntegratedCalendarFlowTest(EventFlowCase):
 
         body = self.ok(self.calendar(provider))
 
+        # HU040 (ADR-046 §4) agrega `OWN_APPOINTMENT`; sin citas reservadas no aporta elementos.
         self.assertEqual(
-            self.sources(body), {"OWN_SERVICE_AVAILABILITY": "OK", "EVENT_PUBLISHED": "OK"}
+            self.sources(body),
+            {"OWN_SERVICE_AVAILABILITY": "OK", "EVENT_PUBLISHED": "OK", "OWN_APPOINTMENT": "OK"},
         )
         self.assertEqual(
             [(i["source"], i["status"], i["reference"]) for i in body["items"]],

@@ -6,10 +6,16 @@ import httpx
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
+from complementary_services.api.appointments import build_appointments_router
 from complementary_services.api.associations import build_associations_router
 from complementary_services.api.availability import build_availability_router
 from complementary_services.api.publication import build_publication_router
 from complementary_services.api.services import build_services_router
+from complementary_services.application.commands.appointments import (
+    BookAppointment,
+    CancelAppointment,
+    VirtualSessionAccess,
+)
 from complementary_services.application.commands.associate_service import (
     AssociateService,
     DissociateService,
@@ -17,6 +23,7 @@ from complementary_services.application.commands.associate_service import (
 )
 from complementary_services.application.commands.create_service import CreateService
 from complementary_services.application.commands.publish_service import PublishService
+from complementary_services.application.queries.my_appointments import ListMyAppointments
 from complementary_services.application.queries.my_associations import ListMyAssociations
 from complementary_services.application.queries.my_services import GetMyService, ListMyServices
 from complementary_services.application.queries.service_availability import (
@@ -26,6 +33,9 @@ from complementary_services.infrastructure.authorization import ContractPermissi
 from complementary_services.infrastructure.clock import SystemClock
 from complementary_services.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
+)
+from complementary_services.infrastructure.persistence.appointments_reader import (
+    SqlAlchemyAppointmentReader,
 )
 from complementary_services.infrastructure.persistence.associations_reader import (
     SqlAlchemyAssociationReader,
@@ -37,6 +47,7 @@ from complementary_services.infrastructure.persistence.services_reader import (
     SqlAlchemyServiceReader,
 )
 from complementary_services.infrastructure.persistence.unit_of_work import (
+    SqlAlchemyAppointmentUnitOfWork,
     SqlAlchemyAssociationUnitOfWork,
     SqlAlchemyCreationUnitOfWork,
     SqlAlchemyPublicationUnitOfWork,
@@ -49,7 +60,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "complementary-services"
-API_VERSION = "0.5.0"
+API_VERSION = "0.6.0"
 
 
 def create_app(
@@ -133,6 +144,21 @@ def create_app(
                 ),
                 list_my_associations=ListMyAssociations(
                     reader=SqlAlchemyAssociationReader(sessions), access=medical_access
+                ),
+            ),
+            build_appointments_router(
+                verify_token=verifier.verify,
+                book_appointment=BookAppointment(
+                    unit_of_work=lambda: SqlAlchemyAppointmentUnitOfWork(sessions),
+                    access=VirtualSessionAccess(capabilities),
+                    clock=clock,
+                ),
+                cancel_appointment=CancelAppointment(
+                    unit_of_work=lambda: SqlAlchemyAppointmentUnitOfWork(sessions),
+                    clock=clock,
+                ),
+                list_my_appointments=ListMyAppointments(
+                    reader=SqlAlchemyAppointmentReader(sessions)
                 ),
             ),
         ],

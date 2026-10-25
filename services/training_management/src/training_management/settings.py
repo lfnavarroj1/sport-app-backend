@@ -55,3 +55,10 @@ class ReadProjectorSettings(ServiceSettings, DatabasePoolSettings):
     projector_subscription: str = PROJECTOR_SUBSCRIPTION
     # Mensajes en proceso simultáneo por réplica; acota conexiones a PostgreSQL.
     consumer_max_messages: int = Field(default=10, ge=1, le=100)
+
+
+class MeasurementRetentionSettings(ServiceSettings, DatabasePoolSettings):
+    """HU036: tarea de retención de `training_measurement` (90 días, ADR-044 §7)."""
+
+    database_write_url: PostgresUrl
+    retention_batch_size: int = Field(default=5000, ge=100, le=50000)

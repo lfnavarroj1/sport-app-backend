@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/riesgo.detectado.v1.schema.json",
+  "title": "riesgo.detectado.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = session_id (= aggregate_id) por cada alerta HR_ABOVE_THRESHOLD_V1 confirmada (HU036, ADR-044 §9; como máximo una cada 60 s por sesión). aggregate_version es el número de orden de la alerta en la sesión (1, 2, …). La alerta llega al móvil en la respuesta del lote; este evento solo alimenta session_risk_alert_view. Sin valores de frecuencia cardiaca, umbral ni texto; no es un diagnóstico médico. Instantes en UTC con sufijo Z.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "riesgo.detectado.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "training-management"
+    },
+    "aggregate_type": {
+      "const": "training_session"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "session_id de la sesión; también es la ordering_key."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Número de orden de la alerta en la sesión."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "event_id del medicion.recibida.v1 del lote que generó la alerta."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alert_id",
+        "session_id",
+        "device_id",
+        "rule",
+        "severity",
+        "detected_at"
+      ],
+      "properties": {
+        "alert_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUIDv5 estable de la sesión, el dispositivo, el instante y la regla."
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rule": {
+          "const": "HR_ABOVE_THRESHOLD_V1"
+        },
+        "severity": {
+          "const": "HIGH"
+        },
+        "detected_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "measured_at de la muestra que completó la ventana de 15 s."
+        }
+      }
+    }
+  }
+}

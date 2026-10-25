@@ -1,5 +1,5 @@
 """Lectura del cuerpo JSON de los `PUT` del perfil con los errores de ADR-034 (HU005, HU006 y
-HU009).
+HU009) y del `PATCH` de hábitos deportivos (HU008).
 
 Esta capa solo verifica la forma del JSON: campos permitidos (`field_not_allowed`,
 incluidos `user_id` y `bmi`) y tipos JSON (`unknown_value`; un número donde va una
@@ -12,7 +12,11 @@ from typing import Any
 from users_management.domain.profile.demographic import DemographicInput
 from users_management.domain.profile.nutrition_habits import NutritionHabitsInput
 from users_management.domain.profile.physiological import BloodPressureInput, PhysiologicalInput
-from users_management.domain.profile.sport_habits import SportHabitsInput, SportInput
+from users_management.domain.profile.sport_habits import (
+    SportHabitsInput,
+    SportHabitsPatchInput,
+    SportInput,
+)
 from users_management.domain.profile.validation import Issue, Violation
 
 DEMOGRAPHIC_FIELDS = (
@@ -211,11 +215,9 @@ def _strings(
     return tuple(values)
 
 
-def parse_sport_habits(body: object) -> SportHabitsInput:
-    """HU006: sección con los campos de forma válida y las violaciones de transporte."""
-    if not isinstance(body, dict):
-        return SportHabitsInput(transport_violations=(_body_violation(body),))
-    violations = _unexpected(body, SPORT_HABITS_FIELDS, "")
+def _sport_habits_values(body: dict[str, Any], violations: list[Violation]) -> dict[str, Any]:
+    """Campos comunes del `PUT` (HU006) y del `PATCH` (HU008) de hábitos deportivos."""
+    violations.extend(_unexpected(body, SPORT_HABITS_FIELDS, ""))
     sports = _array(body.get("sports"), "sports", violations)
     availability = _object(body.get("availability"), "availability", violations)
     days = time_slots = None
@@ -223,17 +225,40 @@ def parse_sport_habits(body: object) -> SportHabitsInput:
         violations.extend(_unexpected(availability, AVAILABILITY_FIELDS, "availability."))
         days = _strings(availability.get("days"), "availability.days", violations)
         time_slots = _strings(availability.get("time_slots"), "availability.time_slots", violations)
-    return SportHabitsInput(
-        expected_version=_integer(body.get("expected_version"), "expected_version", violations),
-        sports=(
+    return {
+        "expected_version": _integer(body.get("expected_version"), "expected_version", violations),
+        "sports": (
             tuple(_sport(item, f"sports[{i}]", violations) for i, item in enumerate(sports))
             if sports is not None
             else None
         ),
-        has_availability=availability is not None,
-        days=days,
-        time_slots=time_slots,
-        primary_goal=_string(body.get("primary_goal"), "primary_goal", violations),
+        "has_availability": availability is not None,
+        "days": days,
+        "time_slots": time_slots,
+        "primary_goal": _string(body.get("primary_goal"), "primary_goal", violations),
+    }
+
+
+def parse_sport_habits(body: object) -> SportHabitsInput:
+    """HU006: sección con los campos de forma válida y las violaciones de transporte."""
+    if not isinstance(body, dict):
+        return SportHabitsInput(transport_violations=(_body_violation(body),))
+    violations: list[Violation] = []
+    values = _sport_habits_values(body, violations)
+    return SportHabitsInput(**values, transport_violations=tuple(violations))
+
+
+def parse_sport_habits_patch(body: object) -> SportHabitsPatchInput:
+    """HU008: como el `PUT`, pero registra qué secciones llegaron (`null` también cuenta)."""
+    if not isinstance(body, dict):
+        return SportHabitsPatchInput(transport_violations=(_body_violation(body),))
+    violations: list[Violation] = []
+    values = _sport_habits_values(body, violations)
+    return SportHabitsPatchInput(
+        **values,
+        sends_sports="sports" in body,
+        sends_availability="availability" in body,
+        sends_primary_goal="primary_goal" in body,
         transport_violations=tuple(violations),
     )
 

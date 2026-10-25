@@ -7,10 +7,12 @@ from typing import Any
 from uuid import uuid4
 
 from device_fakes import (
+    FakeBirthDates,
     InMemoryDeviceReader,
     InMemoryDeviceStore,
     InMemoryDeviceUnitOfWork,
     InMemoryMeasurementUnitOfWork,
+    InMemoryMonitoringSettingsUnitOfWork,
     device_body,
     device_hash,
     sample,
@@ -27,6 +29,7 @@ from training_management.api.measurements import build_measurements_router
 from training_management.application.commands.devices import RegisterDevice, RevokeDevice
 from training_management.application.commands.measurements import IngestMeasurements
 from training_management.application.errors import CapabilitiesTimeout
+from training_management.application.monitoring_threshold import ResolveThreshold
 from training_management.application.queries.devices import ListMyDevices
 from training_management.domain.devices.model import (
     AthleteDevice,
@@ -101,6 +104,11 @@ class DevicesApiTest(unittest.TestCase):
                     ingest=IngestMeasurements(
                         unit_of_work=lambda: InMemoryMeasurementUnitOfWork(self.store),
                         capabilities=capabilities,
+                        thresholds=ResolveThreshold(
+                            unit_of_work=lambda: InMemoryMonitoringSettingsUnitOfWork(self.store),
+                            birth_dates=FakeBirthDates(),
+                            clock=self.clock,
+                        ),
                         clock=self.clock,
                     ),
                 ),
@@ -446,6 +454,8 @@ class DevicesApiTest(unittest.TestCase):
                     {"index": 2, "issue": "invalid_unit"},
                     {"index": 3, "issue": "too_far_in_future"},
                 ],
+                # HU036: umbral por defecto 171 sin fecha de nacimiento; valores bajo el umbral.
+                "evaluation": {"status": "OK", "alerts": []},
             },
         )
         self.assertEqual(
@@ -561,6 +571,8 @@ class DevicesApiTest(unittest.TestCase):
                 "accepted",
                 "duplicates",
                 "rejected",
+                "evaluation",
+                "alerts",
             },
         )
         values = [str(value) for item in fields for value in item.values()]

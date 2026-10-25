@@ -1,11 +1,13 @@
-"""HU005, HU006 y HU009: perfil del deportista (contratos de ADR-034 y ADR-035).
+"""HU005, HU006, HU008 y HU009: perfil del deportista (contratos de ADR-034 y ADR-035).
 
 - `PUT /v1/me/demographic-profile` y `PUT /v1/me/physiological-profile` (HU005),
   `PUT /v1/me/sport-habits` (HU006) y `PUT /v1/me/nutrition-habits` (HU009): registran
   (`201`) o reemplazan (`200`) la sección completa.
+- `PATCH /v1/me/sport-habits` (HU008): edita una o más secciones de los hábitos deportivos
+  registrados (`200`); las no enviadas se conservan.
 - `GET /v1/me/profile`: lee la proyección `athlete_profile_view` (consulta eventual).
 
-El cuerpo de los `PUT` se lee como JSON sin validación automática para responder con
+El cuerpo de los comandos se lee como JSON sin validación automática para responder con
 el catálogo de ADR-034 (`details[{field, issue}]`); su esquema se documenta en el
 OpenAPI. Todas las respuestas llevan `Cache-Control: no-store` (datos personales y de
 salud). Los instantes van en UTC con sufijo `Z`; el frontend los convierte.
@@ -35,7 +37,9 @@ from users_management.api.profile_payload import (
     parse_nutrition_habits,
     parse_physiological,
     parse_sport_habits,
+    parse_sport_habits_patch,
 )
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.profile_section import (
     ProfileSectionCommand,
     ProfileSectionResult,
@@ -79,7 +83,7 @@ from users_management.domain.profile.physiological import (
     SYSTOLIC_MAX,
     SYSTOLIC_MIN,
 )
-from users_management.domain.profile.section import VersionConflict
+from users_management.domain.profile.section import SectionNotFound, VersionConflict
 from users_management.domain.profile.sport_habits import (
     DAYS_MAX,
     DURATION_MAX,
@@ -237,6 +241,38 @@ class SportHabitsRequest(BaseModel):
     sports: Annotated[list[SportHabit], Field(min_length=1, max_length=SPORTS_MAX)]
     availability: SportAvailability
     primary_goal: PrimaryGoal | None = None
+
+
+class SportHabitsPatchRequest(BaseModel):
+    """Edición parcial de los hábitos deportivos (HU008, ADR-035): una o más secciones; cada
+    sección enviada reemplaza completa a la vigente y las no enviadas se conservan.
+    `primary_goal: null` borra el objetivo. Sin secciones → `422 required` (`field: null`).
+    `user_id` y cualquier campo no listado → `field_not_allowed`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "anyOf": [
+                {"required": ["sports"]},
+                {"required": ["availability"]},
+                {"required": ["primary_goal"]},
+            ]
+        },
+    )
+
+    expected_version: Annotated[
+        int, Field(ge=1, description="Obligatoria: la versión vigente de los hábitos.")
+    ]
+    sports: Annotated[
+        list[SportHabit] | None,
+        Field(min_length=1, max_length=SPORTS_MAX, description="Reemplaza la lista completa."),
+    ] = None
+    availability: Annotated[
+        SportAvailability | None, Field(description="Reemplaza días y franjas.")
+    ] = None
+    primary_goal: Annotated[
+        PrimaryGoal | None, Field(description="Enviado como `null`, borra el objetivo.")
+    ] = None
 
 
 class NutritionHabitsRequest(BaseModel):
@@ -454,6 +490,22 @@ def _command_responses(model: type[BaseModel]) -> dict[int | str, dict[str, Any]
     }
 
 
+def _patch_responses(model: type[BaseModel]) -> dict[int | str, dict[str, Any]]:
+    """HU008: solo edita una sección existente; nunca crea (`201`)."""
+    responses = _command_responses(model)
+    del responses[HTTPStatus.CREATED.value]
+    responses[HTTPStatus.OK.value] = {
+        "model": model,
+        "description": "Secciones actualizadas: estado completo con la versión nueva.",
+        "headers": responses[HTTPStatus.OK.value]["headers"],
+    }
+    responses[HTTPStatus.NOT_FOUND.value] = {
+        "model": ErrorResponse,
+        "description": "`sport_habits_not_found`: primero se registran los hábitos (HU006).",
+    }
+    return responses
+
+
 def _no_store(response: Response) -> Response:
     response.headers["Cache-Control"] = NO_STORE
     return response
@@ -496,7 +548,7 @@ def decode_body(raw: bytes) -> object:
         return _MALFORMED_JSON
 
 
-def _put_section[InputT](
+def _section_command[InputT](
     verify_token: TokenVerifier,
     use_case: UpdateProfileSection[InputT],
     *,
@@ -536,6 +588,12 @@ def _run_command[InputT](
         )
     except InvalidProfileSection as error:
         return validation_failure(error.violations)
+    except SectionNotFound as error:
+        return error_response(
+            HTTPStatus.NOT_FOUND,
+            error.code,
+            "La sección todavía no está registrada.",
+        )
     except VersionConflict as error:
         return error_response(
             HTTPStatus.CONFLICT,
@@ -561,6 +619,7 @@ def build_profile_router(
     update_demographic: UpdateDemographicProfile,
     update_physiological: UpdatePhysiologicalProfile,
     update_sport_habits: UpdateSportHabits,
+    patch_sport_habits: PatchSportHabits,
     update_nutrition_habits: UpdateNutritionHabits,
     get_profile: GetAthleteProfile,
 ) -> APIRouter:
@@ -580,7 +639,7 @@ def build_profile_router(
     ) -> Response:
         # Solo se leen los bytes aquí; el trabajo bloqueante (token y base) corre en el pool.
         return await run_in_threadpool(
-            _put_section,
+            _section_command,
             verify_token,
             update_demographic,
             parse=parse_demographic,
@@ -602,7 +661,7 @@ def build_profile_router(
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
         return await run_in_threadpool(
-            _put_section,
+            _section_command,
             verify_token,
             update_physiological,
             parse=parse_physiological,
@@ -625,10 +684,35 @@ def build_profile_router(
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
         return await run_in_threadpool(
-            _put_section,
+            _section_command,
             verify_token,
             update_sport_habits,
             parse=parse_sport_habits,
+            raw_body=await request.body(),
+            raw_key=idempotency_key,
+            authorization=authorization,
+        )
+
+    @router.patch(
+        "/sport-habits",
+        response_model=SportHabitsResponse,
+        summary="Actualizar parcialmente los hábitos deportivos (HU008)",
+        description="Cada sección enviada reemplaza completa a la vigente y las demás se "
+        "conservan. Publica `habitos.deportivos_actualizados.v1` con la versión nueva; no "
+        "modifica planes de entrenamiento vigentes.",
+        openapi_extra=_request_body(SportHabitsPatchRequest),
+        responses=_patch_responses(SportHabitsResponse),
+    )
+    async def patch_sport_habits_route(
+        request: Request,
+        idempotency_key: Annotated[str | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            _section_command,
+            verify_token,
+            patch_sport_habits,
+            parse=parse_sport_habits_patch,
             raw_body=await request.body(),
             raw_key=idempotency_key,
             authorization=authorization,
@@ -649,7 +733,7 @@ def build_profile_router(
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
         return await run_in_threadpool(
-            _put_section,
+            _section_command,
             verify_token,
             update_nutrition_habits,
             parse=parse_nutrition_habits,

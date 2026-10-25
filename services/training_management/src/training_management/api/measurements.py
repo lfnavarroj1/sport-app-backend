@@ -1,11 +1,11 @@
-"""HU037 (ADR-044 §5-§7): `POST /v1/training-sessions/{session_id}/measurements`.
+"""HU037/HU036 (ADR-044 §5-§9): `POST /v1/training-sessions/{session_id}/measurements`.
 
 El móvil envía cada 5 s las muestras de 1 Hz de un monitor vinculado durante una sesión propia
 `ACTIVE`. Cada muestra se valida por separado: las inválidas vuelven en `rejected[]` sin
 rechazar el lote y las repetidas se cuentan en `duplicates` (idempotencia natural, sin
 `Idempotency-Key`). Solo `athlete` con `training.realtime.monitor`. El cuerpo se lee como JSON
-sin validación automática; su esquema se documenta en el OpenAPI. HU036 agregará la evaluación
-de riesgo a esta misma respuesta.
+sin validación automática; su esquema se documenta en el OpenAPI. HU036: la misma respuesta
+trae la evaluación `HR_ABOVE_THRESHOLD_V1` (`OK`, `RISK` o `NO_DATA`) con las alertas nuevas.
 """
 
 from datetime import datetime
@@ -22,6 +22,7 @@ from training_management.api.identity import (
     AUTH_RESPONSES,
     TokenVerifier,
     authenticate,
+    correlation_uuid,
     forbidden,
 )
 from training_management.application.access import REALTIME_MONITOR_CAPABILITY
@@ -31,6 +32,7 @@ from training_management.application.commands.measurements import (
     IngestMeasurementsCommand,
 )
 from training_management.application.errors import (
+    AthleteContextUnavailable,
     CapabilitiesTimeout,
     CapabilitiesUnavailable,
     CapabilityRequired,
@@ -45,6 +47,14 @@ from training_management.domain.measurements.model import (
     MIN_HEART_RATE,
     InvalidMeasurementBatch,
     SampleIssue,
+)
+from training_management.domain.monitoring.model import (
+    ALERT_INSTRUCTION,
+    ALERT_MESSAGE,
+    RULE,
+    AlertSeverity,
+    Evaluation,
+    EvaluationStatus,
 )
 
 
@@ -78,6 +88,44 @@ class RejectedSample(BaseModel):
     issue: Annotated[SampleIssue, Field(description="Motivo del rechazo de la muestra.")]
 
 
+class RiskAlertResponse(BaseModel):
+    """Alerta nueva de este lote (como máximo una cada 60 s por sesión)."""
+
+    alert_id: Annotated[UUID, Field(description="Estable ante reenvíos del mismo lote.")]
+    rule: Annotated[Literal["HR_ABOVE_THRESHOLD_V1"], Field(description="Regla aplicada.")]
+    severity: AlertSeverity
+    message: Annotated[str, Field(description="Texto fijo aprobado, con el aviso no diagnóstico.")]
+    instruction: Annotated[str, Field(description="Qué hacer: reducir la intensidad o detenerse.")]
+    detected_at: Annotated[
+        datetime, Field(description="Instante UTC de la muestra que completó la ventana.")
+    ]
+
+
+class EvaluationResponse(BaseModel):
+    """`NO_DATA`: la muestra más reciente del dispositivo tiene más de 30 s (pérdida de
+    monitoreo; no se evalúa). `RISK`: ventana de 15 s sobre el umbral. `OK` en otro caso."""
+
+    status: EvaluationStatus
+    alerts: list[RiskAlertResponse]
+
+    @classmethod
+    def from_evaluation(cls, evaluation: Evaluation) -> "EvaluationResponse":
+        return cls(
+            status=evaluation.status,
+            alerts=[
+                RiskAlertResponse(
+                    alert_id=alert.alert_id,
+                    rule=RULE,
+                    severity=alert.severity,
+                    message=ALERT_MESSAGE,
+                    instruction=ALERT_INSTRUCTION,
+                    detected_at=alert.detected_at,
+                )
+                for alert in evaluation.alerts
+            ],
+        )
+
+
 class MeasurementBatchResponse(BaseModel):
     """Resultado del lote: `received = accepted + duplicates + len(rejected)`."""
 
@@ -89,6 +137,10 @@ class MeasurementBatchResponse(BaseModel):
         int, Field(description="Muestras válidas ya registradas (en este u otro lote).")
     ]
     rejected: list[RejectedSample]
+    evaluation: Annotated[
+        EvaluationResponse,
+        Field(description="HU036: evaluación de riesgo dentro del mismo ciclo (ADR-044 §8)."),
+    ]
 
     @classmethod
     def from_result(cls, result: IngestionResult) -> "MeasurementBatchResponse":
@@ -101,6 +153,7 @@ class MeasurementBatchResponse(BaseModel):
             rejected=[
                 RejectedSample(index=item.index, issue=item.issue) for item in result.rejected
             ],
+            evaluation=EvaluationResponse.from_evaluation(result.evaluation),
         )
 
 
@@ -143,6 +196,10 @@ _MESSAGES: dict[type[Exception], tuple[HTTPStatus, str]] = {
         HTTPStatus.SERVICE_UNAVAILABLE,
         "No fue posible verificar su plan. Intente de nuevo.",
     ),
+    AthleteContextUnavailable: (
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "No fue posible determinar su umbral de alerta. Intente de nuevo.",
+    ),
 }
 _HANDLED: tuple[type[Exception], ...] = (
     PermissionRequired,
@@ -174,10 +231,15 @@ def build_measurements_router(
     @router.post(
         "/{session_id}/measurements",
         response_model=MeasurementBatchResponse,
-        summary="Enviar un lote de frecuencia cardiaca de una sesión activa (HU037)",
+        summary="Enviar y evaluar un lote de frecuencia cardiaca de una sesión activa "
+        "(HU037, HU036)",
         description="Lote de 1 a 60 muestras de un dispositivo `ACTIVE` del deportista. Las "
         "muestras se identifican por (`session_id`, `device_id`, `measured_at`): reenviar un "
-        "lote es seguro y solo suma `duplicates`. Fuera de orden se aceptan.",
+        "lote es seguro, solo suma `duplicates` y no repite alertas. Fuera de orden se aceptan. "
+        "`evaluation` aplica `HR_ABOVE_THRESHOLD_V1` (valor > umbral durante ≥ 15 s "
+        "consecutivos, alerta como máximo cada 60 s) con el umbral de "
+        "`/v1/me/monitoring-settings`; `NO_DATA` si la última muestra tiene más de 30 s. No es "
+        "un diagnóstico médico.",
         openapi_extra=_schema(MeasurementBatchRequest),
         responses={
             **AUTH_RESPONSES,
@@ -205,7 +267,8 @@ def build_measurements_router(
             },
             HTTPStatus.SERVICE_UNAVAILABLE.value: {
                 "model": ErrorResponse,
-                "description": "`upstream_unavailable`: no se pudo verificar el plan.",
+                "description": "`upstream_unavailable`: no se pudo verificar el plan o, sin "
+                "umbral propio, obtener la fecha de nacimiento para el umbral por defecto.",
             },
             HTTPStatus.GATEWAY_TIMEOUT.value: {
                 "model": ErrorResponse,
@@ -225,7 +288,9 @@ def build_measurements_router(
         try:
             result = ingest(
                 caller,
-                IngestMeasurementsCommand(session_id=session_id, body=body),
+                IngestMeasurementsCommand(
+                    session_id=session_id, body=body, correlation_id=correlation_uuid()
+                ),
             )
         except _HANDLED as error:
             return _failure(error)

@@ -1,7 +1,8 @@
 """Representación de la sesión de HU032 en respuestas y en el resultado idempotente guardado.
 
 Los instantes se expresan en UTC con sufijo `Z`; `ended_at` y `duration_seconds` son
-`null` mientras la sesión está activa.
+`null` mientras la sesión está activa. `end_reason` (HU036) es `null` sin motivo; un resultado
+guardado antes de HU036 no lo trae y se lee como `null`.
 """
 
 from datetime import datetime
@@ -10,7 +11,11 @@ from uuid import UUID
 
 from training_management.domain.plans.model import Sport
 from training_management.domain.sessions.events import utc_instant
-from training_management.domain.sessions.model import TrainingSession, TrainingSessionStatus
+from training_management.domain.sessions.model import (
+    SessionEndReason,
+    TrainingSession,
+    TrainingSessionStatus,
+)
 
 
 def session_document(session: TrainingSession) -> dict[str, Any]:
@@ -26,12 +31,14 @@ def session_document(session: TrainingSession) -> dict[str, Any]:
         "version": session.version,
         "created_at": utc_instant(session.created_at),
         "updated_at": utc_instant(session.updated_at),
+        "end_reason": session.end_reason.value if session.end_reason else None,
     }
 
 
 def session_from_document(document: dict[str, Any]) -> TrainingSession:
     ended_at = document.get("ended_at")
     plan_id = document.get("plan_id")
+    end_reason = document.get("end_reason")
     return TrainingSession(
         session_id=UUID(document["session_id"]),
         athlete_id=UUID(document["athlete_id"]),
@@ -44,4 +51,5 @@ def session_from_document(document: dict[str, Any]) -> TrainingSession:
         version=int(document["version"]),
         created_at=datetime.fromisoformat(document["created_at"]),
         updated_at=datetime.fromisoformat(document["updated_at"]),
+        end_reason=SessionEndReason(end_reason) if end_reason else None,
     )

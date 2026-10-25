@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/medicion.recibida.v1.schema.json",
+  "title": "medicion.recibida.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = session_id (= aggregate_id) por cada lote de frecuencia cardiaca con muestras nuevas de una sesión activa (HU036, ADR-044 §7). Resumen del lote, nunca cada muestra. aggregate_version = payload.version: secuencia propia del resumen (1, 2, …) que no se mezcla con las versiones del ciclo de vida de la sesión. Datos de salud mínimos (último, máximo y promedio del lote); instantes en UTC con sufijo Z; el promedio es una cadena con un decimal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "medicion.recibida.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "training-management"
+    },
+    "aggregate_type": {
+      "const": "training_session"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "session_id de la sesión; también es la ordering_key."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Igual a payload.version."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": "null",
+      "description": "La ingestión no lleva clave de idempotencia (idempotencia natural por muestra)."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "device_id",
+        "window_from",
+        "window_to",
+        "samples_accepted",
+        "last_value",
+        "max_value",
+        "avg_value",
+        "version"
+      ],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Identidad lógica del monitor (SHA-256); nunca la dirección BLE."
+        },
+        "window_from": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "measured_at de la muestra nueva más antigua del lote."
+        },
+        "window_to": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "measured_at de la muestra nueva más reciente del lote."
+        },
+        "samples_accepted": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "last_value": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 250,
+          "description": "Valor en lpm de la muestra de window_to."
+        },
+        "max_value": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 250
+        },
+        "avg_value": {
+          "type": "string",
+          "pattern": "^[0-9]{2,3}\\.[0-9]$",
+          "description": "Promedio del lote en lpm con un decimal (ROUND_HALF_UP)."
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

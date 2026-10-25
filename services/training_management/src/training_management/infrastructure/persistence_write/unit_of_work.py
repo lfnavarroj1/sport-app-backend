@@ -1,11 +1,12 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
-HU034, HU014, HU026, HU028, HU037)."""
+HU034, HU014, HU026, HU028, HU037, HU036)."""
 
+from datetime import datetime
 from types import TracebackType
 from typing import Self
 from uuid import UUID
 
-from sqlalchemy import Select, delete, select
+from sqlalchemy import Select, delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,9 +17,15 @@ from training_management.application.errors import (
     CalculationIdConflict,
     DeviceConflict,
     IdempotencyKeyConflict,
+    MonitoringSettingsConflict,
     SessionIdConflict,
 )
-from training_management.application.ports import CommandRecord, IdempotencyRecord, OutboxMessage
+from training_management.application.ports import (
+    CommandRecord,
+    IdempotencyRecord,
+    MonitoringState,
+    OutboxMessage,
+)
 from training_management.domain.authorizations.model import (
     AuthorizationStatus,
     TrainingAuthorization,
@@ -29,13 +36,18 @@ from training_management.domain.devices.model import (
     DeviceStatus,
     DeviceType,
 )
-from training_management.domain.measurements.model import Measurement
+from training_management.domain.measurements.model import (
+    Measurement,
+    MeasurementType,
+    MeasurementUnit,
+)
 from training_management.domain.metrics.model import (
     CalculationStatus,
     MetricInput,
     MetricResult,
     TrainingMetricCalculation,
 )
+from training_management.domain.monitoring.model import MonitoringSettings, RiskAlert
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import PlanStatus, Sport, TrainingPlan
 from training_management.domain.routes.model import (
@@ -44,7 +56,11 @@ from training_management.domain.routes.model import (
     Route,
     RouteStatus,
 )
-from training_management.domain.sessions.model import TrainingSession, TrainingSessionStatus
+from training_management.domain.sessions.model import (
+    SessionEndReason,
+    TrainingSession,
+    TrainingSessionStatus,
+)
 from training_management.domain.templates.model import (
     DayOfWeek,
     Goal,
@@ -60,15 +76,18 @@ from training_management.infrastructure.persistence_write.models import (
     COMMAND_IDEMPOTENCY_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
     METRIC_CALCULATION_PRIMARY_KEY,
+    MONITORING_SETTINGS_PRIMARY_KEY,
     TRAINING_SESSION_PRIMARY_KEY,
     AthleteDeviceRow,
     CommandIdempotencyRow,
     IdempotencyKeyRow,
+    MonitoringSettingsRow,
     NutritionPlanItemRow,
     NutritionPlanMealRow,
     NutritionPlanRow,
     OutboxEventRow,
     RouteRow,
+    SessionMonitoringStateRow,
     TrainingAuthorizationRow,
     TrainingMeasurementRow,
     TrainingMetricCalculationRow,
@@ -76,6 +95,7 @@ from training_management.infrastructure.persistence_write.models import (
     TrainingPlanRow,
     TrainingPlanSessionRow,
     TrainingPlanTemplateRow,
+    TrainingRiskAlertRow,
     TrainingSessionRow,
 )
 
@@ -285,6 +305,7 @@ def _session(row: TrainingSessionRow) -> TrainingSession:
         version=row.version,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        end_reason=SessionEndReason(row.end_reason) if row.end_reason else None,
     )
 
 
@@ -390,6 +411,7 @@ class SqlAlchemySessionUnitOfWork(_CommandUnitOfWork):
         row.status = training_session.status.value
         row.version = training_session.version
         row.updated_at = training_session.updated_at
+        row.end_reason = training_session.end_reason.value if training_session.end_reason else None
 
     def commit(self) -> None:
         try:
@@ -786,10 +808,12 @@ class SqlAlchemyDeviceReader:
 
 
 class SqlAlchemyMeasurementUnitOfWork(_SessionUnitOfWork):
-    """HU037: ingestión de un lote con la sesión y el dispositivo en `FOR SHARE`.
+    """HU037/HU036: ingestión de un lote con la sesión y el dispositivo en `FOR SHARE` y el
+    estado del monitoreo de la sesión en `FOR UPDATE`.
 
     Una finalización (HU032) o una revocación toman `FOR UPDATE` sobre la misma fila, así que
-    esperan a que el lote confirme; un lote posterior ve el nuevo estado y se rechaza.
+    esperan a que el lote confirme; un lote posterior ve el nuevo estado y se rechaza. Dos lotes
+    de la misma sesión se evalúan en serie por el bloqueo de `session_monitoring_state`.
     """
 
     def get_session_for_ingestion(self, session_id: UUID) -> TrainingSession | None:
@@ -806,9 +830,28 @@ class SqlAlchemyMeasurementUnitOfWork(_SessionUnitOfWork):
         )
         return _device(row) if row is not None else None
 
+    def lock_monitoring_state(self, session_id: UUID, now: datetime) -> MonitoringState:
+        self.session.execute(
+            insert(SessionMonitoringStateRow)
+            .values(session_id=session_id, summary_version=0, alert_count=0, updated_at=now)
+            .on_conflict_do_nothing(index_elements=["session_id"])
+        )
+        row = self.session.scalar(
+            select(SessionMonitoringStateRow)
+            .where(SessionMonitoringStateRow.session_id == session_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise RuntimeError("El estado del monitoreo no quedó registrado.")
+        return MonitoringState(
+            session_id=row.session_id,
+            summary_version=row.summary_version,
+            alert_count=row.alert_count,
+        )
+
     def add_measurements(
         self, session_id: UUID, device_id: str, measurements: tuple[Measurement, ...]
-    ) -> int:
+    ) -> tuple[Measurement, ...]:
         statement = (
             insert(TrainingMeasurementRow)
             .values(
@@ -825,9 +868,166 @@ class SqlAlchemyMeasurementUnitOfWork(_SessionUnitOfWork):
                 ]
             )
             .on_conflict_do_nothing(index_elements=["session_id", "device_id", "measured_at"])
-            .returning(TrainingMeasurementRow.measured_at)
+            .returning(TrainingMeasurementRow.measured_at, TrainingMeasurementRow.value)
         )
-        return len(self.session.execute(statement).all())
+        return tuple(
+            Measurement(
+                measured_at=measured_at,
+                type=MeasurementType.HEART_RATE,
+                value=value,
+                unit=MeasurementUnit.BPM,
+            )
+            for measured_at, value in self.session.execute(statement).all()
+        )
+
+    def latest_measured_at(self, session_id: UUID, device_id: str) -> datetime | None:
+        latest: datetime | None = self.session.scalar(
+            select(func.max(TrainingMeasurementRow.measured_at)).where(
+                TrainingMeasurementRow.session_id == session_id,
+                TrainingMeasurementRow.device_id == device_id,
+            )
+        )
+        return latest
+
+    def window_samples(
+        self, session_id: UUID, device_id: str, since: datetime
+    ) -> list[tuple[datetime, int]]:
+        rows = self.session.execute(
+            select(TrainingMeasurementRow.measured_at, TrainingMeasurementRow.value)
+            .where(
+                TrainingMeasurementRow.session_id == session_id,
+                TrainingMeasurementRow.device_id == device_id,
+                TrainingMeasurementRow.measured_at >= since,
+            )
+            .order_by(TrainingMeasurementRow.measured_at)
+        ).all()
+        return [(measured_at, value) for measured_at, value in rows]
+
+    def alert_instants(self, session_id: UUID, since: datetime, until: datetime) -> list[datetime]:
+        return list(
+            self.session.scalars(
+                select(TrainingRiskAlertRow.detected_at)
+                .where(
+                    TrainingRiskAlertRow.session_id == session_id,
+                    TrainingRiskAlertRow.detected_at >= since,
+                    TrainingRiskAlertRow.detected_at <= until,
+                )
+                .order_by(TrainingRiskAlertRow.detected_at)
+            )
+        )
+
+    def add_alerts(
+        self, alerts: tuple[RiskAlert, ...], first_sequence: int, created_at: datetime
+    ) -> None:
+        self.session.add_all(
+            TrainingRiskAlertRow(
+                alert_id=alert.alert_id,
+                session_id=alert.session_id,
+                device_id=alert.device_id,
+                rule=alert.rule,
+                severity=alert.severity.value,
+                detected_at=alert.detected_at,
+                threshold_bpm=alert.threshold_bpm,
+                sequence=first_sequence + offset,
+                created_at=created_at,
+            )
+            for offset, alert in enumerate(alerts)
+        )
+
+    def save_monitoring_state(self, state: MonitoringState, now: datetime) -> None:
+        row = self.session.get(SessionMonitoringStateRow, state.session_id)
+        if row is None:
+            raise RuntimeError("El estado del monitoreo no está bloqueado.")
+        row.summary_version = state.summary_version
+        row.alert_count = state.alert_count
+        row.updated_at = now
 
     def commit(self) -> None:
         self.session.commit()
+
+
+def _settings(row: MonitoringSettingsRow) -> MonitoringSettings:
+    return MonitoringSettings(
+        athlete_id=row.athlete_id,
+        max_heart_rate_alert_bpm=row.max_heart_rate_alert_bpm,
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+class SqlAlchemyMonitoringSettingsUnitOfWork(_SessionUnitOfWork):
+    """HU036: umbral configurado por el deportista."""
+
+    def get_settings(
+        self, athlete_id: UUID, *, for_update: bool = False
+    ) -> MonitoringSettings | None:
+        statement = select(MonitoringSettingsRow).where(
+            MonitoringSettingsRow.athlete_id == athlete_id
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        row = self.session.scalar(statement)
+        return _settings(row) if row is not None else None
+
+    def add_settings(self, settings: MonitoringSettings) -> None:
+        self.session.add(
+            MonitoringSettingsRow(
+                athlete_id=settings.athlete_id,
+                max_heart_rate_alert_bpm=settings.max_heart_rate_alert_bpm,
+                version=settings.version,
+                created_at=settings.created_at,
+                updated_at=settings.updated_at,
+            )
+        )
+
+    def update_settings(self, settings: MonitoringSettings) -> None:
+        row = self.session.get(MonitoringSettingsRow, settings.athlete_id)
+        if row is None:
+            raise RuntimeError("La configuración a actualizar no está cargada.")
+        row.max_heart_rate_alert_bpm = settings.max_heart_rate_alert_bpm
+        row.version = settings.version
+        row.updated_at = settings.updated_at
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            if _violated_constraint(error) == MONITORING_SETTINGS_PRIMARY_KEY:
+                raise MonitoringSettingsConflict() from None
+            raise
+
+
+class SqlAlchemyMeasurementRetention:
+    """HU036: borra por lotes las muestras con más de 90 días (ADR-044 §7)."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def purge_measurements(self, older_than: datetime, batch_size: int) -> int:
+        expired = (
+            select(
+                TrainingMeasurementRow.session_id,
+                TrainingMeasurementRow.device_id,
+                TrainingMeasurementRow.measured_at,
+            )
+            .where(TrainingMeasurementRow.measured_at < older_than)
+            .order_by(TrainingMeasurementRow.measured_at)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+        with self._session_factory() as session, session.begin():
+            keys = session.execute(expired).all()
+            if not keys:
+                return 0
+            session.execute(
+                delete(TrainingMeasurementRow).where(
+                    tuple_(
+                        TrainingMeasurementRow.session_id,
+                        TrainingMeasurementRow.device_id,
+                        TrainingMeasurementRow.measured_at,
+                    ).in_([tuple(key) for key in keys])
+                )
+            )
+        return len(keys)

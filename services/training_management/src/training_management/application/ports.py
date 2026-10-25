@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
@@ -15,6 +16,7 @@ from training_management.domain.dashboard.model import (
 from training_management.domain.devices.model import AthleteDevice
 from training_management.domain.measurements.model import Measurement
 from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.monitoring.model import MonitoringSettings, RiskAlert
 from training_management.domain.nutrition.catalog import FoodCatalog
 from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
 from training_management.domain.plans.model import Sport, TrainingPlan
@@ -472,6 +474,38 @@ class MetricResultReader(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class MonitoringView:
+    """HU036: `session_monitoring_view`, acumulado de los resúmenes `medicion.recibida.v1`.
+
+    `value_sum` (suma de `avg_value x samples_accepted` de cada lote) es interno: permite
+    recalcular el promedio de la sesión sin acumular redondeos.
+    """
+
+    session_id: UUID
+    device_id: str
+    last_measured_at: datetime
+    last_value: int
+    samples_count: int
+    max_value: int
+    avg_value: Decimal
+    value_sum: Decimal
+    version: int
+
+
+@dataclass(frozen=True)
+class RiskAlertView:
+    """HU036: alerta confirmada (`riesgo.detectado.v1`) en `session_risk_alert_view`."""
+
+    alert_id: UUID
+    session_id: UUID
+    device_id: str
+    rule: str
+    severity: str
+    detected_at: datetime
+    sequence: int
+
+
 class DuplicateDelivery(Exception):
     """Otra entrega del mismo evento confirmó primero su registro en `processed_event`."""
 
@@ -542,6 +576,18 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
         """HU028: inserta o reemplaza el estado completo en `training_plan_template_view`."""
         ...
+
+    def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
+        """HU036: resumen proyectado de la sesión; bloquea la fila."""
+        ...
+
+    def save_monitoring_view(self, view: MonitoringView, projected_at: datetime) -> None:
+        """HU036: inserta o reemplaza el resumen de la sesión."""
+        ...
+
+    def has_risk_alert(self, alert_id: UUID) -> bool: ...
+
+    def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None: ...
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
@@ -787,9 +833,20 @@ class DeviceReader(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class MonitoringState:
+    """HU036: secuencias del monitoreo de una sesión (`session_monitoring_state`)."""
+
+    session_id: UUID
+    summary_version: int
+    alert_count: int
+
+
 class MeasurementUnitOfWork(Transaction, Protocol):
-    """Transacción local de la ingestión de HU037: sesión y dispositivo bloqueados en modo
-    compartido (una finalización o una revocación esperan al lote, y viceversa)."""
+    """Transacción local de la ingestión de HU037/HU036: sesión y dispositivo bloqueados en
+    modo compartido (una finalización o una revocación esperan al lote, y viceversa) y el
+    estado del monitoreo de la sesión bloqueado en exclusiva (los lotes de una misma sesión se
+    evalúan en serie). Muestras, alertas, estado y outbox se confirman juntos."""
 
     def get_session_for_ingestion(self, session_id: UUID) -> TrainingSession | None: ...
 
@@ -797,11 +854,70 @@ class MeasurementUnitOfWork(Transaction, Protocol):
         self, athlete_id: UUID, device_id: str
     ) -> AthleteDevice | None: ...
 
-    def add_measurements(
-        self, session_id: UUID, device_id: str, measurements: tuple[Measurement, ...]
-    ) -> int:
-        """Inserta las muestras que no existan (`session_id`, `device_id`, `measured_at`) y
-        devuelve cuántas insertó; las existentes se ignoran."""
+    def lock_monitoring_state(self, session_id: UUID, now: datetime) -> MonitoringState:
+        """Crea el estado (versiones en 0) si falta y lo bloquea hasta el fin de la transacción."""
         ...
 
+    def add_measurements(
+        self, session_id: UUID, device_id: str, measurements: tuple[Measurement, ...]
+    ) -> tuple[Measurement, ...]:
+        """Inserta las muestras que no existan (`session_id`, `device_id`, `measured_at`) y
+        devuelve las insertadas; las existentes se ignoran."""
+        ...
+
+    def latest_measured_at(self, session_id: UUID, device_id: str) -> datetime | None:
+        """Instante de la muestra más reciente del dispositivo en la sesión."""
+        ...
+
+    def window_samples(
+        self, session_id: UUID, device_id: str, since: datetime
+    ) -> list[tuple[datetime, int]]:
+        """(`measured_at`, `value`) del dispositivo en la sesión desde `since`, en orden."""
+        ...
+
+    def alert_instants(self, session_id: UUID, since: datetime, until: datetime) -> list[datetime]:
+        """`detected_at` de las alertas de la sesión entre `since` y `until` (inclusive)."""
+        ...
+
+    def add_alerts(
+        self, alerts: tuple[RiskAlert, ...], first_sequence: int, created_at: datetime
+    ) -> None: ...
+
+    def save_monitoring_state(self, state: MonitoringState, now: datetime) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
     def commit(self) -> None: ...
+
+
+class MonitoringSettingsUnitOfWork(Transaction, Protocol):
+    """HU036: umbral configurado por el deportista (`monitoring_settings`)."""
+
+    def get_settings(
+        self, athlete_id: UUID, *, for_update: bool = False
+    ) -> MonitoringSettings | None: ...
+
+    def add_settings(self, settings: MonitoringSettings) -> None: ...
+
+    def update_settings(self, settings: MonitoringSettings) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la fila duplicada a `MonitoringSettingsConflict`."""
+        ...
+
+
+class AthleteBirthDates(Protocol):
+    """HU036: `birth_date` del contexto interno de Usuarios (ADR-041) para el umbral por
+    defecto. Lanza `AthleteContextUnavailable` si no puede obtenerla. Se llama fuera de
+    cualquier transacción local."""
+
+    def birth_date(self, athlete_id: UUID) -> date | None: ...
+
+
+class MeasurementRetentionStore(Protocol):
+    """HU036: retención de 90 días de `training_measurement` (ADR-044 §7)."""
+
+    def purge_measurements(self, older_than: datetime, batch_size: int) -> int:
+        """Elimina como máximo `batch_size` muestras con `measured_at` anterior a `older_than`
+        en una transacción corta y devuelve cuántas eliminó."""
+        ...

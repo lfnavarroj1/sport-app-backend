@@ -15,11 +15,11 @@ from training_management.settings import TrainingManagementSettings
 HISTORIES = {
     "write": (
         "training_management.infrastructure.persistence_write:migrations",
-        "0009_devices_measurements",
+        "0010_monitoring",
     ),
     "read": (
         "training_management.infrastructure.persistence_read:migrations",
-        "0010_training_plan_template_view",
+        "0011_session_monitoring_views",
     ),
 }
 

@@ -236,30 +236,30 @@ class IntegratedCalendarFlowTest(EventFlowCase):
 
     def test_service_provider_sees_own_availability(self) -> None:
         """CA1/CA4: intervalos de sus servicios `DRAFT` y `PUBLISHED`, no los de otro
-        profesional. Eventos aún no admite al profesional en `GET /v1/events`
-        (`T-HU018-BE-EVT`): la fuente queda `UNAVAILABLE` y el resto se entrega (CA5)."""
+        profesional, y el evento publicado del organizador (`EVENT_PUBLISHED`, que Eventos
+        admite para el profesional en `GET /v1/events` desde `T-HU018-BE-EVT`)."""
         provider, other = self.session_for("service_provider"), self.session_for("service_provider")
         draft = self.service(provider, offer("Fisioterapia", "COACHING", 8), publish=False)
         published = self.service(provider, offer("Valoración médica", hour=10), publish=True)
         self.service(other, offer("Ajeno", hour=11), publish=True)
         organizer = self.session_for("organizer")
-        self.published(organizer)
+        event_id = self.published(organizer)
         self.project_events()
 
         body = self.ok(self.calendar(provider))
 
         self.assertEqual(
-            self.sources(body),
-            {"OWN_SERVICE_AVAILABILITY": "OK", "EVENT_PUBLISHED": "UNAVAILABLE"},
+            self.sources(body), {"OWN_SERVICE_AVAILABILITY": "OK", "EVENT_PUBLISHED": "OK"}
         )
         self.assertEqual(
-            [(i["source"], i["status"], i["reference"]["service_id"]) for i in body["items"]],
+            [(i["source"], i["status"], i["reference"]) for i in body["items"]],
             [
-                ("OWN_SERVICE_AVAILABILITY", "DRAFT", draft),
-                ("OWN_SERVICE_AVAILABILITY", "PUBLISHED", published),
+                ("EVENT_PUBLISHED", "PUBLISHED", {"event_id": event_id}),
+                ("OWN_SERVICE_AVAILABILITY", "DRAFT", {"service_id": draft}),
+                ("OWN_SERVICE_AVAILABILITY", "PUBLISHED", {"service_id": published}),
             ],
         )
-        self.assertEqual(body["items"][0]["occurs_on"], DAY.isoformat())
+        self.assertTrue(all(item["occurs_on"] == DAY.isoformat() for item in body["items"]))
         self.assertNotIn("provider_id", json.dumps(body))
 
     def test_athlete_composes_events_sessions_services_and_registrations(self) -> None:

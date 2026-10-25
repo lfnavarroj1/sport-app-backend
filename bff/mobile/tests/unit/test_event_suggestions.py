@@ -7,11 +7,13 @@ errores `503`/`504` cuando falla Eventos. Usuarios, Afiliación y Eventos se sim
 `httpx.MockTransport`.
 """
 
+import sys
 import unittest
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest import mock
 
 import httpx
 from fastapi.testclient import TestClient
@@ -206,14 +208,27 @@ class EventSuggestionsTest(unittest.TestCase):
         self.assertEqual(datetime.fromisoformat(body["generated_at"]).tzinfo, UTC)
 
     def test_bff_asks_events_for_the_next_90_days_in_pages_of_200(self) -> None:
+        self.assert_asks_the_next_90_days_in_pages_of_200()
+
+    def test_window_starts_at_the_request_even_long_after_the_import(self) -> None:
+        """IC-6: la ventana se compara con el instante de la solicitud y no con el `NOW` del
+        módulo, que con la suite completa se tomó minutos antes."""
+        with mock.patch.object(sys.modules[__name__], "NOW", NOW - timedelta(hours=1)):
+            self.assert_asks_the_next_90_days_in_pages_of_200()
+
+    def assert_asks_the_next_90_days_in_pages_of_200(self) -> None:
+        # El BFF trunca el instante a segundos: se trunca `before` y no `after`.
+        before = datetime.now(UTC).replace(microsecond=0)
         self.get()
+        after = datetime.now(UTC)
 
         first, second = (dict(request.url.params) for request in self.events.listing)
         self.assertEqual(first["limit"], "200")
         self.assertNotIn("cursor", first)
         self.assertEqual(second["cursor"], "c1")
         start, end = (datetime.fromisoformat(first[key]) for key in ("from", "to"))
-        self.assertLessEqual(abs((start - NOW).total_seconds()), 60)
+        self.assertLessEqual(before, start)
+        self.assertLessEqual(start, after)
         self.assertEqual(end - start, timedelta(days=90))
         self.assertTrue(first["from"].endswith("Z"))
         for request in [*self.events.listing, *self.events.detail_requests]:

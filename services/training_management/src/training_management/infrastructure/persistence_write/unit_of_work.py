@@ -1,6 +1,7 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
 HU034, HU014, HU026, HU028, HU037, HU036, HU043)."""
 
+from collections.abc import Callable
 from datetime import datetime
 from types import TracebackType
 from typing import Self
@@ -610,8 +611,9 @@ class SqlAlchemyFoodIntakeUnitOfWork(_CommandUnitOfWork):
                 data_fingerprint=intake.data.fingerprint,
             )
         )
-        # El consumo debe existir antes que sus ítems (clave foránea local).
-        self.session.flush()
+        # El consumo debe existir antes que sus ítems (clave foránea local). Una carrera con el
+        # mismo `intake_id` aflora en este `flush` y se traduce igual que en `commit`.
+        self._translate(self.session.flush)
         self.session.add_all(
             FoodIntakeItemRow(
                 intake_id=intake.intake_id,
@@ -624,8 +626,11 @@ class SqlAlchemyFoodIntakeUnitOfWork(_CommandUnitOfWork):
         )
 
     def commit(self) -> None:
+        self._translate(self.session.commit)
+
+    def _translate(self, action: Callable[[], None]) -> None:
         try:
-            self.session.commit()
+            action()
         except IntegrityError as error:
             self.session.rollback()
             conflict = _FOOD_INTAKE_CONFLICTS.get(_violated_constraint(error))

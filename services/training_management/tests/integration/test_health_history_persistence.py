@@ -191,7 +191,12 @@ class HealthHistoryPersistenceTest(unittest.TestCase):
             ("DISCOMFORT", "KNEE", "LOW", "OPEN", 10),
         )
         self.assertEqual(len(before_projection.items), 1)
-        fields = [record.fields for record in logs.records]  # type: ignore[attr-defined]
+        # Otorgar y revocar (HU010) también auditan; solo cuentan los accesos al historial.
+        fields = [
+            record.fields  # type: ignore[attr-defined]
+            for record in logs.records
+            if record.getMessage() == "audit.health_history_access"
+        ]
         self.assertEqual(
             [(f["result"], f["professional_id"]) for f in fields],
             [

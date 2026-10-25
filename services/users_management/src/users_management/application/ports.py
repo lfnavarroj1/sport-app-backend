@@ -210,6 +210,43 @@ class AthleteContext:
 
 
 @dataclass(frozen=True)
+class AthleteSearchCriteria:
+    """Filtros ya validados de `POST /v1/users/athletes/search` (ADR-045, HU039).
+
+    `sports` son códigos del catálogo de HU006 sin `other`; `city` ya está normalizada con
+    `normalize_term`; `after` es el último `user_id` de la página anterior (keyset).
+    Datos personales: nunca en trazas ni logs.
+    """
+
+    sports: tuple[str, ...]
+    city: str
+    country_code: str
+    limit: int
+    after: UUID | None = None
+
+    def __repr__(self) -> str:
+        return f"AthleteSearchCriteria(sports={len(self.sports)}, limit={self.limit})"
+
+
+@dataclass(frozen=True)
+class AthleteSearchPage:
+    """Hasta `limit` identificadores en orden ascendente; `has_more` si hay otra página."""
+
+    user_ids: tuple[UUID, ...]
+    has_more: bool
+
+    def __repr__(self) -> str:
+        return f"AthleteSearchPage(count={len(self.user_ids)}, has_more={self.has_more})"
+
+
+class AthleteSearchReader(Protocol):
+    """Deportistas activos que coinciden por deporte, ciudad y país en `athlete_profile_view`
+    (ADR-045, HU039). `ReadModelUnavailable` si la base de lectura no responde."""
+
+    def search(self, criteria: AthleteSearchCriteria) -> AthleteSearchPage: ...
+
+
+@dataclass(frozen=True)
 class UserDisplay:
     """Nombre y correo de una cuenta activa (HU011, CA5). Datos personales: solo los recibe el
     BFF para el profesional autorizado; nunca se registran."""

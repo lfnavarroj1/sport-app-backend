@@ -9,6 +9,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import AccessTokenVerifier
 from users_management.api.account import build_account_router
 from users_management.api.athlete_context import build_athlete_context_router
+from users_management.api.athletes_search import build_athletes_search_router
 from users_management.api.lookup import build_lookup_router
 from users_management.api.nutrition_restrictions import build_nutrition_restrictions_router
 from users_management.api.profile import build_profile_router
@@ -29,6 +30,7 @@ from users_management.application.commands.update_physiological_profile import (
 )
 from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.queries.athlete_context import GetAthleteContext
+from users_management.application.queries.athletes_search import SearchAthletes
 from users_management.application.queries.directory_lookup import LookupDirectoryNames
 from users_management.application.queries.get_account import GetAccount
 from users_management.application.queries.get_profile import GetAthleteProfile
@@ -41,6 +43,9 @@ from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
 from users_management.infrastructure.persistence_read.athlete_context import (
     SqlAlchemyAthleteContextReader,
+)
+from users_management.infrastructure.persistence_read.athletes_search import (
+    SqlAlchemyAthleteSearchReader,
 )
 from users_management.infrastructure.persistence_read.directory import (
     SqlAlchemyAccountReader,
@@ -63,7 +68,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.14.0"
+API_VERSION = "0.15.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -157,6 +162,10 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
             ),
             build_athlete_context_router(
                 GetAthleteContext(SqlAlchemyAthleteContextReader(read_sessions))
+            ),
+            # HU039 (ADR-045): destinatarios de las alertas de eventos.
+            build_athletes_search_router(
+                SearchAthletes(SqlAlchemyAthleteSearchReader(read_sessions))
             ),
             profile_router,
             # HU002 (ADR-035): cuenta propia de cualquier actor.

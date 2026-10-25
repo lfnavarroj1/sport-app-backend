@@ -11,6 +11,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from complementary_services.domain.validation import Issue, Violation
@@ -38,6 +39,8 @@ class AvailabilityInterval:
     ends_at: datetime  # UTC
     time_zone: str
     capacity: int
+    # HU040 (ADR-046): lo asigna la base al guardar el intervalo; `None` antes de persistirlo.
+    availability_id: UUID | None = None
 
 
 def _instant(value: str) -> datetime | None:

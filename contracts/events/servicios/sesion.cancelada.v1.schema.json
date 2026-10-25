@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/servicios/sesion.cancelada.v1.schema.json",
+  "title": "sesion.cancelada.v1",
+  "description": "Publicado en sportapp.servicios.v1 con ordering_key = appointment_id (= aggregate_id) cuando el deportista cancela una cita BOOKED con 24 h o más de antelación (HU040, ADR-046); el intervalo recupera el cupo en la misma transacción. Repetir la cancelación no publica otro evento. Payload con el estado completo; sin consumidores aprobados ni proyector. Instantes en UTC con sufijo Z.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador del mensaje; un consumidor futuro deduplica por este valor."
+    },
+    "event_type": {"const": "sesion.cancelada.v1"},
+    "occurred_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "producer": {"const": "complementary-services"},
+    "aggregate_type": {"const": "appointment"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "appointment_id de la cita (= ordering_key): una secuencia de versiones por cita."
+    },
+    "aggregate_version": {"type": "integer", "minimum": 2, "description": "Versión resultante de la cancelación."},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {"type": "null", "description": "La cancelación no lleva clave de idempotencia (DELETE idempotente por estado)."},
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Estado completo de la cita tras el cambio; sin datos de salud ni del perfil.",
+      "required": [
+        "appointment_id",
+        "athlete_id",
+        "provider_id",
+        "service_id",
+        "availability_id",
+        "starts_at",
+        "ends_at",
+        "time_zone",
+        "status",
+        "meeting_url",
+        "booked_at",
+        "cancelled_at"
+      ],
+      "properties": {
+        "appointment_id": {"type": "string", "format": "uuid"},
+        "athlete_id": {"type": "string", "format": "uuid"},
+        "provider_id": {"type": "string", "format": "uuid"},
+        "service_id": {"type": "string", "format": "uuid"},
+        "availability_id": {"type": "string", "format": "uuid"},
+        "starts_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "ends_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "time_zone": {"type": "string", "minLength": 1, "description": "Zona IANA del intervalo."},
+        "status": {"const": "CANCELLED_BY_ATHLETE"},
+        "meeting_url": {"type": "null", "description": "Reservado; siempre null en el MVP (sin videollamada, ADR-046 §6)."},
+        "booked_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "cancelled_at": {"type": "string", "format": "date-time", "pattern": "Z$"}
+      }
+    }
+  }
+}

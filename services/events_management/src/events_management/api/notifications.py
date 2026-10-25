@@ -32,7 +32,7 @@ from events_management.application.errors import (
     PermissionRequired,
     PushNotEnabled,
 )
-from events_management.application.ports import InboxItem
+from events_management.application.ports import Caller, InboxItem, StoreUnavailable
 from events_management.application.queries.notifications import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -213,7 +213,74 @@ _ATHLETE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": ErrorResponse,
         "description": "`permission_required`: solo el deportista.",
     },
+    HTTPStatus.SERVICE_UNAVAILABLE.value: {
+        "model": ErrorResponse,
+        "description": f"`{StoreUnavailable.code}`: no se pudo verificar la identidad o la "
+        "base del servicio no responde.",
+    },
 }
+
+
+_ERRORS = (
+    PermissionRequired,
+    StoreUnavailable,
+    InvalidNotificationsQuery,
+    NotificationNotFound,
+    VersionConflict,
+    PushNotEnabled,
+)
+
+
+def _failure(error: Exception) -> Response:
+    """Respuesta de cada error de la aplicación con su código estable."""
+    if isinstance(error, PermissionRequired):
+        return forbidden(error)
+    if isinstance(error, StoreUnavailable):
+        return error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error.code,
+            "No fue posible completar la operación. Intente de nuevo.",
+        )
+    if isinstance(error, InvalidNotificationsQuery):
+        return error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            error.code,
+            "La solicitud no es válida.",
+            [ErrorDetail(field=f"query.{error.field}", issue=error.issue)],
+        )
+    if isinstance(error, NotificationNotFound):
+        return error_response(
+            HTTPStatus.NOT_FOUND, error.code, "La notificación no existe o no está disponible."
+        )
+    if isinstance(error, VersionConflict):
+        return error_response(
+            HTTPStatus.CONFLICT,
+            error.code,
+            "Las preferencias cambiaron desde que las consultó. Vuelva a cargarlas.",
+            [ErrorDetail(field="expected_version", issue=str(error.current_version))],
+        )
+    return error_response(
+        HTTPStatus.CONFLICT, PushNotEnabled.code, "Las notificaciones push no están habilitadas."
+    )
+
+
+def _athlete(verify_token: TokenVerifier, authorization: str | None) -> Caller | Response:
+    """Identidad verificada del deportista o la respuesta de error (`401`, `403`, `503`)."""
+    caller = authenticate(verify_token, authorization)
+    if isinstance(caller, Response):
+        return caller
+    if caller.actor_type != "athlete":
+        return forbidden(PermissionRequired())
+    return caller
+
+
+def _limit(raw: str | None) -> int | None:
+    """`limit` como texto: un valor no entero es `out_of_range`, igual que fuera del rango
+    (HU034/HU014), y se valida después de autenticar."""
+    if raw is None:
+        return DEFAULT_LIMIT
+    text = raw.strip()
+    return int(text) if text.isascii() and text.isdigit() else None
 
 
 def _validation(description: str) -> dict[int | str, dict[str, Any]]:
@@ -245,29 +312,33 @@ def build_notifications_router(
         "bandeja es eventualmente consistente con la generación.",
         responses={
             **_ATHLETE_RESPONSES,
-            **_validation("`query.limit` (`out_of_range`) o `query.cursor` (`invalid_cursor`)."),
+            **_validation(
+                "`query.limit` (`out_of_range`, también si no es entero) o `query.cursor` "
+                "(`invalid_cursor`, también si supera 512 caracteres)."
+            ),
         },
     )
     def my_notifications(
         *,
-        limit: Annotated[int, Query()] = DEFAULT_LIMIT,
-        cursor: Annotated[str | None, Query(max_length=512)] = None,
+        limit: Annotated[
+            str | None,
+            Query(description=f"Entero de 1 a {MAX_LIMIT} (por defecto {DEFAULT_LIMIT})."),
+        ] = None,
+        cursor: Annotated[
+            str | None, Query(description="`next_cursor` de la página anterior.")
+        ] = None,
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
-        caller = authenticate(verify_token, authorization)
+        caller = _athlete(verify_token, authorization)
         if isinstance(caller, Response):
             return caller
+        parsed_limit = _limit(limit)
         try:
-            page = list_notifications(caller, limit=limit, cursor=cursor)
-        except PermissionRequired as error:
-            return forbidden(error)
-        except InvalidNotificationsQuery as error:
-            return error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                error.code,
-                "La solicitud no es válida.",
-                [ErrorDetail(field=f"query.{error.field}", issue=error.issue)],
-            )
+            if parsed_limit is None:
+                raise InvalidNotificationsQuery("limit", "out_of_range")
+            page = list_notifications(caller, limit=parsed_limit, cursor=cursor)
+        except _ERRORS as error:
+            return _failure(error)
         body = {
             "items": [notification_document(item) for item in page.items],
             "next_cursor": page.next_cursor,
@@ -293,23 +364,17 @@ def build_notifications_router(
         notification_id: str,
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
-        caller = authenticate(verify_token, authorization)
+        caller = _athlete(verify_token, authorization)
         if isinstance(caller, Response):
             return caller
         try:
             parsed = UUID(notification_id)
         except ValueError:
-            if caller.actor_type != "athlete":
-                return forbidden(PermissionRequired())
             return _invalid([Violation("path.notification_id", Issue.UNKNOWN_VALUE)])
         try:
             item = mark_read(caller, parsed)
-        except PermissionRequired as error:
-            return forbidden(error)
-        except NotificationNotFound as error:
-            return error_response(
-                HTTPStatus.NOT_FOUND, error.code, "La notificación no existe o no está disponible."
-            )
+        except _ERRORS as error:
+            return _failure(error)
         return JSONResponse(notification_document(item), headers=_NO_STORE)
 
     @router.get(
@@ -321,13 +386,13 @@ def build_notifications_router(
         responses=_ATHLETE_RESPONSES,
     )
     def my_preferences(authorization: Annotated[str | None, Header()] = None) -> Response:
-        caller = authenticate(verify_token, authorization)
+        caller = _athlete(verify_token, authorization)
         if isinstance(caller, Response):
             return caller
         try:
             preferences = get_preferences(caller)
-        except PermissionRequired as error:
-            return forbidden(error)
+        except _ERRORS as error:
+            return _failure(error)
         return JSONResponse(preferences_document(preferences), headers=_NO_STORE)
 
     @router.put(
@@ -356,25 +421,16 @@ def build_notifications_router(
         body: Annotated[Any, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
-        caller = authenticate(verify_token, authorization)
+        caller = _athlete(verify_token, authorization)
         if isinstance(caller, Response):
             return caller
-        if caller.actor_type != "athlete":
-            return forbidden(PermissionRequired())
         change = parse_preferences(body)
         if isinstance(change, list):
             return _invalid(change)
         try:
             preferences = change_preferences(caller, change)
-        except PermissionRequired as error:
-            return forbidden(error)
-        except VersionConflict as error:
-            return error_response(
-                HTTPStatus.CONFLICT,
-                error.code,
-                "Las preferencias cambiaron desde que las consultó. Vuelva a cargarlas.",
-                [ErrorDetail(field="expected_version", issue=str(error.current_version))],
-            )
+        except _ERRORS as error:
+            return _failure(error)
         return JSONResponse(preferences_document(preferences), headers=_NO_STORE)
 
     @router.put(
@@ -401,22 +457,16 @@ def build_notifications_router(
         body: Annotated[Any, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
-        caller = authenticate(verify_token, authorization)
+        caller = _athlete(verify_token, authorization)
         if isinstance(caller, Response):
             return caller
-        if caller.actor_type != "athlete":
-            return forbidden(PermissionRequired())
         parsed = parse_push_token(body)
         if isinstance(parsed, list):
             return _invalid(parsed)
         try:
             register_push_token(caller, *parsed)
-        except PermissionRequired as error:
-            return forbidden(error)
-        except PushNotEnabled as error:
-            return error_response(
-                HTTPStatus.CONFLICT, error.code, "Las notificaciones push no están habilitadas."
-            )
+        except _ERRORS as error:
+            return _failure(error)
         return Response(status_code=HTTPStatus.NO_CONTENT)
 
     return router

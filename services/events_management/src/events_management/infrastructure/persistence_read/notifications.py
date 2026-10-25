@@ -12,6 +12,7 @@ from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from events_management.application.ports import InboxItem, InboxPosition
+from events_management.infrastructure.database_errors import unavailable_on_failure
 from events_management.infrastructure.persistence_read.models import NotificationInboxViewRow
 
 
@@ -47,7 +48,7 @@ class SqlAlchemyInboxReader:
             NotificationInboxViewRow.created_at.desc(),
             NotificationInboxViewRow.notification_id.desc(),
         ).limit(limit)
-        with self._session_factory() as session:
+        with unavailable_on_failure(), self._session_factory() as session:
             return [_item(row) for row in session.scalars(statement)]
 
     def mark_read(
@@ -57,7 +58,7 @@ class SqlAlchemyInboxReader:
             NotificationInboxViewRow.notification_id == notification_id,
             NotificationInboxViewRow.recipient_id == recipient_id,
         )
-        with self._session_factory() as session, session.begin():
+        with unavailable_on_failure(), self._session_factory() as session, session.begin():
             # Repetirlo conserva el primer `read_at` (idempotente).
             session.execute(
                 update(NotificationInboxViewRow)

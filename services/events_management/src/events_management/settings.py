@@ -81,6 +81,10 @@ class ReadProjectorSettings(ServiceSettings, DatabasePoolSettings):
     fcm_service_account: Path | None = None
     fcm_base_url: AnyHttpUrl = AnyHttpUrl("https://fcm.googleapis.com")
     fcm_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    # I-1: el *push* corre en hilos propios, fuera del callback que confirma el mensaje;
+    # si la cola se llena, se descarta (se registra) sin frenar la proyección.
+    push_workers: int = Field(default=4, ge=1, le=32)
+    push_queue_size: int = Field(default=200, ge=1, le=10000)
     push_token_encryption_key: SecretStr | None = None
 
     @model_validator(mode="after")
@@ -114,4 +118,7 @@ class ReminderSchedulerSettings(ServiceSettings, DatabasePoolSettings):
     """Planificador de `EVENT_REMINDER_24H` (ADR-045 §8): una corrida cada 15 minutos."""
 
     database_write_url: PostgresUrl
-    reminder_interval_seconds: float = Field(default=900, ge=60, le=3600)
+    # La espera empieza al terminar cada corrida, así que el periodo real es el intervalo más
+    # la duración de la corrida; si superara la ventana de 1800 s, quedarían inicios sin
+    # evaluar. El tope de 900 s (los 15 min de ADR-045 §8) deja ese margen.
+    reminder_interval_seconds: float = Field(default=900, ge=60, le=900)

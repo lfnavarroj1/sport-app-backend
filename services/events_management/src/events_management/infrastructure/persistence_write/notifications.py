@@ -28,6 +28,7 @@ from events_management.domain.notifications.model import (
     NotificationPreferences,
 )
 from events_management.domain.sport_events.model import EventStatus
+from events_management.infrastructure.database_errors import unavailable_on_failure
 from events_management.infrastructure.persistence_write.models import (
     DELIVERY_UNIQUE,
     IDEMPOTENCY_PRIMARY_KEY,
@@ -123,7 +124,8 @@ class SqlAlchemyPreferencesUnitOfWork(_WriteUnitOfWork):
     }
 
     def lock_preferences(self, recipient_id: UUID) -> NotificationPreferences | None:
-        row = self.session.get(NotificationPreferenceRow, recipient_id, with_for_update=True)
+        with unavailable_on_failure():
+            row = self.session.get(NotificationPreferenceRow, recipient_id, with_for_update=True)
         return None if row is None else _preferences(row)
 
     def save_preferences(
@@ -136,12 +138,17 @@ class SqlAlchemyPreferencesUnitOfWork(_WriteUnitOfWork):
             "version": preferences.version,
             "updated_at": updated_at,
         }
-        row = self.session.get(NotificationPreferenceRow, recipient_id)
+        with unavailable_on_failure():
+            row = self.session.get(NotificationPreferenceRow, recipient_id)
         if row is None:
             self.session.add(NotificationPreferenceRow(recipient_id=recipient_id, **values))
             return
         for name, value in values.items():
             setattr(row, name, value)
+
+    def commit(self) -> None:
+        with unavailable_on_failure():
+            super().commit()
 
 
 class SqlAlchemyPreferencesReader:
@@ -149,7 +156,7 @@ class SqlAlchemyPreferencesReader:
         self._session_factory = session_factory
 
     def preferences(self, recipient_id: UUID) -> NotificationPreferences:
-        with self._session_factory() as session:
+        with unavailable_on_failure(), self._session_factory() as session:
             row = session.get(NotificationPreferenceRow, recipient_id)
             return DEFAULT_PREFERENCES if row is None else _preferences(row)
 
@@ -179,7 +186,7 @@ class SqlAlchemyPushTokenStore:
                 "updated_at": statement.excluded.updated_at,
             },
         )
-        with self._session_factory() as session, session.begin():
+        with unavailable_on_failure(), self._session_factory() as session, session.begin():
             session.execute(statement)
 
 
@@ -201,6 +208,17 @@ class SqlAlchemyPushDeliveryStore:
                 .order_by(PushTokenRow.token_id)
             ).all()
         return [PushTarget(token_id=row[0], token=self._cipher.decrypt(row[1])) for row in rows]
+
+    def sent_token_ids(self, notification_id: UUID) -> set[UUID]:
+        with self._session_factory() as session:
+            return set(
+                session.scalars(
+                    select(NotificationDeliveryRow.token_id).where(
+                        NotificationDeliveryRow.notification_id == notification_id,
+                        NotificationDeliveryRow.status == "SENT",
+                    )
+                )
+            )
 
     def record(
         self,

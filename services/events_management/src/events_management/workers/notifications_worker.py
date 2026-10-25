@@ -16,6 +16,8 @@ Ejecución: `python -m events_management.workers.notifications_worker`.
 import json
 import logging
 import signal
+import sys
+import threading
 from collections.abc import Callable
 from typing import Protocol
 
@@ -129,6 +131,34 @@ class NotificationMessageHandler:
         message.nack()
 
 
+class StreamingPull(Protocol):
+    def result(self) -> object: ...
+
+
+def await_subscription(streaming: StreamingPull, stop_requested: threading.Event) -> int:
+    """Espera la suscripción y devuelve el código de salida del proceso (patrón de HU010).
+
+    `0` si se detuvo por una señal. `1` si la suscripción terminó por sí sola (p. ej.
+    `NotFound` porque `eventos-notificaciones-v1` aún no existe): se registra en `ERROR` para
+    que la causa sea visible y Kubernetes lo trate como fallo, en lugar de ocultarlo.
+    """
+    try:
+        streaming.result()
+    except Exception as error:
+        if stop_requested.is_set():
+            _logger.info("notifications.stopping")
+            return 0
+        _logger.error(
+            "notifications.subscription_failed",
+            extra={"fields": {"error_type": type(error).__name__}},
+        )
+        return 1
+    if stop_requested.is_set():
+        return 0
+    _logger.error("notifications.subscription_failed", extra={"fields": {"error_type": None}})
+    return 1
+
+
 def main() -> None:
     settings = load_settings(NotificationsWorkerSettings)
     configure_logging(
@@ -157,18 +187,23 @@ def main() -> None:
         callback=NotificationMessageHandler(generate),
         flow_control=pubsub_v1.types.FlowControl(max_messages=settings.consumer_max_messages),
     )
-    signal.signal(signal.SIGTERM, lambda *_: streaming.cancel())
-    signal.signal(signal.SIGINT, lambda *_: streaming.cancel())
+    stop_requested = threading.Event()
+
+    def stop(*_: object) -> None:
+        stop_requested.set()
+        streaming.cancel()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     _logger.info("notifications.started", extra={"fields": {"subscription": subscription}})
     try:
-        streaming.result()
-    except Exception:
-        _logger.info("notifications.stopping")
+        exit_code = await_subscription(streaming, stop_requested)
     finally:
         subscriber.close()
         users_http.close()
         engine.dispose()
         _logger.info("notifications.stopped")
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

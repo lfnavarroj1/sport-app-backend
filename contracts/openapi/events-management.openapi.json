@@ -1238,7 +1238,7 @@
   },
   "info": {
     "title": "SportApp - Eventos",
-    "version": "0.10.0"
+    "version": "0.10.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2824,7 +2824,7 @@
                 }
               }
             },
-            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
           }
         },
         "summary": "Mis preferencias de notificación (HU039)",
@@ -2951,7 +2951,7 @@
                 }
               }
             },
-            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
           }
         },
         "summary": "Cambiar mis preferencias de notificación (HU039)",
@@ -2966,29 +2966,38 @@
         "operationId": "my_notifications_v1_me_notifications_get",
         "parameters": [
           {
+            "description": "Entero de 1 a 50 (por defecto 20).",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 20,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
               "anyOf": [
                 {
-                  "maxLength": 512,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "Entero de 1 a 50 (por defecto 20).",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` de la página anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` de la página anterior.",
               "title": "Cursor"
             }
           },
@@ -3048,7 +3057,7 @@
                 }
               }
             },
-            "description": "`validation_error` con `details[{field, issue}]`: `query.limit` (`out_of_range`) o `query.cursor` (`invalid_cursor`)."
+            "description": "`validation_error` con `details[{field, issue}]`: `query.limit` (`out_of_range`, también si no es entero) o `query.cursor` (`invalid_cursor`, también si supera 512 caracteres)."
           },
           "503": {
             "content": {
@@ -3058,7 +3067,7 @@
                 }
               }
             },
-            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
           }
         },
         "summary": "Mi bandeja de notificaciones (HU039)",
@@ -3157,7 +3166,7 @@
                 }
               }
             },
-            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
           }
         },
         "summary": "Marcar una notificación como leída (HU039)",
@@ -3271,7 +3280,7 @@
                 }
               }
             },
-            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
           }
         },
         "summary": "Registrar el token push del dispositivo (HU039, solo con FCM)",

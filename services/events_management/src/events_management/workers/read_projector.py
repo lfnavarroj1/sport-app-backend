@@ -6,7 +6,8 @@ Ejecución: `python -m events_management.workers.read_projector`.
   (HU025, ADR-040) por estado completo (ADR-033), `usuario.inscrito.v1` (HU041) y
   `notificacion.solicitada.v1` en la bandeja (HU039, ADR-045).
 - Con `FCM_ENABLED` envía además el *push* de cada notificación nueva después del COMMIT de
-  la bandeja; un fallo de FCM se registra en `notification_delivery` y no impide el ACK.
+  la bandeja, en hilos propios (`BackgroundPush`): el ACK no espera a FCM y un fallo se
+  registra en `notification_delivery`.
 - Consume `sportapp.eventos.v1` por la suscripción ordenada `proyector-eventos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de `event_read` y `processed_event`.
 - Un mensaje inválido o un fallo de procesamiento no se confirma:
@@ -18,8 +19,10 @@ Ejecución: `python -m events_management.workers.read_projector`.
 import json
 import logging
 import signal
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 import httpx
@@ -131,6 +134,40 @@ def _aggregate_id(event: SportEventMessage) -> object:
     return event.event.event_id
 
 
+class BackgroundPush:
+    """Ejecuta el *push* en hilos propios para que el callback confirme el mensaje sin esperar
+    a FCM (CA4: un FCM lento o caído no frena la bandeja ni las demás proyecciones).
+
+    Como máximo `workers + queue_size` envíos pendientes; si no hay cupo, la notificación se
+    descarta para el *push* (sigue en la bandeja) y se registra `push.dropped`.
+    """
+
+    def __init__(
+        self, deliver: Callable[[Notification], None], *, workers: int, queue_size: int
+    ) -> None:
+        self._deliver = deliver
+        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="push")
+        self._slots = threading.BoundedSemaphore(workers + queue_size)
+
+    def __call__(self, notification: Notification) -> None:
+        if not self._slots.acquire(blocking=False):
+            _logger.warning(
+                "push.dropped",
+                extra={
+                    "fields": {
+                        "notification_id": str(notification.notification_id),
+                        "reason": "queue_full",
+                    }
+                },
+            )
+            return
+        future = self._executor.submit(self._deliver, notification)
+        future.add_done_callback(lambda _: self._slots.release())
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True)
+
+
 def build_push_delivery(
     settings: ReadProjectorSettings,
 ) -> tuple[Callable[[Notification], None] | None, list[Callable[[], None]]]:
@@ -160,7 +197,11 @@ def build_push_delivery(
         clock=SystemClock(),
         sleep=time.sleep,
     )
-    return deliver, [fcm_http.close, write_engine.dispose]
+    background = BackgroundPush(
+        deliver, workers=settings.push_workers, queue_size=settings.push_queue_size
+    )
+    # Primero se terminan los envíos en curso y después se cierran sus recursos.
+    return background, [background.close, fcm_http.close, write_engine.dispose]
 
 
 def main() -> None:

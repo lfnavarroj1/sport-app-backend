@@ -94,14 +94,14 @@ class ChangeNotificationPreferences:
 
 
 class RegisterPushToken:
-    def __init__(self, *, store: PushTokenStore, fcm_enabled: bool, clock: Clock) -> None:
+    def __init__(self, *, store: PushTokenStore | None, clock: Clock) -> None:
+        # `None` = FCM deshabilitado (`FCM_ENABLED=false`): no hay tokens que guardar.
         self._store = store
-        self._fcm_enabled = fcm_enabled
         self._clock = clock
 
     def __call__(self, caller: Caller, token: str, platform: str) -> None:
         require_athlete(caller)
-        if not self._fcm_enabled:
+        if self._store is None:
             raise PushNotEnabled()
         self._store.register(caller.user_id, token, platform, self._clock.now())
         # Nunca se registra el token.

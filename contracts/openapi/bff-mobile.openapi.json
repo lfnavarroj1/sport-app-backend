@@ -64,6 +64,13 @@
         "title": "ActiveTrainingSessionResponse",
         "type": "object"
       },
+      "AlertSeverity": {
+        "enum": [
+          "HIGH"
+        ],
+        "title": "AlertSeverity",
+        "type": "string"
+      },
       "CalendarLocation": {
         "properties": {
           "city": {
@@ -695,6 +702,36 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EvaluationResponse": {
+        "description": "HU036: `NO_DATA` si la última muestra tiene más de 30 s (pérdida de monitoreo); `RISK`\ncon 15 s consecutivos sobre el umbral; `OK` en otro caso. No es un diagnóstico médico.",
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/RiskAlertResponse"
+            },
+            "title": "Alerts",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EvaluationStatus"
+          }
+        },
+        "required": [
+          "status",
+          "alerts"
+        ],
+        "title": "EvaluationResponse",
+        "type": "object"
+      },
+      "EvaluationStatus": {
+        "enum": [
+          "OK",
+          "RISK",
+          "NO_DATA"
+        ],
+        "title": "EvaluationStatus",
+        "type": "string"
+      },
       "EventCalendarItem": {
         "properties": {
           "ends_at": {
@@ -992,7 +1029,7 @@
         "type": "object"
       },
       "MeasurementBatchResponse": {
-        "description": "Resultado del lote: aceptadas, duplicadas (idempotencia natural) y rechazadas.",
+        "description": "Resultado del lote: aceptadas, duplicadas (idempotencia natural), rechazadas y la\nevaluación de riesgo del mismo ciclo (HU036).",
         "properties": {
           "accepted": {
             "title": "Accepted",
@@ -1007,6 +1044,9 @@
           "duplicates": {
             "title": "Duplicates",
             "type": "integer"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/EvaluationResponse"
           },
           "received": {
             "title": "Received",
@@ -1031,7 +1071,8 @@
           "received",
           "accepted",
           "duplicates",
-          "rejected"
+          "rejected",
+          "evaluation"
         ],
         "title": "MeasurementBatchResponse",
         "type": "object"
@@ -1090,6 +1131,47 @@
           "scale"
         ],
         "title": "MetricResult",
+        "type": "object"
+      },
+      "MonitoringSettingsResponse": {
+        "properties": {
+          "disclaimer": {
+            "description": "Aviso fijo: el umbral no es clínico (R-21).",
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "max_heart_rate_alert_bpm": {
+            "description": "Umbral vigente en lpm.",
+            "maximum": 220.0,
+            "minimum": 100.0,
+            "title": "Max Heart Rate Alert Bpm",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ThresholdSource",
+            "description": "`CUSTOM` (configurado), `AGE_DEFAULT` (`round(0.9 x (220 - edad))`) o `FIXED_DEFAULT` (`171`, sin fecha de nacimiento)."
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Última configuración (UTC); `null` con un valor por defecto.",
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "max_heart_rate_alert_bpm",
+          "source",
+          "updated_at",
+          "disclaimer"
+        ],
+        "title": "MonitoringSettingsResponse",
         "type": "object"
       },
       "MyRegistration": {
@@ -1296,6 +1378,51 @@
           "issue"
         ],
         "title": "RejectedSample",
+        "type": "object"
+      },
+      "RiskAlertResponse": {
+        "description": "HU036: alerta nueva del lote (como máximo una cada 60 s por sesión).",
+        "properties": {
+          "alert_id": {
+            "description": "Estable ante reenvíos del mismo lote.",
+            "format": "uuid",
+            "title": "Alert Id",
+            "type": "string"
+          },
+          "detected_at": {
+            "description": "Instante UTC de la muestra que completó la ventana de 15 s.",
+            "format": "date-time",
+            "title": "Detected At",
+            "type": "string"
+          },
+          "instruction": {
+            "description": "Reducir la intensidad o detener la práctica.",
+            "title": "Instruction",
+            "type": "string"
+          },
+          "message": {
+            "description": "Texto fijo aprobado, con el aviso no diagnóstico.",
+            "title": "Message",
+            "type": "string"
+          },
+          "rule": {
+            "const": "HR_ABOVE_THRESHOLD_V1",
+            "title": "Rule",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          }
+        },
+        "required": [
+          "alert_id",
+          "rule",
+          "severity",
+          "message",
+          "instruction",
+          "detected_at"
+        ],
+        "title": "RiskAlertResponse",
         "type": "object"
       },
       "RoutePoint": {
@@ -1785,6 +1912,14 @@
         "title": "SessionCalendarItem",
         "type": "object"
       },
+      "SessionEndReason": {
+        "description": "HU036: motivo de la finalización (catálogo del servicio; el BFF solo lo documenta).",
+        "enum": [
+          "RISK_STOP"
+        ],
+        "title": "SessionEndReason",
+        "type": "string"
+      },
       "SessionReference": {
         "properties": {
           "plan_id": {
@@ -2169,6 +2304,15 @@
         "title": "TemplateSuggestionsResponse",
         "type": "object"
       },
+      "ThresholdSource": {
+        "enum": [
+          "CUSTOM",
+          "AGE_DEFAULT",
+          "FIXED_DEFAULT"
+        ],
+        "title": "ThresholdSource",
+        "type": "string"
+      },
       "TrainingDashboardResponse": {
         "properties": {
           "by_source": {
@@ -2378,6 +2522,17 @@
             "description": "Calculada por el backend: `ended_at` - `started_at`.",
             "title": "Duration Seconds"
           },
+          "end_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionEndReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Motivo de la finalización (HU036); `null` si no se indicó."
+          },
           "ended_at": {
             "anyOf": [
               {
@@ -2558,7 +2713,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.13.0"
+    "version": "0.14.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3598,6 +3753,224 @@
         "summary": "Mis inscripciones a eventos (HU041)",
         "tags": [
           "event-registrations"
+        ]
+      }
+    },
+    "/v1/me/monitoring-settings": {
+      "get": {
+        "operationId": "get_monitoring_settings_v1_me_monitoring_settings_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.realtime.monitor`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Umbral de alerta de frecuencia cardiaca vigente (HU036)",
+        "tags": [
+          "devices"
+        ]
+      },
+      "put": {
+        "description": "Reemplaza el umbral propio (100-220 lpm); repetir el mismo valor no cambia nada. No es un umbral clínico.",
+        "operationId": "put_monitoring_settings_v1_me_monitoring_settings_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del `PUT`; la validación la hace el servicio.",
+                "properties": {
+                  "max_heart_rate_alert_bpm": {
+                    "description": "Umbral de alerta en lpm; la alerta salta con valores mayores.",
+                    "maximum": 220,
+                    "minimum": 100,
+                    "title": "Max Heart Rate Alert Bpm",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "max_heart_rate_alert_bpm"
+                ],
+                "title": "MonitoringSettingsRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`training.realtime.monitor`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `max_heart_rate_alert_bpm` `required`, `unknown_value` u `out_of_range`; `field_not_allowed` o cuerpo ausente."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: capacidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
+          }
+        },
+        "summary": "Configurar el umbral de alerta de frecuencia cardiaca (HU036)",
+        "tags": [
+          "devices"
         ]
       }
     },
@@ -5086,6 +5459,17 @@
                     "format": "date-time",
                     "title": "Ended At",
                     "type": "string"
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/SessionEndReason"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "HU036: `RISK_STOP` al detener la práctica tras una alerta de riesgo; opcional."
                   }
                 },
                 "required": [
@@ -5384,7 +5768,7 @@
             "description": "`upstream_timeout`: capacidad o servicio sin respuesta."
           }
         },
-        "summary": "Enviar mediciones en vivo de una sesión propia (HU037)",
+        "summary": "Enviar mediciones en vivo y recibir su evaluación de riesgo (HU037, HU036)",
         "tags": [
           "devices"
         ]

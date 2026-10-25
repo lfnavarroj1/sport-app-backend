@@ -4,7 +4,8 @@ Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
 (HU011), `entrenamiento.iniciado.v1` (HU032), `indicador.calculado.v1` (HU034) y
 `plan.alimentacion_creado.v1` (HU014), `ruta.publicada.v1` y `ruta.retirada.v1`
-(HU026) y `plantilla_entrenamiento.publicada.v1` / `.retirada.v1` (HU028). Cada
+(HU026), `plantilla_entrenamiento.publicada.v1` / `.retirada.v1` (HU028) y
+`medicion.recibida.v1` / `riesgo.detectado.v1` (HU036). Cada
 uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
 no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
 tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
@@ -22,6 +23,7 @@ from training_management.application.ports import (
     ActiveSessionView,
     AuthorizationView,
     PlanView,
+    RiskAlertView,
     SessionHistoryEntry,
     SessionView,
 )
@@ -42,6 +44,11 @@ from training_management.domain.authorizations.events import (
     SCHEMA_VERSION as AUTHORIZATION_SCHEMA,
 )
 from training_management.domain.authorizations.model import AuthorizationStatus
+from training_management.domain.measurements.model import (
+    MAX_HEART_RATE,
+    MAX_SAMPLES,
+    MIN_HEART_RATE,
+)
 from training_management.domain.metrics.catalog import MAX_RESULT_SCALE, quantum
 from training_management.domain.metrics.events import EVENT_TYPE as METRIC_CALCULATED
 from training_management.domain.metrics.events import SCHEMA_VERSION as METRIC_SCHEMA
@@ -51,6 +58,23 @@ from training_management.domain.metrics.model import (
     MetricInput,
     MetricResult,
     TrainingMetricCalculation,
+)
+from training_management.domain.monitoring.events import (
+    AGGREGATE_TYPE as MONITORING_AGGREGATE_TYPE,
+)
+from training_management.domain.monitoring.events import (
+    MEASUREMENT_EVENT_TYPE,
+    RISK_EVENT_TYPE,
+)
+from training_management.domain.monitoring.events import (
+    SCHEMA_VERSION as MONITORING_SCHEMA,
+)
+from training_management.domain.monitoring.model import (
+    RULE as RISK_RULE,
+)
+from training_management.domain.monitoring.model import (
+    AlertSeverity,
+    BatchSummary,
 )
 from training_management.domain.nutrition.catalog import FoodUnit
 from training_management.domain.nutrition.events import (
@@ -187,6 +211,28 @@ class TemplateChangedEvent:
     template: TrainingPlanTemplate
 
 
+@dataclass(frozen=True)
+class MeasurementReceivedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    summary: BatchSummary
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.summary.session_id
+
+
+@dataclass(frozen=True)
+class RiskDetectedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    alert: RiskAlertView
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.alert.session_id
+
+
 TrainingEvent = (
     PlanCreatedEvent
     | AuthorizationChangedEvent
@@ -196,6 +242,8 @@ TrainingEvent = (
     | NutritionPlanCreatedEvent
     | RouteChangedEvent
     | TemplateChangedEvent
+    | MeasurementReceivedEvent
+    | RiskDetectedEvent
 )
 
 
@@ -618,6 +666,87 @@ def _template_changed(envelope: dict[str, Any], event_type: str) -> TemplateChan
     )
 
 
+_DEVICE_ID_PATTERN = re.compile(r"[0-9a-f]{64}")
+_AVERAGE_PATTERN = re.compile(r"[0-9]{2,3}\.[0-9]")
+
+
+def _device_id(value: object) -> str:
+    if not isinstance(value, str) or not _DEVICE_ID_PATTERN.fullmatch(value):
+        raise InvalidEvent("device_id_invalid")
+    return value
+
+
+def _session_aggregate(envelope: dict[str, Any], payload: dict[str, Any]) -> UUID:
+    session_id = _uuid(payload.get("session_id"), "session_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != session_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if envelope.get("aggregate_type") != MONITORING_AGGREGATE_TYPE:
+        raise InvalidEvent("aggregate_type_mismatch")
+    return session_id
+
+
+def _measurement_received(envelope: dict[str, Any]) -> MeasurementReceivedEvent:
+    """HU036: resumen de un lote; `aggregate_version` es la versión del resumen."""
+    payload = _payload(envelope, MONITORING_SCHEMA)
+    version = _envelope_version(envelope)
+    session_id = _session_aggregate(envelope, payload)
+    if payload.get("version") != version:
+        raise InvalidEvent("summary_version_mismatch")
+    window_from = _datetime(payload.get("window_from"), "window_from")
+    window_to = _datetime(payload.get("window_to"), "window_to")
+    if window_to < window_from:
+        raise InvalidEvent("window_to_before_window_from")
+    last_value = _int(payload.get("last_value"), "last_value", MIN_HEART_RATE, MAX_HEART_RATE)
+    max_value = _int(payload.get("max_value"), "max_value", MIN_HEART_RATE, MAX_HEART_RATE)
+    raw_average = payload.get("avg_value")
+    if not isinstance(raw_average, str) or not _AVERAGE_PATTERN.fullmatch(raw_average):
+        raise InvalidEvent("avg_value_invalid")
+    average = Decimal(raw_average)
+    if last_value > max_value or not MIN_HEART_RATE <= average <= max_value:
+        raise InvalidEvent("summary_values_inconsistent")
+    return MeasurementReceivedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        summary=BatchSummary(
+            session_id=session_id,
+            device_id=_device_id(payload.get("device_id")),
+            window_from=window_from,
+            window_to=window_to,
+            samples_accepted=_int(
+                payload.get("samples_accepted"), "samples_accepted", 1, MAX_SAMPLES
+            ),
+            last_value=last_value,
+            max_value=max_value,
+            avg_value=average,
+            version=version,
+        ),
+    )
+
+
+def _risk_detected(envelope: dict[str, Any]) -> RiskDetectedEvent:
+    """HU036: alerta confirmada; `aggregate_version` es su número de orden en la sesión."""
+    payload = _payload(envelope, MONITORING_SCHEMA)
+    version = _envelope_version(envelope)
+    session_id = _session_aggregate(envelope, payload)
+    if payload.get("rule") != RISK_RULE:
+        raise InvalidEvent("unknown_rule")
+    if payload.get("severity") not in {item.value for item in AlertSeverity}:
+        raise InvalidEvent("unknown_severity")
+    return RiskDetectedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        alert=RiskAlertView(
+            alert_id=_uuid(payload.get("alert_id"), "alert_id"),
+            session_id=session_id,
+            device_id=_device_id(payload.get("device_id")),
+            rule=RISK_RULE,
+            severity=str(payload["severity"]),
+            detected_at=_datetime(payload.get("detected_at"), "detected_at"),
+            sequence=version,
+        ),
+    )
+
+
 def parse_training_event(envelope: object) -> TrainingEvent:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -645,4 +774,8 @@ def _parse_snapshot(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
         return _route_changed(envelope, event_type)
     if event_type in (TEMPLATE_PUBLISHED, TEMPLATE_RETIRED):
         return _template_changed(envelope, event_type)
+    if event_type == MEASUREMENT_EVENT_TYPE:
+        return _measurement_received(envelope)
+    if event_type == RISK_EVENT_TYPE:
+        return _risk_detected(envelope)
     raise UnsupportedEvent(event_type)

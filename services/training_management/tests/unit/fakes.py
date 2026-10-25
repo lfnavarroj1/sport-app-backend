@@ -18,8 +18,10 @@ from training_management.application.ports import (
     DuplicateDelivery,
     HistoryQuery,
     IdempotencyRecord,
+    MonitoringView,
     OutboxMessage,
     PlanView,
+    RiskAlertView,
     SessionHistoryEntry,
 )
 from training_management.domain.authorizations.model import TrainingAuthorization
@@ -194,6 +196,8 @@ class InMemoryReadStore:
     nutrition_plans: dict[UUID, NutritionPlan] = field(default_factory=dict)
     routes: dict[UUID, Route] = field(default_factory=dict)
     templates: dict[UUID, TrainingPlanTemplate] = field(default_factory=dict)
+    monitoring: dict[UUID, MonitoringView] = field(default_factory=dict)
+    risk_alerts: dict[UUID, RiskAlertView] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -251,6 +255,8 @@ class InMemoryProjectionUnitOfWork:
         self._nutrition: list[NutritionPlan] = []
         self._routes: list[Route] = []
         self._templates: list[TrainingPlanTemplate] = []
+        self._monitoring: list[MonitoringView] = []
+        self._risk_alerts: list[RiskAlertView] = []
 
     def __enter__(self) -> Self:
         return self
@@ -264,6 +270,7 @@ class InMemoryProjectionUnitOfWork:
         self._views, self._processed, self._authorizations, self._sessions = [], [], [], []
         self._active, self._removed, self._planned, self._metrics = [], [], [], []
         self._nutrition, self._routes, self._templates = [], [], []
+        self._monitoring, self._risk_alerts = [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -331,6 +338,18 @@ class InMemoryProjectionUnitOfWork:
     def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
         self._templates.append(template)
 
+    def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
+        return self.store.monitoring.get(session_id)
+
+    def save_monitoring_view(self, view: MonitoringView, projected_at: datetime) -> None:
+        self._monitoring.append(view)
+
+    def has_risk_alert(self, alert_id: UUID) -> bool:
+        return alert_id in self.store.risk_alerts
+
+    def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None:
+        self._risk_alerts.append(alert)
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -360,6 +379,9 @@ class InMemoryProjectionUnitOfWork:
         self.store.nutrition_plans.update((p.plan_id, p) for p in self._nutrition)
         self.store.routes.update((r.route_id, r) for r in self._routes)
         self.store.templates.update((t.template_id, t) for t in self._templates)
+        # HU036: resumen acumulado y alertas de inserción única.
+        self.store.monitoring.update((m.session_id, m) for m in self._monitoring)
+        self.store.risk_alerts.update((a.alert_id, a) for a in self._risk_alerts)
         for event_id, event_type, aggregate_id in self._processed:
             self.store.processed[event_id] = (event_type, aggregate_id)
 

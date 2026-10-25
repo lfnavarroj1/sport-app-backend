@@ -1,6 +1,7 @@
 """Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
 proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011), sesión
-activa (HU032), resultados de indicadores (HU034) y planes de alimentación (HU014)."""
+activa (HU032), resultados de indicadores (HU034), planes de alimentación (HU014) y monitoreo
+de sesiones (HU036)."""
 
 from datetime import date, datetime
 from types import TracebackType
@@ -16,7 +17,9 @@ from training_management.application.ports import (
     ActiveSessionView,
     AuthorizationView,
     DuplicateDelivery,
+    MonitoringView,
     PlanView,
+    RiskAlertView,
     SessionHistoryEntry,
     SessionView,
 )
@@ -36,6 +39,8 @@ from training_management.infrastructure.persistence_read.models import (
     NutritionPlanViewRow,
     ProcessedEventRow,
     RouteViewRow,
+    SessionMonitoringViewRow,
+    SessionRiskAlertViewRow,
     TrainingAuthorizationViewRow,
     TrainingMetricResultRow,
     TrainingPlanSessionViewRow,
@@ -344,6 +349,66 @@ class SqlAlchemyProjectionUnitOfWork:
                 index_elements=["template_id"],
                 set_={key: statement.excluded[key] for key in values if key != "template_id"},
             )
+        )
+
+    def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
+        row = self.session.scalar(
+            select(SessionMonitoringViewRow)
+            .where(SessionMonitoringViewRow.session_id == session_id)
+            .with_for_update()
+        )
+        if row is None:
+            return None
+        return MonitoringView(
+            session_id=row.session_id,
+            device_id=row.device_id,
+            last_measured_at=row.last_measured_at,
+            last_value=row.last_value,
+            samples_count=row.samples_count,
+            max_value=row.max_value,
+            avg_value=row.avg_value,
+            value_sum=row.value_sum,
+            version=row.version,
+        )
+
+    def save_monitoring_view(self, view: MonitoringView, projected_at: datetime) -> None:
+        values = {
+            "session_id": view.session_id,
+            "device_id": view.device_id,
+            "last_measured_at": view.last_measured_at,
+            "last_value": view.last_value,
+            "samples_count": view.samples_count,
+            "max_value": view.max_value,
+            "avg_value": view.avg_value,
+            "value_sum": view.value_sum,
+            "version": view.version,
+            "projected_at": projected_at,
+        }
+        statement = insert(SessionMonitoringViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["session_id"],
+                set_={key: statement.excluded[key] for key in values if key != "session_id"},
+            )
+        )
+
+    def has_risk_alert(self, alert_id: UUID) -> bool:
+        return self.session.get(SessionRiskAlertViewRow, alert_id) is not None
+
+    def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None:
+        self.session.execute(
+            insert(SessionRiskAlertViewRow)
+            .values(
+                alert_id=alert.alert_id,
+                session_id=alert.session_id,
+                device_id=alert.device_id,
+                rule=alert.rule,
+                severity=alert.severity,
+                detected_at=alert.detected_at,
+                sequence=alert.sequence,
+                projected_at=projected_at,
+            )
+            .on_conflict_do_nothing(index_elements=["alert_id"])
         )
 
     def add_processed(

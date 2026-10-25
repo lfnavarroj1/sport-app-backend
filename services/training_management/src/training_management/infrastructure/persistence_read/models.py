@@ -36,6 +36,7 @@ ROUTE_LATEST_INDEX = "ix_route_view_status_published"
 TEMPLATE_SUGGESTION_INDEX = "ix_training_plan_template_view_suggestion"
 TEMPLATE_PROFESSIONAL_ORDER_INDEX = "ix_training_plan_template_view_professional_order"
 TEMPLATE_LATEST_INDEX = "ix_training_plan_template_view_status_published"
+SESSION_RISK_ALERT_ORDER_INDEX = "ix_session_risk_alert_view_session_order"
 
 
 class ReadBase(DeclarativeBase):
@@ -290,4 +291,40 @@ class TrainingPlanTemplateViewRow(ReadBase):
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SessionMonitoringViewRow(ReadBase):
+    """Resumen acumulado del monitoreo de una sesión (HU036) a partir de `medicion.recibida.v1`;
+    reconstruible. `value_sum` es interno: recalcula el promedio sin acumular redondeos."""
+
+    __tablename__ = "session_monitoring_view"
+
+    session_id: Mapped[UUID] = mapped_column(primary_key=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+    last_measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_value: Mapped[int] = mapped_column(SmallInteger)
+    samples_count: Mapped[int] = mapped_column(BigInteger)
+    max_value: Mapped[int] = mapped_column(SmallInteger)
+    avg_value: Mapped[Decimal] = mapped_column(Numeric(4, 1))
+    value_sum: Mapped[Decimal] = mapped_column(Numeric(14, 1))
+    version: Mapped[int] = mapped_column(BigInteger)
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SessionRiskAlertViewRow(ReadBase):
+    """Alerta de riesgo confirmada (HU036) a partir de `riesgo.detectado.v1`; reconstruible."""
+
+    __tablename__ = "session_risk_alert_view"
+    __table_args__ = (
+        Index(SESSION_RISK_ALERT_ORDER_INDEX, "session_id", text("detected_at DESC")),
+    )
+
+    alert_id: Mapped[UUID] = mapped_column(primary_key=True)
+    session_id: Mapped[UUID]
+    device_id: Mapped[str] = mapped_column(String(64))
+    rule: Mapped[str] = mapped_column(String(32))
+    severity: Mapped[str] = mapped_column(String(8))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sequence: Mapped[int] = mapped_column(BigInteger)
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

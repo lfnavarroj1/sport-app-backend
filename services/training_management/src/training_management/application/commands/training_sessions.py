@@ -14,9 +14,12 @@ Inicio:
 Finalización (sin consultar Afiliación):
 1. Solo `athlete`; validar el instante; clave previa como en el inicio.
 2. En una transacción con la sesión bloqueada: propia (`404` si no, CA3); si ya terminó
-   con el mismo `ended_at`, devolverla sin otro evento, y con otro,
+   con el mismo `ended_at` y el mismo motivo, devolverla sin otro evento, y con otro,
    `training_session_already_finished`; si no, `FINISHED` versión 2 con la duración
    calculada, `entrenamiento.finalizado.v1` y el resultado idempotente (CA2).
+3. HU036 (ADR-044 §10): el motivo opcional `RISK_STOP` se guarda en `end_reason` y forma
+   parte de la huella de la clave; las mediciones de la sesión se conservan. El payload de
+   `entrenamiento.finalizado.v1` no cambia.
 Las respuestas se emiten después del COMMIT y no esperan la proyección.
 """
 
@@ -25,7 +28,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from training_management.application.access import require_athlete
@@ -63,6 +66,7 @@ from training_management.domain.sessions.events import (
     session_started_payload,
 )
 from training_management.domain.sessions.model import (
+    FinishData,
     StartData,
     StartInput,
     TrainingSession,
@@ -107,6 +111,7 @@ class FinishTrainingSessionCommand:
     idempotency_key: UUID
     transport_violations: tuple[Violation, ...] = ()
     correlation_id: UUID | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -299,12 +304,14 @@ class StartTrainingSession(_SessionCommand):
 class FinishTrainingSession(_SessionCommand):
     operation = FINISH
 
-    def validate(
-        self, caller: Caller, command: FinishTrainingSessionCommand
-    ) -> tuple[UUID, datetime]:
+    def validate(self, caller: Caller, command: FinishTrainingSessionCommand) -> FinishData:
         require_athlete(caller)
         return validate_finish(
-            command.session_id, command.ended_at, command.transport_violations, self._clock.now()
+            command.session_id,
+            command.ended_at,
+            command.transport_violations,
+            self._clock.now(),
+            command.reason,
         )
 
     def __call__(self, caller: Caller, command: FinishTrainingSessionCommand) -> SessionResult:
@@ -328,13 +335,17 @@ class FinishTrainingSession(_SessionCommand):
         return result
 
     def _execute(self, caller: Caller, command: FinishTrainingSessionCommand) -> SessionResult:
-        session_id, ended_at = self.validate(caller, command)
-        fingerprint = _fingerprint(FINISH, caller.user_id, session_id, ended_at.isoformat())
+        data = self.validate(caller, command)
+        # Sin motivo, la huella es la misma que antes de HU036 (claves vigentes compatibles).
+        parts: list[object] = [FINISH, caller.user_id, data.session_id, data.ended_at.isoformat()]
+        if data.reason is not None:
+            parts.append(data.reason.value)
+        fingerprint = _fingerprint(*parts)
         previous = self._previous(caller.user_id, command.idempotency_key, fingerprint)
         if previous is not None:
             return previous
         try:
-            return self._finish(caller, session_id, ended_at, command, fingerprint)
+            return self._finish(caller, data, command, fingerprint)
         except IdempotencyKeyConflict:
             previous = self._previous(caller.user_id, command.idempotency_key, fingerprint)
             if previous is None:
@@ -344,20 +355,21 @@ class FinishTrainingSession(_SessionCommand):
     def _finish(
         self,
         caller: Caller,
-        session_id: UUID,
-        ended_at: datetime,
+        data: FinishData,
         command: FinishTrainingSessionCommand,
         fingerprint: str,
     ) -> SessionResult:
         with self._unit_of_work() as unit_of_work:
-            session = unit_of_work.get_session(session_id, for_update=True)
+            session = unit_of_work.get_session(data.session_id, for_update=True)
             if session is None or session.athlete_id != caller.user_id:
                 raise TrainingSessionNotFound()
             if session.status is TrainingSessionStatus.FINISHED:
-                if session.ended_at == ended_at:
+                if session.matches_finish(data.ended_at, data.reason):
                     return SessionResult(session, replayed=True)
                 raise TrainingSessionAlreadyFinished()
-            finished = session.finish(ended_at=ended_at, now=self._clock.now())
+            finished = session.finish(
+                ended_at=data.ended_at, now=self._clock.now(), reason=data.reason
+            )
             unit_of_work.update_session(finished)
             unit_of_work.add_outbox(
                 self._outbox(

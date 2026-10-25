@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/eventos/notificacion.solicitada.v1.schema.json",
+  "title": "notificacion.solicitada.v1",
+  "description": "Publicado en sportapp.eventos.v1 con ordering_key = recipient_id (distinta de aggregate_id = notification_id) cuando eventos-notificaciones-worker o el planificador de recordatorios generan una notificación de la bandeja (HU039, ADR-045 §10, CMP-004). Versión de agregado 1; eventos-read-projector construye notification_inbox_view y, con FCM_ENABLED, envía el mensaje de datos. Sin correo, perfil ni datos de salud.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador del mensaje; el proyector deduplica por este valor en processed_event."
+    },
+    "event_type": {"const": "notificacion.solicitada.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "events-management"},
+    "aggregate_type": {"const": "notification"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "notification_id de la notificación."
+    },
+    "aggregate_version": {"const": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "event_id del mensaje evento.publicado.v1 (EVENT_PUBLISHED_MATCH) o registration_id de la inscripción (EVENT_REMINDER_24H)."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notification_id",
+        "recipient_id",
+        "type",
+        "priority",
+        "event_id",
+        "title",
+        "body",
+        "created_at"
+      ],
+      "properties": {
+        "notification_id": {"type": "string", "format": "uuid"},
+        "recipient_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Deportista destinatario (identificador de Usuarios); también es la ordering_key."
+        },
+        "type": {"enum": ["EVENT_PUBLISHED_MATCH", "EVENT_REMINDER_24H"]},
+        "priority": {"enum": ["NORMAL", "HIGH"]},
+        "event_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Evento masivo; la app navega a su detalle (HU041)."
+        },
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "body": {"type": "string", "minLength": 1, "maxLength": 500},
+        "created_at": {"type": "string", "format": "date-time", "pattern": "Z$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "EVENT_PUBLISHED_MATCH"}}},
+          "then": {"properties": {"priority": {"const": "NORMAL"}}}
+        },
+        {
+          "if": {"properties": {"type": {"const": "EVENT_REMINDER_24H"}}},
+          "then": {"properties": {"priority": {"const": "HIGH"}}}
+        }
+      ]
+    }
+  }
+}

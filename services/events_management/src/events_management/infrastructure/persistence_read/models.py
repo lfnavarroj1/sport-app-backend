@@ -15,6 +15,7 @@ from sportapp_platform.database import new_metadata
 PROCESSED_EVENT_PRIMARY_KEY = "pk_processed_event"
 EVENT_READ_PRIMARY_KEY = "pk_event_read"
 REGISTRATION_READ_PRIMARY_KEY = "pk_event_registration_read"
+INBOX_PRIMARY_KEY = "pk_notification_inbox_view"
 
 
 class ReadBase(DeclarativeBase):
@@ -86,6 +87,35 @@ class EventRegistrationReadRow(ReadBase):
     applied_fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     applied_fee_currency: Mapped[str | None] = mapped_column(String(3))
     version: Mapped[int] = mapped_column(BigInteger)
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationInboxViewRow(ReadBase):
+    """Bandeja del deportista (HU039, ADR-045 §10) desde `notificacion.solicitada.v1`.
+
+    `read_at` solo existe aquí: lo fija `POST /v1/me/notifications/{id}/read` y la
+    proyección nunca lo sobrescribe (una entrega repetida no recrea la fila)."""
+
+    __tablename__ = "notification_inbox_view"
+    __table_args__ = (
+        # Bandeja en orden `created_at DESC, notification_id DESC` (keyset).
+        Index(
+            "ix_notification_inbox_view_recipient_order",
+            "recipient_id",
+            "created_at",
+            "notification_id",
+        ),
+    )
+
+    notification_id: Mapped[UUID] = mapped_column(primary_key=True)
+    recipient_id: Mapped[UUID]
+    type: Mapped[str] = mapped_column(String(32))
+    priority: Mapped[str] = mapped_column(String(16))
+    event_id: Mapped[UUID]
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

@@ -14,6 +14,7 @@ from events_management.application.ports import (
     IdempotencyRecord,
     OutboxMessage,
 )
+from events_management.domain.notifications.model import Notification
 from events_management.domain.registrations.model import EventRegistration
 from events_management.domain.sport_events.model import SportEvent
 
@@ -111,6 +112,7 @@ class ReadStore:
     views: dict[UUID, SportEvent] = field(default_factory=dict)
     processed: dict[UUID, UUID] = field(default_factory=dict)
     registrations: dict[UUID, EventRegistration] = field(default_factory=dict)
+    inbox: dict[UUID, Notification] = field(default_factory=dict)
 
 
 class InMemoryProjectionUnitOfWork:
@@ -121,12 +123,14 @@ class InMemoryProjectionUnitOfWork:
         self._replaced: list[SportEvent] = []
         self._processed: list[tuple[UUID, UUID]] = []
         self._registrations: list[EventRegistration] = []
+        self._inbox: list[Notification] = []
 
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: Any) -> None:
         self._views, self._replaced, self._processed, self._registrations = [], [], [], []
+        self._inbox = []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -150,6 +154,12 @@ class InMemoryProjectionUnitOfWork:
     ) -> None:
         self._registrations.append(registration)
 
+    def inbox_contains(self, notification_id: UUID) -> bool:
+        return notification_id in self.store.inbox
+
+    def add_inbox_item(self, notification: Notification, projected_at: datetime) -> None:
+        self._inbox.append(notification)
+
     def add_processed(
         self, message_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -161,6 +171,9 @@ class InMemoryProjectionUnitOfWork:
             hook()
         if any(message_id in self.store.processed for message_id, _ in self._processed):
             raise DuplicateDelivery()
+        # Como la clave primaria de la bandeja: otra entrega proyectó la notificación.
+        if any(item.notification_id in self.store.inbox for item in self._inbox):
+            raise DuplicateDelivery()
         # Como la clave primaria de `event_read`: otro mensaje del evento creó la vista.
         if any(view.event_id in self.store.views for view in self._views):
             raise ConcurrentEventView()
@@ -168,6 +181,8 @@ class InMemoryProjectionUnitOfWork:
             self.store.views[view.event_id] = view
         for item in self._registrations:
             self.store.registrations[item.registration_id] = item
+        for notification in self._inbox:
+            self.store.inbox[notification.notification_id] = notification
         for message_id, aggregate_id in self._processed:
             self.store.processed[message_id] = aggregate_id
 

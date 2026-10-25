@@ -29,6 +29,10 @@ from events_management.infrastructure.persistence_write.outbox import SqlAlchemy
 from events_management.settings import (
     EVENTS_TOPIC,
     MAX_DELIVERY_ATTEMPTS,
+    NOTIFICATIONS_DLQ_OPS_SUBSCRIPTION,
+    NOTIFICATIONS_DLQ_TOPIC,
+    NOTIFICATIONS_FILTER,
+    NOTIFICATIONS_SUBSCRIPTION,
     PROJECTOR_DLQ_OPS_SUBSCRIPTION,
     PROJECTOR_DLQ_TOPIC,
     PROJECTOR_SUBSCRIPTION,
@@ -81,9 +85,13 @@ class EventsMessagingTest(unittest.TestCase):
             publisher.close()
 
     def consume(
-        self, callback: Callable[[Any], None], until: Callable[[], bool], timeout: float = 30.0
+        self,
+        callback: Callable[[Any], None],
+        until: Callable[[], bool],
+        timeout: float = 30.0,
+        subscription: str = PROJECTOR_SUBSCRIPTION,
     ) -> bool:
-        path = self.subscriber.subscription_path(self.project, PROJECTOR_SUBSCRIPTION)
+        path = self.subscriber.subscription_path(self.project, subscription)
         streaming = self.subscriber.subscribe(path, callback=callback)
         try:
             return wait_until(until, timeout)
@@ -105,6 +113,9 @@ class EventsMessagingTest(unittest.TestCase):
                 PROJECTOR_DLQ_TOPIC,
                 PROJECTOR_SUBSCRIPTION,
                 PROJECTOR_DLQ_OPS_SUBSCRIPTION,
+                NOTIFICATIONS_DLQ_TOPIC,
+                NOTIFICATIONS_SUBSCRIPTION,
+                NOTIFICATIONS_DLQ_OPS_SUBSCRIPTION,
             },
         )
         self.assertTrue(subscription.enable_message_ordering)
@@ -122,6 +133,31 @@ class EventsMessagingTest(unittest.TestCase):
             (RETRY_MIN_BACKOFF_SECONDS, RETRY_MAX_BACKOFF_SECONDS),
         )
         self.assertEqual(ensure_resources(self.project), self.created, "repetirlo es inofensivo")
+
+    def test_notifications_subscription_is_filtered_with_its_own_dlq(self) -> None:
+        """HU039 (ADR-045 §8): `eventos-notificaciones-v1` solo recibe `evento.publicado.v1`."""
+        subscription = self.subscriber.get_subscription(
+            subscription=self.subscriber.subscription_path(self.project, NOTIFICATIONS_SUBSCRIPTION)
+        )
+        self.assertTrue(subscription.enable_message_ordering)
+        self.assertEqual(subscription.filter, NOTIFICATIONS_FILTER)
+        self.assertTrue(
+            subscription.dead_letter_policy.dead_letter_topic.endswith(NOTIFICATIONS_DLQ_TOPIC)
+        )
+        created = self.db.create_event()(self.organizer, event_command())
+        self.db.publish()(self.organizer, publish_command(created.event.event_id))
+        self.assertEqual(self.publish_outbox(), 2)
+        received: list[str] = []
+
+        def collect(message: Any) -> None:
+            received.append(json.loads(message.data)["event_type"])
+            message.ack()
+
+        self.assertTrue(
+            self.consume(collect, lambda: bool(received), subscription=NOTIFICATIONS_SUBSCRIPTION)
+        )
+        time.sleep(2)  # un `evento.creado.v1` que pasara el filtro ya habría llegado
+        self.assertEqual(received, ["evento.publicado.v1"])
 
     def test_created_event_reaches_the_read_model_once(self) -> None:
         """CA5: evento publicado con el esquema versionado, `ordering_key = event_id`, y una

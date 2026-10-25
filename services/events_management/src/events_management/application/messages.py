@@ -1,7 +1,9 @@
 """Lectura validada de los eventos de `sportapp.eventos.v1` para el proyector (CMP-004).
 
 Se proyectan `evento.creado.v1` (HU021), `evento.publicado.v1` (HU024),
-`evento.tarifa_actualizada.v1` (HU025) y `usuario.inscrito.v1` (HU041). Un mensaje que
+`evento.tarifa_actualizada.v1` (HU025), `usuario.inscrito.v1` (HU041) y
+`notificacion.solicitada.v1` (HU039). `eventos-notificaciones-worker` reutiliza esta lectura
+para `evento.publicado.v1`. Un mensaje que
 no cumple el contrato es un `InvalidEvent`: no se confirma y, agotados los reintentos,
 termina en la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este proyector
 todavía no lo proyecta y se confirma sin efectos.
@@ -17,6 +19,21 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 from uuid import UUID
 
+from events_management.domain.notifications.events import (
+    AGGREGATE_VERSION as NOTIFICATION_VERSION,
+)
+from events_management.domain.notifications.events import EVENT_TYPE as NOTIFICATION_REQUESTED
+from events_management.domain.notifications.events import (
+    SCHEMA_VERSION as NOTIFICATION_SCHEMA,
+)
+from events_management.domain.notifications.model import (
+    BODY_MAX,
+    PRIORITIES,
+    TITLE_MAX,
+    Notification,
+    NotificationPriority,
+    NotificationType,
+)
 from events_management.domain.registrations.events import EVENT_TYPE as REGISTERED
 from events_management.domain.registrations.events import (
     SCHEMA_VERSION as REGISTERED_SCHEMA,
@@ -111,12 +128,21 @@ class RegistrationCreatedMessage:
     registration: EventRegistration
 
 
+@dataclass(frozen=True)
+class NotificationRequestedMessage:
+    message_id: UUID
+    aggregate_version: int
+    correlation_id: UUID | None
+    notification: Notification
+
+
 EventStateMessage = EventCreatedMessage | EventPublishedMessage | EventFeeUpdatedMessage
 SportEventMessage = (
     EventCreatedMessage
     | EventPublishedMessage
     | EventFeeUpdatedMessage
     | RegistrationCreatedMessage
+    | NotificationRequestedMessage
 )
 
 
@@ -356,6 +382,50 @@ def _registration_created(envelope: dict[str, Any]) -> RegistrationCreatedMessag
     )
 
 
+def _notification_text(payload: dict[str, Any], field: str, maximum: int) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not 1 <= len(value) <= maximum:
+        raise InvalidEvent(f"{field}_invalid")
+    return value
+
+
+def _notification_requested(envelope: dict[str, Any]) -> NotificationRequestedMessage:
+    """`notificacion.solicitada.v1` (HU039): agregado `notification`, versión 1."""
+    if envelope.get("schema_version") != NOTIFICATION_SCHEMA:
+        raise InvalidEvent("unsupported_schema_version")
+    if envelope.get("aggregate_version") != NOTIFICATION_VERSION:
+        raise InvalidEvent("aggregate_version_invalid")
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise InvalidEvent("payload_not_object")
+    notification_id = _uuid(payload.get("notification_id"), "notification_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != notification_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    try:
+        notification_type = NotificationType(str(payload.get("type")))
+        priority = NotificationPriority(str(payload.get("priority")))
+    except ValueError:
+        raise InvalidEvent("unknown_type") from None
+    if PRIORITIES[notification_type] is not priority:
+        raise InvalidEvent("priority_mismatch")
+    correlation = envelope.get("correlation_id")
+    return NotificationRequestedMessage(
+        message_id=_uuid(envelope.get("event_id"), "event_id"),
+        aggregate_version=NOTIFICATION_VERSION,
+        correlation_id=_uuid(correlation, "correlation_id") if correlation else None,
+        notification=Notification(
+            notification_id=notification_id,
+            recipient_id=_uuid(payload.get("recipient_id"), "recipient_id"),
+            type=notification_type,
+            priority=priority,
+            event_id=_uuid(payload.get("event_id"), "event_id"),
+            title=_notification_text(payload, "title", TITLE_MAX),
+            body=_notification_text(payload, "body", BODY_MAX),
+            created_at=_instant(payload.get("created_at"), "created_at"),
+        ),
+    )
+
+
 def parse_sport_event_message(envelope: object) -> SportEventMessage:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -370,4 +440,6 @@ def parse_sport_event_message(envelope: object) -> SportEventMessage:
         return _event_fee_updated(envelope)
     if event_type == REGISTERED:
         return _registration_created(envelope)
+    if event_type == NOTIFICATION_REQUESTED:
+        return _notification_requested(envelope)
     raise UnsupportedEvent(event_type)

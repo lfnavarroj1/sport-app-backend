@@ -271,6 +271,37 @@
         "title": "AthleteProfileResponse",
         "type": "object"
       },
+      "AthletesSearchResponse": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la siguiente página; `null` si es la última.",
+            "title": "Next Cursor"
+          },
+          "user_ids": {
+            "description": "Deportistas activos que coinciden, en orden `user_id` ascendente.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "user_ids",
+          "next_cursor"
+        ],
+        "title": "AthletesSearchResponse",
+        "type": "object"
+      },
       "BloodPressure": {
         "additionalProperties": false,
         "properties": {
@@ -1799,7 +1830,7 @@
   },
   "info": {
     "title": "SportApp - Usuarios",
-    "version": "0.14.0"
+    "version": "0.15.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3766,6 +3797,149 @@
           }
         },
         "summary": "Registrar usuario (HU001)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/athletes/search": {
+      "post": {
+        "description": "Solo para `events-management` (HU039), dentro de la red de la plataforma y sin token. Coincide una cuenta activa de tipo `athlete` con alguno de los deportes en sus hábitos (HU006) y la misma ciudad y país en su perfil demográfico (HU005); sin esas secciones no coincide. Orden `user_id` ascendente con cursor keyset. Solo identificadores: `no-store`.",
+        "operationId": "athletes_search_v1_users_athletes_search_post",
+        "parameters": [
+          {
+            "description": "No se envía: con ella la solicitud se rechaza (`403`).",
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "No se envía: con ella la solicitud se rechaza (`403`).",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Solo documenta el esquema; la validación la hace `parse_athlete_search`.",
+                "properties": {
+                  "city": {
+                    "description": "Ciudad del evento; se compara sin mayúsculas, acentos ni espacios exteriores.",
+                    "maxLength": 80,
+                    "minLength": 2,
+                    "title": "City",
+                    "type": "string"
+                  },
+                  "country_code": {
+                    "description": "ISO 3166-1 alfa-2 en mayúsculas; igualdad exacta.",
+                    "maxLength": 2,
+                    "minLength": 2,
+                    "title": "Country Code",
+                    "type": "string"
+                  },
+                  "cursor": {
+                    "anyOf": [
+                      {
+                        "maxLength": 512,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "`next_cursor` de la página anterior; `null` en la primera.",
+                    "title": "Cursor"
+                  },
+                  "limit": {
+                    "default": 1000,
+                    "description": "Tamaño de la página (1 a 1.000).",
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "title": "Limit",
+                    "type": "integer"
+                  },
+                  "sports": {
+                    "description": "Entre 1 y 4 deportes únicos del catálogo de HU006; `other` no se acepta (no genera coincidencia, ADR-041).",
+                    "items": {
+                      "enum": [
+                        "running",
+                        "cycling",
+                        "swimming",
+                        "strength"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "title": "Sports",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "sports",
+                  "city",
+                  "country_code"
+                ],
+                "title": "AthletesSearchRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AthletesSearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: la solicitud trae `Authorization` (un cliente no puede usar este contrato interno)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `required`, `unknown_value` (también `other` o un país inexistente), `duplicate_value`, `too_many_items`, `invalid_length`, `out_of_range`, `field_not_allowed` o `invalid_cursor`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: la base de lectura no responde."
+          }
+        },
+        "summary": "Deportistas que coinciden por deporte, ciudad y país (interno, ADR-045)",
         "tags": [
           "users"
         ]

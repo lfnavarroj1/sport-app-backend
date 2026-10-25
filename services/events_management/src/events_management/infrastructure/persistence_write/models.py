@@ -11,11 +11,13 @@ from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     UniqueConstraint,
@@ -28,6 +30,9 @@ from sportapp_platform.database import new_metadata
 
 IDEMPOTENCY_PRIMARY_KEY = "pk_command_idempotency"
 REGISTRATION_UNIQUE = "uq_event_registration_event_id_athlete_id"
+NOTIFICATION_DEDUPE_UNIQUE = "uq_notification_dedupe_key"
+DEVICE_HASH_UNIQUE = "uq_push_token_token_hash"
+DELIVERY_UNIQUE = "uq_notification_delivery_notification_id_token_id"
 
 
 class WriteBase(DeclarativeBase):
@@ -115,6 +120,9 @@ class OutboxEventRow(WriteBase):
     attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(256))
+    # HU039 (ADR-045): `notificacion.solicitada.v1` se ordena por `recipient_id`, no por su
+    # agregado; nulo = `aggregate_id` (todos los eventos anteriores).
+    ordering_key: Mapped[str | None] = mapped_column(String(128))
 
 
 class CommandIdempotencyRow(WriteBase):
@@ -156,5 +164,88 @@ class EventRegistrationRow(WriteBase):
     applied_fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     applied_fee_currency: Mapped[str | None] = mapped_column(String(3))
     version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationRow(WriteBase):
+    """Notificación de la bandeja (HU039, ADR-045 §9): una por `dedupe_key`
+    (`type:event_id:recipient_id`). `recipient_id` es un identificador de Usuarios."""
+
+    __tablename__ = "notification"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name=NOTIFICATION_DEDUPE_UNIQUE),
+        CheckConstraint("type IN ('EVENT_PUBLISHED_MATCH', 'EVENT_REMINDER_24H')", name="type"),
+        CheckConstraint("priority IN ('NORMAL', 'HIGH')", name="priority"),
+        CheckConstraint("char_length(title) BETWEEN 1 AND 120", name="title"),
+        CheckConstraint("char_length(body) BETWEEN 1 AND 500", name="body"),
+    )
+
+    notification_id: Mapped[UUID] = mapped_column(primary_key=True)
+    recipient_id: Mapped[UUID]
+    type: Mapped[str] = mapped_column(String(32))
+    priority: Mapped[str] = mapped_column(String(16))
+    event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event.event_id", ondelete="RESTRICT"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(500))
+    dedupe_key: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationPreferenceRow(WriteBase):
+    """Preferencias del deportista (HU039): sin fila rigen los valores por defecto."""
+
+    __tablename__ = "notification_preference"
+    __table_args__ = (CheckConstraint("version >= 1", name="version"),)
+
+    recipient_id: Mapped[UUID] = mapped_column(primary_key=True)
+    event_matches: Mapped[bool] = mapped_column(Boolean)
+    event_reminders: Mapped[bool] = mapped_column(Boolean)
+    push_enabled: Mapped[bool] = mapped_column(Boolean)
+    version: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PushTokenRow(WriteBase):
+    """Token FCM del dispositivo (solo con `FCM_ENABLED`), cifrado en reposo con AES-GCM;
+    `token_hash` (SHA-256) permite reasignarlo sin descifrar."""
+
+    __tablename__ = "push_token"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name=DEVICE_HASH_UNIQUE),
+        CheckConstraint("platform IN ('android')", name="platform"),
+    )
+
+    token_id: Mapped[UUID] = mapped_column(primary_key=True)
+    recipient_id: Mapped[UUID] = mapped_column(index=True)
+    token_hash: Mapped[str] = mapped_column(String(64))
+    token_ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
+    platform: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationDeliveryRow(WriteBase):
+    """Resultado del envío *push* por token (ADR-045 §10); nunca condiciona la bandeja."""
+
+    __tablename__ = "notification_delivery"
+    __table_args__ = (
+        UniqueConstraint("notification_id", "token_id", name=DELIVERY_UNIQUE),
+        CheckConstraint("channel IN ('FCM')", name="channel"),
+        CheckConstraint("status IN ('SENT', 'FAILED')", name="status"),
+        CheckConstraint("attempts >= 1", name="attempts"),
+    )
+
+    delivery_id: Mapped[UUID] = mapped_column(primary_key=True)
+    notification_id: Mapped[UUID] = mapped_column(
+        ForeignKey("notification.notification_id", ondelete="CASCADE")
+    )
+    token_id: Mapped[UUID] = mapped_column(ForeignKey("push_token.token_id", ondelete="CASCADE"))
+    channel: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))
+    attempts: Mapped[int] = mapped_column(Integer)
+    last_error: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

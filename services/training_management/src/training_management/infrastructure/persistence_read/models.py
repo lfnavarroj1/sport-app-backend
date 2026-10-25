@@ -30,6 +30,7 @@ AUTHORIZATION_VIEW_PRIMARY_KEY = "pk_training_authorization_view"
 SESSION_HISTORY_PRIMARY_KEY = "pk_training_session_history"
 METRIC_RESULT_ORDER_INDEX = "ix_training_metric_result_athlete_order"
 NUTRITION_PLAN_ORDER_INDEX = "ix_nutrition_plan_view_athlete_order"
+FOOD_INTAKE_ORDER_INDEX = "ix_food_intake_view_athlete_order"
 ROUTE_SUGGESTION_INDEX = "ix_route_view_status_sport_city"
 ROUTE_ORGANIZER_ORDER_INDEX = "ix_route_view_organizer_order"
 ROUTE_LATEST_INDEX = "ix_route_view_status_published"
@@ -204,6 +205,35 @@ class NutritionPlanViewRow(ReadBase):
     document: Mapped[dict[str, Any]] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FoodIntakeViewRow(ReadBase):
+    """Consumo de alimentos (HU043) a partir de `consumo_alimento.registrado.v1`; reconstruible.
+
+    `items` son los alimentos normalizados (`food_code`, `quantity` con un decimal y `unit`) en
+    el orden enviado; los textos los resuelve el cliente con el catálogo. Lo consulta HU013.
+    """
+
+    __tablename__ = "food_intake_view"
+    __table_args__ = (
+        # Orden estable del historial de HU013: `consumed_at` desc, `intake_id` desc.
+        Index(
+            FOOD_INTAKE_ORDER_INDEX,
+            "athlete_id",
+            text("consumed_at DESC"),
+            text("intake_id DESC"),
+        ),
+    )
+
+    intake_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID]
+    consumed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    meal_type: Mapped[str] = mapped_column(String(16))
+    items: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    catalog_version: Mapped[str] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(BigInteger)
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

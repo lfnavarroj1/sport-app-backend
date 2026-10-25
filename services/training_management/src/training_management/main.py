@@ -15,6 +15,7 @@ from training_management.api.authorizations import build_authorizations_router
 from training_management.api.authorized_athletes import build_authorized_athletes_router
 from training_management.api.devices import build_devices_router
 from training_management.api.food_catalog import build_food_catalog_router
+from training_management.api.food_intakes import build_food_intakes_router
 from training_management.api.history import build_history_router
 from training_management.api.measurements import build_measurements_router
 from training_management.api.monitoring_settings import build_monitoring_settings_router
@@ -43,6 +44,7 @@ from training_management.application.commands.measurements import IngestMeasurem
 from training_management.application.commands.monitoring_settings import (
     UpdateMonitoringSettings,
 )
+from training_management.application.commands.register_food_intake import RegisterFoodIntake
 from training_management.application.commands.routes import PublishRoute, RetireRoute
 from training_management.application.commands.session_reminder_preferences import (
     UpdateSessionReminderPreferences,
@@ -117,6 +119,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
     SqlAlchemyDeviceReader,
     SqlAlchemyDeviceUnitOfWork,
+    SqlAlchemyFoodIntakeUnitOfWork,
     SqlAlchemyMeasurementUnitOfWork,
     SqlAlchemyMetricUnitOfWork,
     SqlAlchemyMonitoringSettingsUnitOfWork,
@@ -130,7 +133,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.15.0"
+API_VERSION = "0.16.0"
 
 
 def create_app(
@@ -284,6 +287,14 @@ def create_app(
             ),
             build_food_catalog_router(
                 verify_token=verifier.verify, get_catalog=GetFoodCatalog(catalog=food_catalog)
+            ),
+            build_food_intakes_router(
+                verify_token=verifier.verify,
+                register=RegisterFoodIntake(
+                    unit_of_work=lambda: SqlAlchemyFoodIntakeUnitOfWork(writes),
+                    catalog=food_catalog,
+                    clock=clock,
+                ),
             ),
             build_routes_router(
                 verify_token=verifier.verify,

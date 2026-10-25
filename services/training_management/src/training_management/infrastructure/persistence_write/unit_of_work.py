@@ -1,5 +1,5 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
-HU034, HU014, HU026, HU028, HU037, HU036)."""
+HU034, HU014, HU026, HU028, HU037, HU036, HU043)."""
 
 from datetime import datetime
 from types import TracebackType
@@ -17,6 +17,7 @@ from training_management.application.errors import (
     CalculationIdConflict,
     DeviceConflict,
     IdempotencyKeyConflict,
+    IntakeIdConflict,
     MonitoringSettingsConflict,
     SessionIdConflict,
     SessionReminderPreferencesConflict,
@@ -49,7 +50,8 @@ from training_management.domain.metrics.model import (
     TrainingMetricCalculation,
 )
 from training_management.domain.monitoring.model import MonitoringSettings, RiskAlert
-from training_management.domain.nutrition.model import NutritionPlan
+from training_management.domain.nutrition.intake import FoodIntake, IntakeItem
+from training_management.domain.nutrition.model import MealType, NutritionPlan
 from training_management.domain.plans.model import PlanStatus, Sport, TrainingPlan
 from training_management.domain.reminders.model import ReminderPreferences, ReminderSetting
 from training_management.domain.routes.model import (
@@ -76,6 +78,7 @@ from training_management.infrastructure.persistence_write.models import (
     ATHLETE_DEVICE_PRIMARY_KEY,
     AUTHORIZATION_PRIMARY_KEY,
     COMMAND_IDEMPOTENCY_PRIMARY_KEY,
+    FOOD_INTAKE_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
     METRIC_CALCULATION_PRIMARY_KEY,
     MONITORING_SETTINGS_PRIMARY_KEY,
@@ -83,6 +86,8 @@ from training_management.infrastructure.persistence_write.models import (
     TRAINING_SESSION_PRIMARY_KEY,
     AthleteDeviceRow,
     CommandIdempotencyRow,
+    FoodIntakeItemRow,
+    FoodIntakeRow,
     IdempotencyKeyRow,
     MonitoringSettingsRow,
     NutritionPlanItemRow,
@@ -555,6 +560,78 @@ class SqlAlchemyNutritionUnitOfWork(SqlAlchemyPlanningUnitOfWork):
             for meal_position, meal in enumerate(plan.meals)
             for position, item in enumerate(meal.items)
         )
+
+
+_FOOD_INTAKE_CONFLICTS: dict[str | None, type[Exception]] = {
+    COMMAND_IDEMPOTENCY_PRIMARY_KEY: IdempotencyKeyConflict,
+    FOOD_INTAKE_PRIMARY_KEY: IntakeIdConflict,
+}
+
+
+class SqlAlchemyFoodIntakeUnitOfWork(_CommandUnitOfWork):
+    """HU043: consumo, ítems, outbox e idempotencia en una transacción de escritura."""
+
+    def get_food_intake(self, intake_id: UUID) -> FoodIntake | None:
+        with self.session.no_autoflush:
+            row = self.session.get(FoodIntakeRow, intake_id)
+            if row is None:
+                return None
+            items = list(
+                self.session.scalars(
+                    select(FoodIntakeItemRow)
+                    .where(FoodIntakeItemRow.intake_id == intake_id)
+                    .order_by(FoodIntakeItemRow.position)
+                )
+            )
+        return FoodIntake(
+            intake_id=row.intake_id,
+            athlete_id=row.athlete_id,
+            consumed_at=row.consumed_at,
+            meal_type=MealType(row.meal_type),
+            items=tuple(
+                IntakeItem(food_code=item.food_code, quantity=item.quantity, unit=item.unit)
+                for item in items
+            ),
+            catalog_version=row.catalog_version,
+            registered_at=row.registered_at,
+            version=row.version,
+        )
+
+    def add_food_intake(self, intake: FoodIntake) -> None:
+        self.session.add(
+            FoodIntakeRow(
+                intake_id=intake.intake_id,
+                athlete_id=intake.athlete_id,
+                consumed_at=intake.consumed_at,
+                meal_type=intake.meal_type.value,
+                catalog_version=intake.catalog_version,
+                registered_at=intake.registered_at,
+                version=intake.version,
+                data_fingerprint=intake.data.fingerprint,
+            )
+        )
+        # El consumo debe existir antes que sus ítems (clave foránea local).
+        self.session.flush()
+        self.session.add_all(
+            FoodIntakeItemRow(
+                intake_id=intake.intake_id,
+                position=position,
+                food_code=item.food_code,
+                quantity=item.quantity,
+                unit=item.unit,
+            )
+            for position, item in enumerate(intake.items)
+        )
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            conflict = _FOOD_INTAKE_CONFLICTS.get(_violated_constraint(error))
+            if conflict is not None:
+                raise conflict() from None
+            raise
 
 
 def _route(row: RouteRow) -> Route:

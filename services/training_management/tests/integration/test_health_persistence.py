@@ -205,7 +205,8 @@ class HealthReportPersistenceTest(unittest.TestCase):
 
         self.assertEqual((replay.outcome, replay.report), (ReportOutcome.REPLAYED, first.report))
         self.assertEqual((again.outcome, again.report), (ReportOutcome.EXISTING, first.report))
-        self.assertEqual(self.counts(), [1, 1, 2])
+        # El reporte existente con otra clave se devuelve sin registrar esa clave (como HU034).
+        self.assertEqual(self.counts(), [1, 1, 1])
 
     def test_database_enforces_the_closed_catalogs(self) -> None:
         self.report(self.athlete, command(body()))

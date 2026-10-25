@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -37,6 +38,7 @@ AUTHORIZATION_PRIMARY_KEY = "pk_training_authorization"
 METRIC_CALCULATION_PRIMARY_KEY = "pk_training_metric_calculation"
 ATHLETE_DEVICE_PRIMARY_KEY = "pk_athlete_device"
 MONITORING_SETTINGS_PRIMARY_KEY = "pk_monitoring_settings"
+SESSION_REMINDER_PREFERENCE_PRIMARY_KEY = "pk_session_reminder_preference"
 
 
 class WriteBase(DeclarativeBase):
@@ -483,6 +485,32 @@ class MonitoringSettingsRow(WriteBase):
 
     athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
     max_heart_rate_alert_bpm: Mapped[int] = mapped_column(SmallInteger)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SessionReminderPreferenceRow(WriteBase):
+    """Preferencias de recordatorios en sesión del deportista (HU038, ADR-045 §5); sin fila
+    valen los valores por defecto del ruleset. Los rangos repiten los del ruleset
+    `session-reminders-2026-10-13.v1`."""
+
+    __tablename__ = "session_reminder_preference"
+    __table_args__ = (
+        CheckConstraint(
+            "hydration_interval_minutes BETWEEN 10 AND 60", name="hydration_interval_minutes"
+        ),
+        CheckConstraint(
+            "nutrition_interval_minutes BETWEEN 30 AND 120", name="nutrition_interval_minutes"
+        ),
+        CheckConstraint("version >= 1", name="version"),
+    )
+
+    athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
+    hydration_enabled: Mapped[bool] = mapped_column(Boolean)
+    hydration_interval_minutes: Mapped[int] = mapped_column(SmallInteger)
+    nutrition_enabled: Mapped[bool] = mapped_column(Boolean)
+    nutrition_interval_minutes: Mapped[int] = mapped_column(SmallInteger)
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

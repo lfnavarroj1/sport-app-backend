@@ -22,6 +22,7 @@ ROUTE_SUGGEST_CAPABILITY = "training.routes.suggest"
 TEMPLATE_SUGGEST_CAPABILITY = "training.plans.suggest"
 DEVICES_CAPABILITY = "devices.measurement.connect"
 REALTIME_MONITOR_CAPABILITY = "training.realtime.monitor"
+SESSION_REMINDERS_CAPABILITY = "nutrition.session.reminders"
 
 
 def require_plan_author(caller: Caller, permissions: PermissionPolicy) -> None:
@@ -100,4 +101,12 @@ def require_realtime_monitor_capability(caller: Caller, capabilities: Capability
     `training.realtime.monitor`. Consulta Afiliación fuera de cualquier transacción."""
     require_athlete(caller)
     if not capabilities.has_capability(caller.user_id, REALTIME_MONITOR_CAPABILITY):
+        raise CapabilityRequired()
+
+
+def require_session_reminders_capability(caller: Caller, capabilities: CapabilityChecker) -> None:
+    """HU038 (ADR-045 §5): reglas y preferencias de recordatorios exigen `athlete` con
+    `nutrition.session.reminders`. Consulta Afiliación fuera de cualquier transacción."""
+    require_athlete(caller)
+    if not capabilities.has_capability(caller.user_id, SESSION_REMINDERS_CAPABILITY):
         raise CapabilityRequired()

@@ -9,6 +9,7 @@ from bff_mobile.api.capabilities import build_capabilities_router
 from bff_mobile.api.devices import build_devices_router
 from bff_mobile.api.event_registrations import build_event_registrations_router
 from bff_mobile.api.event_suggestions import build_event_suggestions_router
+from bff_mobile.api.food_intakes import build_food_intakes_router
 from bff_mobile.api.health_reports import build_health_reports_router
 from bff_mobile.api.notifications import build_notifications_router
 from bff_mobile.api.route_suggestions import (
@@ -160,6 +161,7 @@ def create_app(
                 athlete_snapshot=affiliation.user_capabilities,
                 services=services,
             ),
+            build_food_intakes_router(verify_token=verifier.verify, training=training),
         ],
         shutdown_hooks=[
             users_http.close,

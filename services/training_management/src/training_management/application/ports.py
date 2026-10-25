@@ -19,6 +19,7 @@ from training_management.domain.measurements.model import Measurement
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.monitoring.model import MonitoringSettings, RiskAlert
 from training_management.domain.nutrition.catalog import FoodCatalog
+from training_management.domain.nutrition.intake import FoodIntake
 from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
 from training_management.domain.plans.model import Sport, TrainingPlan
 from training_management.domain.reminders.model import ReminderPreferences
@@ -586,6 +587,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         """HU014: inserta o reemplaza el estado completo del plan en `nutrition_plan_view`."""
         ...
 
+    def food_intake_version(self, intake_id: UUID) -> int | None:
+        """HU043: versión proyectada del consumo; bloquea la fila."""
+        ...
+
+    def save_food_intake_view(self, intake: FoodIntake, projected_at: datetime) -> None:
+        """HU043: inserta o reemplaza el estado completo del consumo en `food_intake_view`."""
+        ...
+
     def route_version(self, route_id: UUID) -> int | None:
         """HU026: versión proyectada de la ruta; bloquea la fila."""
         ...
@@ -645,6 +654,27 @@ class NutritionRestrictionsReader(Protocol):
     """
 
     def get(self, athlete_id: UUID) -> NutritionRestrictions: ...
+
+
+class FoodIntakeUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU043: consumo, ítems, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_food_intake(self, intake_id: UUID) -> FoodIntake | None: ...
+
+    def add_food_intake(self, intake: FoodIntake) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el `intake_id` duplicado a
+        `IntakeIdConflict`."""
+        ...
 
 
 class NutritionUnitOfWork(Transaction, Protocol):

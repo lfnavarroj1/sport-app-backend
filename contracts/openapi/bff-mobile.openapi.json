@@ -1365,6 +1365,207 @@
         "title": "Fee",
         "type": "object"
       },
+      "FoodCatalogItem": {
+        "properties": {
+          "allergens": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allergens",
+            "type": "array"
+          },
+          "allowed_units": {
+            "items": {
+              "enum": [
+                "G",
+                "ML",
+                "UNIT",
+                "CUP",
+                "TBSP"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Units",
+            "type": "array"
+          },
+          "category": {
+            "enum": [
+              "GRAIN",
+              "PROTEIN",
+              "DAIRY",
+              "FRUIT",
+              "VEGETABLE",
+              "LEGUME",
+              "FAT",
+              "BEVERAGE",
+              "SUPPLEMENT"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "default_unit": {
+            "enum": [
+              "G",
+              "ML",
+              "UNIT",
+              "CUP",
+              "TBSP"
+            ],
+            "title": "Default Unit",
+            "type": "string"
+          },
+          "food_code": {
+            "title": "Food Code",
+            "type": "string"
+          },
+          "incompatible_with": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Incompatible With",
+            "type": "array"
+          },
+          "label_key": {
+            "description": "Clave de traducción del nombre.",
+            "title": "Label Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "food_code",
+          "label_key",
+          "category",
+          "default_unit",
+          "allowed_units",
+          "allergens",
+          "incompatible_with"
+        ],
+        "title": "FoodCatalogItem",
+        "type": "object"
+      },
+      "FoodCatalogResponse": {
+        "description": "Catálogo cerrado y versionado; el `ETag` es su versión.",
+        "properties": {
+          "catalog_version": {
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FoodCatalogItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "catalog_version",
+          "items"
+        ],
+        "title": "FoodCatalogResponse",
+        "type": "object"
+      },
+      "FoodIntakeItem": {
+        "additionalProperties": false,
+        "description": "Alimento del consumo; el mismo esquema en la solicitud y en la respuesta (normalizada\ncon exactamente un decimal).",
+        "properties": {
+          "food_code": {
+            "description": "Código de `GET /v1/food-catalog`.",
+            "title": "Food Code",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "Cadena decimal con como máximo un decimal entre `0.1` y `5000.0`; el servicio la normaliza a un decimal (`150` → `150.0`).",
+            "examples": [
+              "150.0"
+            ],
+            "title": "Quantity",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Una de las `allowed_units` del alimento.",
+            "enum": [
+              "G",
+              "ML",
+              "UNIT",
+              "CUP",
+              "TBSP"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "food_code",
+          "quantity",
+          "unit"
+        ],
+        "title": "FoodIntakeItem",
+        "type": "object"
+      },
+      "FoodIntakeResponse": {
+        "description": "Consumo normalizado en la versión 1; sin calorías ni nutrientes.",
+        "properties": {
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "catalog_version": {
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "consumed_at": {
+            "format": "date-time",
+            "title": "Consumed At",
+            "type": "string"
+          },
+          "intake_id": {
+            "format": "uuid",
+            "title": "Intake Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FoodIntakeItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "meal_type": {
+            "enum": [
+              "BREAKFAST",
+              "LUNCH",
+              "DINNER",
+              "SNACK",
+              "HYDRATION"
+            ],
+            "title": "Meal Type",
+            "type": "string"
+          },
+          "registered_at": {
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "intake_id",
+          "athlete_id",
+          "consumed_at",
+          "meal_type",
+          "items",
+          "catalog_version",
+          "version",
+          "registered_at"
+        ],
+        "title": "FoodIntakeResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3957,6 +4158,130 @@
         ]
       }
     },
+    "/v1/food-catalog": {
+      "get": {
+        "operationId": "food_catalog_v1_food_catalog_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FoodCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "`\"<catalog_version>\"`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "`If-None-Match` coincide con el catálogo vigente; sin cuerpo.",
+            "headers": {
+              "ETag": {
+                "description": "`\"<catalog_version>\"`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo un deportista usa «Mi alimentación»."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: identidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: el servicio no respondió a tiempo."
+          }
+        },
+        "summary": "Catálogo de alimentos para registrar consumos (HU043, ADR-037)",
+        "tags": [
+          "nutrition"
+        ]
+      }
+    },
     "/v1/me/appointments": {
       "get": {
         "description": "Ordenadas por `starts_at` y `appointment_id` ascendentes con cursor keyset; incluye las canceladas salvo que se filtre por `status`. No exige capacidad.",
@@ -5143,6 +5468,185 @@
         "summary": "Mis inscripciones a eventos (HU041)",
         "tags": [
           "event-registrations"
+        ]
+      }
+    },
+    "/v1/me/food-intakes": {
+      "post": {
+        "operationId": "register_intake_v1_me_food_intakes_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del consumo; la validación la hace el servicio (ADR-037).",
+                "properties": {
+                  "consumed_at": {
+                    "description": "Instante UTC con sufijo `Z` y precisión de segundos (`YYYY-MM-DDTHH:MM:SSZ`). Hasta 5 minutos en el futuro y 30 días en el pasado.",
+                    "examples": [
+                      "2026-10-24T12:30:00Z"
+                    ],
+                    "format": "date-time",
+                    "title": "Consumed At",
+                    "type": "string"
+                  },
+                  "intake_id": {
+                    "description": "UUID v4 generado por el móvil.",
+                    "format": "uuid",
+                    "title": "Intake Id",
+                    "type": "string"
+                  },
+                  "items": {
+                    "items": {
+                      "$ref": "#/components/schemas/FoodIntakeItem"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "title": "Items",
+                    "type": "array"
+                  },
+                  "meal_type": {
+                    "enum": [
+                      "BREAKFAST",
+                      "LUNCH",
+                      "DINNER",
+                      "SNACK",
+                      "HYDRATION"
+                    ],
+                    "title": "Meal Type",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "intake_id",
+                  "consumed_at",
+                  "meal_type",
+                  "items"
+                ],
+                "title": "RegisterFoodIntakeRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FoodIntakeResponse"
+                }
+              }
+            },
+            "description": "Consumo registrado, respuesta original de la misma clave o consumo existente con el mismo `intake_id` y los mismos datos.",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve la respuesta original de la misma clave.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo un deportista usa «Mi alimentación»."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused` o `intake_id_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `required`, `field_not_allowed` (también `athlete_id`), `invalid_uuid`, `invalid_datetime`, `too_far_in_future`, `too_old`, `unknown_value` (`meal_type` o `food_code`), `unit_not_allowed`, `out_of_range`, `too_short` o `too_long` (`items` fuera de 1..20)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: identidad no verificable o servicio caído."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: el servicio no respondió a tiempo."
+          }
+        },
+        "summary": "Registrar un consumo de alimentos y bebidas (HU043, ADR-037)",
+        "tags": [
+          "nutrition"
         ]
       }
     },

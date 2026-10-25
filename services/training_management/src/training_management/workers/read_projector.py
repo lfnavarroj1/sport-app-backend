@@ -29,6 +29,7 @@ from sportapp_platform.database import create_database_engine
 from sportapp_platform.logging import configure_logging
 from training_management.application.messages import (
     AuthorizationChangedEvent,
+    FoodIntakeRegisteredEvent,
     HealthReportRegisteredEvent,
     InvalidEvent,
     MeasurementReceivedEvent,
@@ -76,6 +77,7 @@ def _aggregate_id(event: TrainingEvent) -> object:
         AuthorizationChangedEvent
         | MeasurementReceivedEvent
         | RiskDetectedEvent
+        | FoodIntakeRegisteredEvent
         | HealthReportRegisteredEvent,
     ):
         return event.aggregate_id

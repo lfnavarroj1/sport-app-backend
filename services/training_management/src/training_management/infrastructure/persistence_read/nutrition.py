@@ -1,4 +1,5 @@
-"""Base de lectura de HU014: filas de `nutrition_plan_view` y consultas del plan."""
+"""Base de lectura de HU014 y HU043: filas de `nutrition_plan_view` y consultas del plan;
+filas de `food_intake_view`."""
 
 from datetime import datetime
 from typing import Any
@@ -10,6 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from training_management.application.nutrition_documents import plan_from_document
 from training_management.application.ports import NutritionPlanQuery
 from training_management.domain.nutrition.events import nutrition_plan_document
+from training_management.domain.nutrition.intake import FoodIntake
+from training_management.domain.nutrition.intake_events import food_intake_document
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.infrastructure.persistence_read.models import NutritionPlanViewRow
 
@@ -22,6 +25,20 @@ def nutrition_plan_values(plan: NutritionPlan, projected_at: datetime) -> dict[s
         "document": nutrition_plan_document(plan),
         "version": plan.version,
         "created_at": plan.created_at,
+        "projected_at": projected_at,
+    }
+
+
+def food_intake_values(intake: FoodIntake, projected_at: datetime) -> dict[str, Any]:
+    return {
+        "intake_id": intake.intake_id,
+        "athlete_id": intake.athlete_id,
+        "consumed_at": intake.consumed_at,
+        "meal_type": intake.meal_type.value,
+        "items": food_intake_document(intake)["items"],
+        "catalog_version": intake.catalog_version,
+        "version": intake.version,
+        "registered_at": intake.registered_at,
         "projected_at": projected_at,
     }
 

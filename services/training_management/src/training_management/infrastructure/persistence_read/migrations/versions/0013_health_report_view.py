@@ -6,7 +6,7 @@ Expansión de la base de lectura sin backfill: los reportes llegan por
 La reversión elimina la tabla; la base de lectura es reconstruible desde los eventos.
 
 Revision ID: 0013_health_report_view
-Revises: 0011_session_monitoring_views
+Revises: 0012_food_intake_view
 Create Date: 2026-10-25
 """
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0013_health_report_view"
-down_revision: str | None = "0011_session_monitoring_views"
+down_revision: str | None = "0012_food_intake_view"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

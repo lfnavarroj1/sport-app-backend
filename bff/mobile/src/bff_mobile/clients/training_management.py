@@ -1,4 +1,4 @@
-"""Cliente HTTP de `training_management` según su OpenAPI (HU026, HU028, HU032-HU038).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU026, HU028, HU032-HU038, HU043).
 
 Reenvía el access token del usuario, la clave de idempotencia, `If-None-Match` y la
 correlación; el servicio vuelve a verificar identidad, actor y capacidad. Los segmentos de
@@ -92,6 +92,18 @@ class TrainingManagementClient:
             access_token,
             body=body,
             idempotency_key=idempotency_key,
+        )
+
+    def food_catalog(self, access_token: str, if_none_match: str | None) -> httpx.Response:
+        """HU043: catálogo de alimentos de HU014; con `If-None-Match` vigente responde `304`."""
+        return self._send("GET", "/v1/food-catalog", access_token, if_none_match=if_none_match)
+
+    def register_food_intake(
+        self, access_token: str, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU043: registrar un consumo; cuerpo y clave viajan tal cual (ADR-037)."""
+        return self._send(
+            "POST", "/v1/me/food-intakes", access_token, body=body, idempotency_key=idempotency_key
         )
 
     def training_dashboard(self, access_token: str, params: dict[str, str]) -> httpx.Response:

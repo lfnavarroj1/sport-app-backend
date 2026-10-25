@@ -40,6 +40,7 @@ HEALTH_REPORT_PRIMARY_KEY = "pk_health_report"
 ATHLETE_DEVICE_PRIMARY_KEY = "pk_athlete_device"
 MONITORING_SETTINGS_PRIMARY_KEY = "pk_monitoring_settings"
 SESSION_REMINDER_PREFERENCE_PRIMARY_KEY = "pk_session_reminder_preference"
+FOOD_INTAKE_PRIMARY_KEY = "pk_food_intake"
 
 
 class WriteBase(DeclarativeBase):
@@ -366,6 +367,48 @@ class NutritionPlanItemRow(WriteBase):
 
     plan_id: Mapped[UUID] = mapped_column(primary_key=True)
     meal_position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    food_code: Mapped[str] = mapped_column(
+        String(64), ForeignKey("food_catalog_item.food_code", ondelete="RESTRICT")
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(5, 1))
+    unit: Mapped[str] = mapped_column(String(8))
+
+
+class FoodIntakeRow(WriteBase):
+    """Consumo de alimentos y bebidas del deportista (HU043); inmutable en versión 1."""
+
+    __tablename__ = "food_intake"
+    __table_args__ = (
+        CheckConstraint(
+            "meal_type IN ('BREAKFAST', 'LUNCH', 'DINNER', 'SNACK', 'HYDRATION')",
+            name="meal_type",
+        ),
+        CheckConstraint("version = 1", name="version"),
+    )
+
+    intake_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    consumed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    meal_type: Mapped[str] = mapped_column(String(16))
+    catalog_version: Mapped[str] = mapped_column(String(64))
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+    data_fingerprint: Mapped[str] = mapped_column(String(64))
+
+
+class FoodIntakeItemRow(WriteBase):
+    """Alimento consumido: cantidad con un decimal y unidad permitida del catálogo."""
+
+    __tablename__ = "food_intake_item"
+    __table_args__ = (
+        CheckConstraint("quantity BETWEEN 0.1 AND 5000.0", name="quantity"),
+        CheckConstraint("unit IN ('G', 'ML', 'UNIT', 'CUP', 'TBSP')", name="unit"),
+    )
+
+    intake_id: Mapped[UUID] = mapped_column(
+        ForeignKey("food_intake.intake_id", ondelete="CASCADE"), primary_key=True
+    )
     position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
     food_code: Mapped[str] = mapped_column(
         String(64), ForeignKey("food_catalog_item.food_code", ondelete="RESTRICT")

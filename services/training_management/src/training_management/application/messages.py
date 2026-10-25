@@ -3,9 +3,9 @@
 Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
 (HU011), `entrenamiento.iniciado.v1` (HU032), `indicador.calculado.v1` (HU034) y
-`plan.alimentacion_creado.v1` (HU014), `ruta.publicada.v1` y `ruta.retirada.v1`
-(HU026), `plantilla_entrenamiento.publicada.v1` / `.retirada.v1` (HU028) y
-`medicion.recibida.v1` / `riesgo.detectado.v1` (HU036). Cada
+`plan.alimentacion_creado.v1` (HU014), `consumo_alimento.registrado.v1` (HU043),
+`ruta.publicada.v1` y `ruta.retirada.v1` (HU026), `plantilla_entrenamiento.publicada.v1` /
+`.retirada.v1` (HU028) y `medicion.recibida.v1` / `riesgo.detectado.v1` (HU036). Cada
 uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
 no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
 tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
@@ -22,6 +22,10 @@ from uuid import UUID
 from training_management.application.health_documents import (
     InvalidHealthReportDocument,
     health_report_from_document,
+)
+from training_management.application.intake_documents import (
+    InvalidIntakeDocument,
+    intake_from_document,
 )
 from training_management.application.ports import (
     ActiveSessionView,
@@ -89,6 +93,13 @@ from training_management.domain.nutrition.events import (
 )
 from training_management.domain.nutrition.events import (
     SCHEMA_VERSION as NUTRITION_PLAN_SCHEMA,
+)
+from training_management.domain.nutrition.intake import FoodIntake
+from training_management.domain.nutrition.intake_events import (
+    EVENT_TYPE as FOOD_INTAKE_REGISTERED,
+)
+from training_management.domain.nutrition.intake_events import (
+    SCHEMA_VERSION as FOOD_INTAKE_SCHEMA,
 )
 from training_management.domain.nutrition.model import (
     ITEMS_PER_MEAL_MAX,
@@ -203,6 +214,17 @@ class NutritionPlanCreatedEvent:
 
 
 @dataclass(frozen=True)
+class FoodIntakeRegisteredEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    intake: FoodIntake
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.intake.intake_id
+
+
+@dataclass(frozen=True)
 class RouteChangedEvent:
     event_id: UUID
     event_type: str
@@ -258,6 +280,7 @@ TrainingEvent = (
     | SessionStartedEvent
     | MetricCalculatedEvent
     | NutritionPlanCreatedEvent
+    | FoodIntakeRegisteredEvent
     | RouteChangedEvent
     | TemplateChangedEvent
     | MeasurementReceivedEvent
@@ -643,6 +666,24 @@ def _nutrition_plan_created(envelope: dict[str, Any]) -> NutritionPlanCreatedEve
     )
 
 
+def _food_intake_registered(envelope: dict[str, Any]) -> FoodIntakeRegisteredEvent:
+    payload = _payload(envelope, FOOD_INTAKE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        intake = intake_from_document(payload)
+    except InvalidIntakeDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != intake.intake_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if intake.version != version:
+        raise InvalidEvent("intake_version_mismatch")
+    return FoodIntakeRegisteredEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        intake=intake,
+    )
+
+
 def _route_changed(envelope: dict[str, Any], event_type: str) -> RouteChangedEvent:
     payload = _payload(envelope, ROUTE_SCHEMA)
     version = _envelope_version(envelope)
@@ -797,6 +838,8 @@ def parse_training_event(envelope: object) -> TrainingEvent:
         return _session_finished(envelope)
     if event_type == SESSION_STARTED:
         return _session_started(envelope)
+    if event_type == FOOD_INTAKE_REGISTERED:
+        return _food_intake_registered(envelope)
     return _parse_snapshot(envelope, event_type)
 
 

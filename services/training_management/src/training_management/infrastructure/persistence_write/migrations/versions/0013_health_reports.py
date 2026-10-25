@@ -6,7 +6,7 @@ restricciones `CHECK`, sin texto libre; `session_id` opcional referencia `traini
 (misma base). La reversión elimina la tabla y solo es segura antes de tener datos reales.
 
 Revision ID: 0013_health_reports
-Revises: 0011_session_reminders
+Revises: 0012_food_intakes
 Create Date: 2026-10-25
 """
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0013_health_reports"
-down_revision: str | None = "0011_session_reminders"
+down_revision: str | None = "0012_food_intakes"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

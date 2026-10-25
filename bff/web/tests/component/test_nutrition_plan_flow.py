@@ -178,6 +178,7 @@ class NutritionPlanFlowTest(unittest.TestCase):
                         database_read_url=urls["training_r"],  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
                         affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
+                        health_data_consent_version="local-dev",
                     ),
                     users_http=training_users,
                     affiliation_http=affiliation,

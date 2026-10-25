@@ -14,6 +14,7 @@ from training_management.domain.dashboard.model import (
     SessionBucket,
 )
 from training_management.domain.devices.model import AthleteDevice
+from training_management.domain.health.model import HealthReport
 from training_management.domain.measurements.model import Measurement
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.monitoring.model import MonitoringSettings, RiskAlert
@@ -476,6 +477,29 @@ class MetricResultReader(Protocol):
         ...
 
 
+class HealthReportUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU042: reporte de salud, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_session(self, session_id: UUID) -> TrainingSession | None: ...
+
+    def get_health_report(self, report_id: UUID) -> HealthReport | None: ...
+
+    def add_health_report(self, report: HealthReport) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el `report_id` duplicado a
+        `ReportIdConflict`."""
+        ...
+
+
 @dataclass(frozen=True)
 class MonitoringView:
     """HU036: `session_monitoring_view`, acumulado de los resúmenes `medicion.recibida.v1`.
@@ -598,6 +622,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
     def has_risk_alert(self, alert_id: UUID) -> bool: ...
 
     def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None: ...
+
+    def health_report_version(self, report_id: UUID) -> int | None:
+        """HU042: versión proyectada del reporte de salud; bloquea la fila."""
+        ...
+
+    def save_health_report_view(self, report: HealthReport, projected_at: datetime) -> None:
+        """HU042: inserta o reemplaza el estado completo en `health_report_view`."""
+        ...
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

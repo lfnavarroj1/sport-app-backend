@@ -25,6 +25,7 @@ from training_management.application.ports import (
     SessionHistoryEntry,
 )
 from training_management.domain.authorizations.model import TrainingAuthorization
+from training_management.domain.health.model import HealthReport
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.intake import FoodIntake
 from training_management.domain.nutrition.model import NutritionPlan
@@ -200,6 +201,7 @@ class InMemoryReadStore:
     templates: dict[UUID, TrainingPlanTemplate] = field(default_factory=dict)
     monitoring: dict[UUID, MonitoringView] = field(default_factory=dict)
     risk_alerts: dict[UUID, RiskAlertView] = field(default_factory=dict)
+    health_reports: dict[UUID, HealthReport] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -260,6 +262,7 @@ class InMemoryProjectionUnitOfWork:
         self._templates: list[TrainingPlanTemplate] = []
         self._monitoring: list[MonitoringView] = []
         self._risk_alerts: list[RiskAlertView] = []
+        self._health_reports: list[HealthReport] = []
 
     def __enter__(self) -> Self:
         return self
@@ -274,6 +277,7 @@ class InMemoryProjectionUnitOfWork:
         self._active, self._removed, self._planned, self._metrics = [], [], [], []
         self._nutrition, self._intakes, self._routes, self._templates = [], [], [], []
         self._monitoring, self._risk_alerts = [], []
+        self._health_reports = []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -360,6 +364,13 @@ class InMemoryProjectionUnitOfWork:
     def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None:
         self._risk_alerts.append(alert)
 
+    def health_report_version(self, report_id: UUID) -> int | None:
+        report = self.store.health_reports.get(report_id)
+        return report.version if report is not None else None
+
+    def save_health_report_view(self, report: HealthReport, projected_at: datetime) -> None:
+        self._health_reports.append(report)
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -393,6 +404,8 @@ class InMemoryProjectionUnitOfWork:
         # HU036: resumen acumulado y alertas de inserción única.
         self.store.monitoring.update((m.session_id, m) for m in self._monitoring)
         self.store.risk_alerts.update((a.alert_id, a) for a in self._risk_alerts)
+        # HU042: reportes de salud por estado completo.
+        self.store.health_reports.update((r.report_id, r) for r in self._health_reports)
         for event_id, event_type, aggregate_id in self._processed:
             self.store.processed[event_id] = (event_type, aggregate_id)
 

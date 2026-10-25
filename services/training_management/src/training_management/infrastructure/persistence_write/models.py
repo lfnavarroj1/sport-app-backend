@@ -36,6 +36,7 @@ TRAINING_SESSION_PRIMARY_KEY = "pk_training_session"
 ACTIVE_SESSION_INDEX = "uq_training_session_athlete_active"
 AUTHORIZATION_PRIMARY_KEY = "pk_training_authorization"
 METRIC_CALCULATION_PRIMARY_KEY = "pk_training_metric_calculation"
+HEALTH_REPORT_PRIMARY_KEY = "pk_health_report"
 ATHLETE_DEVICE_PRIMARY_KEY = "pk_athlete_device"
 MONITORING_SETTINGS_PRIMARY_KEY = "pk_monitoring_settings"
 SESSION_REMINDER_PREFERENCE_PRIMARY_KEY = "pk_session_reminder_preference"
@@ -254,6 +255,43 @@ class TrainingMetricInputRow(WriteBase):
     position: Mapped[int] = mapped_column(SmallInteger)
     value: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     unit: Mapped[str] = mapped_column(String(32))
+
+
+class HealthReportRow(WriteBase):
+    """Reporte de molestia, incapacidad o lesión de HU042 (ADR-037); catálogos cerrados y sin
+    texto libre. `session_id` opcional apunta a una sesión propia de HU032."""
+
+    __tablename__ = "health_report"
+    __table_args__ = (
+        CheckConstraint("type IN ('DISCOMFORT', 'INJURY', 'INCAPACITY')", name="type"),
+        CheckConstraint(
+            "body_area IN ('HEAD', 'NECK', 'SHOULDER', 'ARM', 'ELBOW', 'WRIST_HAND', 'CHEST',"
+            " 'BACK', 'HIP', 'THIGH', 'KNEE', 'LOWER_LEG', 'ANKLE_FOOT', 'OTHER')",
+            name="body_area",
+        ),
+        CheckConstraint("severity IN ('LOW', 'MODERATE', 'HIGH')", name="severity"),
+        CheckConstraint(
+            "expected_recovery_days IS NULL OR expected_recovery_days BETWEEN 0 AND 365",
+            name="expected_recovery_days",
+        ),
+        CheckConstraint("status IN ('OPEN')", name="status"),
+        CheckConstraint("version = 1", name="version"),
+    )
+
+    report_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT")
+    )
+    type: Mapped[str] = mapped_column(String(16))
+    body_area: Mapped[str] = mapped_column(String(16))
+    severity: Mapped[str] = mapped_column(String(16))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expected_recovery_days: Mapped[int | None] = mapped_column(SmallInteger)
+    health_consent_version: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class FoodCatalogItemRow(WriteBase):

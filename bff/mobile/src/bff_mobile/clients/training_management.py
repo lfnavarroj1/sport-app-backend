@@ -81,6 +81,19 @@ class TrainingManagementClient:
         """HU034: resultados propios proyectados; solo los parámetros recibidos."""
         return self._send("GET", "/v1/training-metrics/calculations", access_token, params=params)
 
+    def report_health(
+        self, access_token: str, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU042: reportar una molestia, incapacidad o lesión; cuerpo y clave viajan tal cual
+        (ADR-037)."""
+        return self._send(
+            "POST",
+            "/v1/me/health-reports",
+            access_token,
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
     def food_catalog(self, access_token: str, if_none_match: str | None) -> httpx.Response:
         """HU043: catálogo de alimentos de HU014; con `If-None-Match` vigente responde `304`."""
         return self._send("GET", "/v1/food-catalog", access_token, if_none_match=if_none_match)

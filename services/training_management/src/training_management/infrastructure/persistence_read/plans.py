@@ -1,7 +1,7 @@
 """Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
 proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011), sesión
 activa (HU032), resultados de indicadores (HU034), planes de alimentación (HU014), consumos de
-alimentos (HU043) y monitoreo de sesiones (HU036)."""
+alimentos (HU043), monitoreo de sesiones (HU036) y reportes de salud (HU042)."""
 
 from datetime import date, datetime
 from types import TracebackType
@@ -23,12 +23,14 @@ from training_management.application.ports import (
     SessionHistoryEntry,
     SessionView,
 )
+from training_management.domain.health.model import HealthReport
 from training_management.domain.metrics.model import TrainingMetricCalculation
 from training_management.domain.nutrition.intake import FoodIntake
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.events import planned_session_id
 from training_management.domain.routes.model import Route
 from training_management.domain.templates.model import TrainingPlanTemplate
+from training_management.infrastructure.persistence_read.health import health_report_values
 from training_management.infrastructure.persistence_read.metrics import (
     metric_result,
     metric_result_values,
@@ -38,6 +40,7 @@ from training_management.infrastructure.persistence_read.models import (
     PROCESSED_EVENT_PRIMARY_KEY,
     ActiveTrainingSessionRow,
     FoodIntakeViewRow,
+    HealthReportViewRow,
     NutritionPlanViewRow,
     ProcessedEventRow,
     RouteViewRow,
@@ -303,6 +306,24 @@ class SqlAlchemyProjectionUnitOfWork:
         self, calculation: TrainingMetricCalculation, projected_at: datetime
     ) -> None:
         self.session.add(TrainingMetricResultRow(**metric_result_values(calculation, projected_at)))
+
+    def health_report_version(self, report_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(HealthReportViewRow.version)
+            .where(HealthReportViewRow.report_id == report_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_health_report_view(self, report: HealthReport, projected_at: datetime) -> None:
+        values = health_report_values(report, projected_at)
+        statement = insert(HealthReportViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["report_id"],
+                set_={key: statement.excluded[key] for key in values if key != "report_id"},
+            )
+        )
 
     def nutrition_plan_version(self, plan_id: UUID) -> int | None:
         version: int | None = self.session.scalar(

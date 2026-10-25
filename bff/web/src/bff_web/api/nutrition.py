@@ -1,4 +1,5 @@
-"""HU014 en el canal web: planes de alimentación y catálogo de alimentos (ADR-037).
+"""HU014 y HU013 en el canal web: planes de alimentación, catálogo de alimentos e historial
+de consumos (ADR-037).
 
 El BFF autentica (JWKS), aplica el filtro de borde por actor y permiso, resuelve el correo
 del deportista con el contrato interno de Usuarios (como HU010) y reenvía al servicio
@@ -11,6 +12,12 @@ Para no revelar si un correo pertenece a un deportista, la creación responde
 `403 athlete_authorization_required` tanto si el correo no existe o es de otro actor como
 si el deportista no autorizó al profesional. El profesional nunca lee los hábitos del
 deportista: el BFF no expone la consulta de restricciones de Usuarios.
+
+HU013: `GET /v1/me/food-intakes` (deportista) y `GET /v1/athletes/{athlete_id}/food-intakes`
+(profesional con `nutrition.history.view_assigned`) reenvían los filtros al servicio, que
+vuelve a verificar el permiso y la autorización vigente, audita el acceso del profesional y
+valida periodo y cursor. Los textos de los alimentos los resuelve la web con
+`GET /v1/food-catalog`; el BFF no calcula nutrientes.
 """
 
 from collections.abc import Callable
@@ -33,6 +40,7 @@ from bff_web.api.training import (
     REPLAYED_HEADER,
     _passthrough,
     _permission_required,
+    _Session,
     _upstream_failure,
     authenticate_session,
 )
@@ -47,6 +55,9 @@ from sportapp_platform.errors import ErrorResponse, error_response
 from sportapp_platform.tokens import VerifiedAccessToken
 
 NUTRITION_AUTHOR_PERMISSION = "nutrition.plan.author"
+NUTRITION_HISTORY_PERMISSION = "nutrition.history.view_assigned"
+INTAKES_DEFAULT_LIMIT = 20
+INTAKES_MAX_LIMIT = 100
 ETAG_HEADER = "ETag"
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
@@ -66,6 +77,12 @@ QUANTITY_DESCRIPTION = (
     "Cadena decimal con un decimal entre `0.1` y `5000.0`; se normaliza a un decimal "
     "(`150` → `150.0`). Fuera de rango o con más de un decimal: `nutrition_plan_invalid` "
     "con `out_of_range`."
+)
+
+# HU013: esquema del consumo idéntico al de `training-management` (HU043), que el BFF reenvía.
+INTAKE_QUANTITY = (
+    "Cadena decimal con como máximo un decimal entre `0.1` y `5000.0`; se normaliza a un "
+    "decimal (`150` → `150.0`). Un número JSON o un valor fuera de rango es `out_of_range`."
 )
 
 
@@ -207,6 +224,39 @@ class FoodCatalogResponse(BaseModel):
     items: list[FoodCatalogItem]
 
 
+class FoodIntakeItem(BaseModel):
+    """Alimento del consumo; el mismo esquema en la solicitud y en la respuesta (normalizada
+    con exactamente un decimal)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    food_code: Annotated[str, Field(description="Código de `GET /v1/food-catalog`.")]
+    quantity: Annotated[str, Field(description=INTAKE_QUANTITY, examples=["150.0"])]
+    unit: Annotated[FoodUnit, Field(description="Una de las `allowed_units` del alimento.")]
+
+
+class FoodIntakeResponse(BaseModel):
+    """Consumo normalizado; sin calorías ni nutrientes."""
+
+    intake_id: UUID
+    athlete_id: Annotated[UUID, Field(description="Deportista del token.")]
+    consumed_at: datetime
+    meal_type: MealType
+    items: list[FoodIntakeItem]
+    catalog_version: str
+    version: int
+    registered_at: datetime
+
+
+class FoodIntakesPage(BaseModel):
+    items: list[FoodIntakeResponse] = Field(
+        description="Consumos de `consumed_at` y `intake_id` descendentes; vacía si no hay."
+    )
+    next_cursor: str | None = Field(
+        description="Cursor opaco de la página siguiente; `null` si no hay más."
+    )
+
+
 _ETAG = {ETAG_HEADER: {"description": "Versión del catálogo.", "schema": {"type": "string"}}}
 
 
@@ -221,6 +271,41 @@ def _catalog_relay(upstream: httpx.Response) -> Response:
         headers = {ETAG_HEADER: etag} if etag is not None else {}
         return Response(status_code=HTTPStatus.NOT_MODIFIED, headers=headers)
     return _passthrough(upstream, {HTTPStatus.OK}, headers=(ETAG_HEADER,))
+
+
+_INTAKE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **_UNAUTHORIZED,
+    **_UPSTREAM,
+    **_error(
+        HTTPStatus.FORBIDDEN,
+        f"`permission_required` o `{ATHLETE_AUTHORIZATION_REQUIRED}` (HU013 CA3), sin revelar si "
+        "el deportista existe.",
+    ),
+    **_error(
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+        "`validation_error`: periodo (`query.to` `to_before_from`), límite, tipo de comida o "
+        "cursor (`query.cursor` `invalid_cursor`) inválidos (HU013 CA2).",
+    ),
+}
+DATE_FROM = "Primer día del periodo (inclusivo, fecha de consumo en UTC)."
+DATE_TO = "Último día del periodo (inclusivo, fecha de consumo en UTC); no anterior a `from`."
+
+
+def _intake_query(
+    date_from: date | None,
+    date_to: date | None,
+    meal_type: MealType | None,
+    limit: int,
+    cursor: str | None,
+) -> dict[str, str]:
+    pairs = (
+        ("from", date_from.isoformat() if date_from else None),
+        ("to", date_to.isoformat() if date_to else None),
+        ("meal_type", meal_type.value if meal_type else None),
+        ("limit", str(limit)),
+        ("cursor", cursor),
+    )
+    return {name: value for name, value in pairs if value is not None}
 
 
 def build_nutrition_router(
@@ -419,4 +504,95 @@ def build_nutrition_router(
             return _upstream_failure(error)
         return _catalog_relay(upstream)
 
+    _add_food_intake_routes(
+        router,
+        verify_token=verify_token,
+        permissions=permissions,
+        training=training,
+        channel=channel,
+    )
+
     return router
+
+
+def _add_food_intake_routes(
+    router: APIRouter,
+    *,
+    verify_token: Callable[[str], VerifiedAccessToken],
+    permissions: ActorPermissions,
+    training: TrainingManagementClient,
+    channel: str,
+) -> None:
+    """HU013: historial de consumos propio y del deportista que autorizó al profesional."""
+
+    def forward_intakes(
+        session: _Session, athlete_id: UUID | None, params: dict[str, str]
+    ) -> Response:
+        try:
+            upstream = training.list_food_intakes(session.token, athlete_id, params)
+        except (UpstreamTimeout, UpstreamUnavailable) as error:
+            return _upstream_failure(error)
+        # El servicio decide la autorización final y valida periodo y cursor: sin alterar.
+        response = _passthrough(
+            upstream, {HTTPStatus.OK, HTTPStatus.FORBIDDEN, HTTPStatus.UNPROCESSABLE_ENTITY}
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @router.get(
+        "/v1/me/food-intakes",
+        response_model=FoodIntakesPage,
+        summary="Mi historial de alimentación (HU013)",
+        description="Solo `athlete` (opción base «Mi alimentación»). Los planes asignados se "
+        "consultan con `GET /v1/me/nutrition-plans` y los textos de los alimentos con "
+        "`GET /v1/food-catalog`.",
+        responses=_INTAKE_RESPONSES,
+    )
+    def my_food_intakes(
+        *,
+        date_from: Annotated[date | None, Query(alias="from", description=DATE_FROM)] = None,
+        date_to: Annotated[date | None, Query(alias="to", description=DATE_TO)] = None,
+        meal_type: MealType | None = None,
+        limit: Annotated[int, Query(ge=1, le=INTAKES_MAX_LIMIT)] = INTAKES_DEFAULT_LIMIT,
+        cursor: Annotated[str | None, Query(max_length=512)] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        session = authenticate_session(verify_token, authorization)
+        if isinstance(session, Response):
+            return session
+        if session.actor_type != ATHLETE:
+            return _permission_required()
+        return forward_intakes(
+            session, None, _intake_query(date_from, date_to, meal_type, limit, cursor)
+        )
+
+    @router.get(
+        "/v1/athletes/{athlete_id}/food-intakes",
+        response_model=FoodIntakesPage,
+        summary="Historial de alimentación de un deportista que me autorizó (HU013)",
+        description=f"Solo `service_provider` con `{NUTRITION_HISTORY_PERMISSION}` y autorización "
+        "vigente del deportista (HU010); el servicio audita cada acceso. Solo consumos: nunca "
+        "hábitos ni perfil del deportista.",
+        responses=_INTAKE_RESPONSES,
+    )
+    def athlete_food_intakes(
+        *,
+        athlete_id: UUID,
+        date_from: Annotated[date | None, Query(alias="from", description=DATE_FROM)] = None,
+        date_to: Annotated[date | None, Query(alias="to", description=DATE_TO)] = None,
+        meal_type: MealType | None = None,
+        limit: Annotated[int, Query(ge=1, le=INTAKES_MAX_LIMIT)] = INTAKES_DEFAULT_LIMIT,
+        cursor: Annotated[str | None, Query(max_length=512)] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        session = authenticate_session(verify_token, authorization)
+        if isinstance(session, Response):
+            return session
+        actor = session.actor_type
+        if actor is None or NUTRITION_HISTORY_PERMISSION not in permissions.for_actor(
+            actor, channel
+        ):
+            return _permission_required()
+        return forward_intakes(
+            session, athlete_id, _intake_query(date_from, date_to, meal_type, limit, cursor)
+        )

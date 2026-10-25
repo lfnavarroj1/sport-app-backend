@@ -10,6 +10,7 @@ CA5 parcial y caída total (`test_partial_*`, `test_all_sources_down_*`); CA6 pe
 `truncated` (`test_invalid_period`, `test_truncated_*`).
 """
 
+import json
 import unittest
 import uuid
 from collections.abc import Callable
@@ -45,6 +46,8 @@ MY_SERVICES, ASSOCIATIONS, AVAILABILITY = (
     "/v1/services/availability",
 )
 SESSIONS = "/v1/me/training-plan-sessions"
+APPOINTMENTS = "/v1/me/appointments"
+DIRECTORY = "/v1/users/directory-lookup"
 
 
 def iso(value: datetime) -> str:
@@ -142,6 +145,31 @@ def session(day: date) -> dict[str, Any]:
     }
 
 
+def appointment(starts_at: datetime, *, status: str = "BOOKED") -> dict[str, Any]:
+    """Cita de HU040 tal como la responde `complementary-services` 0.6.0."""
+    return {
+        "appointment_id": str(uuid.uuid4()),
+        "athlete_id": str(uuid.uuid4()),
+        "provider_id": str(uuid.uuid4()),
+        "service_id": str(uuid.uuid4()),
+        "availability_id": str(uuid.uuid4()),
+        "service": {
+            "name": "Entrenamiento virtual",
+            "category": "COACHING",
+            "modality": "VIRTUAL",
+            "fee": {"amount": "80000.00", "currency": "COP", "billing_unit": "SESSION"},
+        },
+        "starts_at": iso(starts_at),
+        "ends_at": iso(starts_at + timedelta(hours=1)),
+        "time_zone": "America/Bogota",
+        "status": status,
+        "meeting_url": None,
+        "booked_at": iso(at(1)),
+        "cancelled_at": iso(at(2)) if status != "BOOKED" else None,
+        "version": 1 if status == "BOOKED" else 2,
+    }
+
+
 def error(code: str) -> dict[str, Any]:
     return {"code": code, "message": "m", "correlation_id": None, "details": []}
 
@@ -166,6 +194,7 @@ class Domains:
                 ASSOCIATIONS,
                 AVAILABILITY,
                 SESSIONS,
+                APPOINTMENTS,
             )
         }
         self.requests: list[httpx.Request] = []
@@ -203,6 +232,11 @@ class Domains:
             return _in_period(query, item["starts_at"], item["ends_at"])
         if path == SESSIONS:
             return query["from"] <= item["scheduled_date"] <= query["to"]
+        if path == APPOINTMENTS:
+            start = datetime.fromisoformat(item["starts_at"])
+            return (
+                datetime.fromisoformat(query["from"]) <= start < datetime.fromisoformat(query["to"])
+            )
         if path == AVAILABILITY:
             categories = request.url.params.get_list("category")
             return item["category"] in categories
@@ -250,6 +284,21 @@ class IntegratedCalendarRoutesTest(unittest.TestCase):
         }
         self.affiliation_failure: type[Exception] | None = None
         self.affiliation_calls = 0
+        self.names: dict[str, str] = {}
+        self.directory_failure: type[Exception] | None = None
+        self.directory_requests: list[httpx.Request] = []
+        upstreams = Upstreams()
+
+        def users(request: httpx.Request) -> httpx.Response:
+            if request.url.path != DIRECTORY:
+                return upstreams.users(request)
+            self.directory_requests.append(request)
+            if self.directory_failure is not None:
+                raise self.directory_failure("usuarios")
+            ids = json.loads(request.content)["user_ids"]
+            found = [{"user_id": i, "full_name": self.names[i]} for i in ids if i in self.names]
+            return httpx.Response(200, json={"items": found})
+
         settings = BffWebSettings(
             app_env="test",  # type: ignore[arg-type]
             users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
@@ -266,7 +315,7 @@ class IntegratedCalendarRoutesTest(unittest.TestCase):
             create_app(
                 settings,
                 users_http=httpx.Client(
-                    transport=httpx.MockTransport(Upstreams().users), base_url="http://users"
+                    transport=httpx.MockTransport(users), base_url="http://users"
                 ),
                 affiliation_http=httpx.Client(
                     transport=httpx.MockTransport(self.affiliation), base_url="http://affiliation"
@@ -346,7 +395,11 @@ class IntegratedCalendarRoutesTest(unittest.TestCase):
 
         self.assertEqual(
             self.sources(body),
-            [("OWN_SERVICE_AVAILABILITY", "OK", False), ("EVENT_PUBLISHED", "OK", False)],
+            [
+                ("OWN_SERVICE_AVAILABILITY", "OK", False),
+                ("EVENT_PUBLISHED", "OK", False),
+                ("OWN_APPOINTMENT", "OK", False),
+            ],
         )
         self.assertEqual(
             [(i["source"], i["status"], i["reference"]) for i in body["items"]],
@@ -376,9 +429,91 @@ class IntegratedCalendarRoutesTest(unittest.TestCase):
 
         self.assertEqual(
             self.sources(body),
-            [("OWN_SERVICE_AVAILABILITY", "OK", False), ("EVENT_PUBLISHED", "UNAVAILABLE", False)],
+            [
+                ("OWN_SERVICE_AVAILABILITY", "OK", False),
+                ("EVENT_PUBLISHED", "UNAVAILABLE", False),
+                ("OWN_APPOINTMENT", "OK", False),
+            ],
         )
         self.assertEqual([i["source"] for i in body["items"]], ["OWN_SERVICE_AVAILABILITY"])
+
+    def test_service_provider_appointments(self) -> None:
+        """HU040 (ADR-046 §4): `OWN_APPOINTMENT` con las citas de sus servicios, también las
+        canceladas, con `athlete_display_name` desde Usuarios; la que empezó el día anterior
+        y cruza el periodo aparece; ningún otro actor recibe la fuente."""
+        booked = appointment(at(9, 15))
+        cancelled = appointment(at(9, 16), status="CANCELLED_BY_ATHLETE")
+        crossing = {**appointment(at(1, 4)), "ends_at": iso(at(1, 6))}
+        outside = appointment(at(2, 12, month=12))
+        self.domains.data[APPOINTMENTS] = [crossing, booked, cancelled, outside]
+        self.names = {booked["athlete_id"]: "Ana Pérez", crossing["athlete_id"]: "Luis Gómez"}
+
+        body = self.assert_ok(self.calendar("service_provider"))
+
+        own = [i for i in body["items"] if i["source"] == "OWN_APPOINTMENT"]
+        self.assertEqual(
+            [
+                (i["reference"]["appointment_id"], i["status"], i["athlete_display_name"])
+                for i in own
+            ],
+            [
+                (crossing["appointment_id"], "BOOKED", "Luis Gómez"),
+                (booked["appointment_id"], "BOOKED", "Ana Pérez"),
+                (cancelled["appointment_id"], "CANCELLED_BY_ATHLETE", None),
+            ],
+        )
+        first = own[1]
+        self.assertEqual(
+            {k: first[k] for k in ("item_id", "occurs_on", "title", "category", "modality")},
+            {
+                "item_id": f"OWN_APPOINTMENT:{booked['appointment_id']}",
+                "occurs_on": "2026-11-09",
+                "title": "Entrenamiento virtual",
+                "category": "COACHING",
+                "modality": "VIRTUAL",
+            },
+        )
+        self.assertEqual(
+            first["reference"],
+            {
+                "appointment_id": booked["appointment_id"],
+                "service_id": booked["service_id"],
+                "availability_id": booked["availability_id"],
+            },
+        )
+        self.assertNotIn("meeting_url", first)
+        [query] = self.domains.queries(APPOINTMENTS)
+        self.assertEqual(
+            dict(query),
+            {"from": "2026-10-31T05:00:00Z", "to": "2026-12-01T05:00:00Z", "limit": "100"},
+        )
+        [lookup] = self.directory_requests
+        self.assertEqual(len(json.loads(lookup.content)["user_ids"]), 3)
+        for actor in ("athlete", "organizer"):
+            with self.subTest(actor=actor):
+                other = self.assert_ok(self.calendar(actor))
+                self.assertNotIn("OWN_APPOINTMENT", [s["name"] for s in other["sources"]])
+
+    def test_service_provider_appointments_without_directory(self) -> None:
+        """Usuarios caído: las citas se muestran sin nombre; la fuente sigue `OK`."""
+        self.domains.data[APPOINTMENTS] = [appointment(at(9, 15))]
+        self.directory_failure = httpx.ConnectError
+
+        body = self.assert_ok(self.calendar("service_provider"))
+
+        [item] = [i for i in body["items"] if i["source"] == "OWN_APPOINTMENT"]
+        self.assertIsNone(item["athlete_display_name"])
+        self.assertIn(("OWN_APPOINTMENT", "OK", False), self.sources(body))
+
+    def test_service_provider_appointments_source_down(self) -> None:
+        """CA5 de HU018: Servicios caído para las citas → `UNAVAILABLE`, el resto se entrega."""
+        self.domains.data[MY_SERVICES] = [service(at(6, 9))]
+        self.domains.failure[APPOINTMENTS] = httpx.ConnectError
+
+        body = self.assert_ok(self.calendar("service_provider"))
+
+        self.assertIn(("OWN_APPOINTMENT", "UNAVAILABLE", False), self.sources(body))
+        self.assertIn("OWN_SERVICE_AVAILABILITY", [i["source"] for i in body["items"]])
 
     def test_athlete_sources(self) -> None:
         """CA1/CA3: las cuatro fuentes del deportista en un orden común; la sesión sin hora va
@@ -587,7 +722,15 @@ class IntegratedCalendarRoutesTest(unittest.TestCase):
 
     def test_all_sources_down_is_503_or_504(self) -> None:
         """CA5: con todas las fuentes caídas no se entrega un calendario vacío."""
-        all_paths = (EVENTS, SESSIONS, ASSOCIATIONS, REGISTRATIONS, MY_EVENTS, MY_SERVICES)
+        all_paths = (
+            EVENTS,
+            SESSIONS,
+            ASSOCIATIONS,
+            REGISTRATIONS,
+            MY_EVENTS,
+            MY_SERVICES,
+            APPOINTMENTS,
+        )
         for failure, status, code in (
             (httpx.ReadTimeout, 504, "upstream_timeout"),
             (httpx.ConnectError, 503, "upstream_unavailable"),

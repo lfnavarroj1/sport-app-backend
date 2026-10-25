@@ -19,8 +19,18 @@ SOURCES = {
     "TRAINING_PLAN_SESSION",
     "OWN_SERVICE_AVAILABILITY",
     "ASSOCIATED_SERVICE_AVAILABILITY",
+    # HU040 (ADR-046 §4): citas de los servicios del profesional.
+    "OWN_APPOINTMENT",
 }
-STATUSES = {"DRAFT", "PUBLISHED", "AVAILABLE", "ASSIGNED", "REGISTERED"}
+STATUSES = {
+    "DRAFT",
+    "PUBLISHED",
+    "AVAILABLE",
+    "ASSIGNED",
+    "REGISTERED",
+    "BOOKED",
+    "CANCELLED_BY_ATHLETE",
+}
 
 
 def _operation(document: dict[str, Any], path: str) -> dict[str, Any]:
@@ -158,6 +168,25 @@ class IntegratedCalendarContractTest(unittest.TestCase):
         )
         offer = _item(self.services, "/v1/services/availability")
         self.assert_fields(offer, {"service_id", "name", "category", "modality", "availability"})
+        appointments = _operation(self.services, "/v1/me/appointments")
+        parameters = _parameters(appointments)
+        self.assertLessEqual({"from", "to", "limit", "cursor"}, set(parameters))
+        appointment = _item(self.services, "/v1/me/appointments")
+        self.assert_fields(
+            appointment,
+            {
+                "appointment_id",
+                "athlete_id",
+                "service_id",
+                "availability_id",
+                "service",
+                "starts_at",
+                "ends_at",
+                "time_zone",
+                "status",
+            },
+        )
+        self.assert_fields(appointment["properties"]["service"], {"name", "category", "modality"})
 
     def test_training_dependencies(self) -> None:
         parameters = _parameters(_operation(self.training, "/v1/me/training-plan-sessions"))

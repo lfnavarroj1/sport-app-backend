@@ -29,6 +29,8 @@ EVENT_REGISTRATION = "EVENT_REGISTRATION"
 TRAINING_PLAN_SESSION = "TRAINING_PLAN_SESSION"
 OWN_SERVICE_AVAILABILITY = "OWN_SERVICE_AVAILABILITY"
 ASSOCIATED_SERVICE_AVAILABILITY = "ASSOCIATED_SERVICE_AVAILABILITY"
+# HU040 (ADR-046 §4): citas de los servicios del profesional.
+OWN_APPOINTMENT = "OWN_APPOINTMENT"
 
 # Estados visibles: un evento cancelado u otro estado futuro no aparece (CA4).
 EVENT_STATUSES = frozenset({"DRAFT", "PUBLISHED"})
@@ -272,3 +274,29 @@ def ordered(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def capped(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
     """Los primeros 200 de una fuente en el orden del calendario y si había más."""
     return ordered(items)[:SOURCE_LIMIT], len(items) > SOURCE_LIMIT
+
+
+def own_appointment_item(appointment: dict[str, Any], display_name: str | None) -> dict[str, Any]:
+    """Cita de un servicio propio (`GET /v1/me/appointments`, HU040) con el nombre visible del
+    deportista (`null` si Usuarios no lo entregó). `BOOKED` o `CANCELLED_BY_ATHLETE`: una
+    cancelada se muestra como tal, no desaparece (CA6)."""
+    service = appointment["service"]
+    return {
+        **_timed(
+            OWN_APPOINTMENT,
+            str(appointment["appointment_id"]),
+            instant(appointment["starts_at"]),
+            instant(appointment["ends_at"]),
+            str(appointment["time_zone"]),
+        ),
+        "status": appointment["status"],
+        "title": service["name"],
+        "category": service["category"],
+        "modality": service["modality"],
+        "athlete_display_name": display_name,
+        "reference": {
+            "appointment_id": appointment["appointment_id"],
+            "service_id": appointment["service_id"],
+            "availability_id": appointment["availability_id"],
+        },
+    }

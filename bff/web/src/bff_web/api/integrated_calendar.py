@@ -41,6 +41,7 @@ from bff_web.api.integrated_calendar_composition import (
     EVENT_PUBLISHED,
     EVENT_REGISTRATION,
     EVENT_STATUSES,
+    OWN_APPOINTMENT,
     OWN_EVENT,
     OWN_SERVICE_AVAILABILITY,
     SERVICE_STATUSES,
@@ -56,6 +57,7 @@ from bff_web.api.integrated_calendar_composition import (
     interval_overlaps,
     normalize_period,
     ordered,
+    own_appointment_item,
     own_event_item,
     own_service_item,
     published_event_item,
@@ -72,7 +74,11 @@ from bff_web.api.training import (
 from bff_web.clients.complementary_services import ComplementaryServicesClient
 from bff_web.clients.events_management import EventsManagementClient
 from bff_web.clients.training_management import TrainingManagementClient
-from bff_web.clients.users_management import UpstreamTimeout, UpstreamUnavailable
+from bff_web.clients.users_management import (
+    UpstreamTimeout,
+    UpstreamUnavailable,
+    UsersManagementClient,
+)
 from sportapp_platform.authorization import ActorPermissions
 from sportapp_platform.errors import ErrorDetail, ErrorResponse, error_response
 from sportapp_platform.tokens import InvalidAccessToken, JwksUnavailable, VerifiedAccessToken
@@ -86,7 +92,8 @@ CAPABILITY_REQUIRED = "capability_required"
 # Fuentes de cada actor y su orden en `sources[]` (ADR-039).
 SOURCES_BY_ACTOR: dict[str, tuple[str, ...]] = {
     ORGANIZER: (OWN_EVENT,),
-    SERVICE_PROVIDER: (OWN_SERVICE_AVAILABILITY, EVENT_PUBLISHED),
+    # HU040 agrega `OWN_APPOINTMENT` al final: las fuentes previas conservan su orden.
+    SERVICE_PROVIDER: (OWN_SERVICE_AVAILABILITY, EVENT_PUBLISHED, OWN_APPOINTMENT),
     ATHLETE: (
         EVENT_PUBLISHED,
         TRAINING_PLAN_SESSION,
@@ -98,6 +105,10 @@ SOURCES_BY_ACTOR: dict[str, tuple[str, ...]] = {
 PAGE_LIMIT = 100
 AVAILABILITY_PAGE_LIMIT = 50
 AVAILABILITY_SPAN = timedelta(days=31)
+# Una cita dura como su intervalo (≤ 24 h, ADR-027): se piden también las que empezaron
+# hasta un día antes del periodo para no perder las que lo cruzan.
+APPOINTMENT_SPAN = timedelta(hours=24)
+DIRECTORY_BATCH = 100
 INSTANT = "Instante ISO 8601 con desfase (zona del navegador); sin ambos, el mes UTC en curso."
 
 _logger = logging.getLogger("sportapp.bff")
@@ -109,6 +120,7 @@ SourceName = Literal[
     "TRAINING_PLAN_SESSION",
     "OWN_SERVICE_AVAILABILITY",
     "ASSOCIATED_SERVICE_AVAILABILITY",
+    "OWN_APPOINTMENT",
 ]
 SourceStatus = Literal["OK", "UNAVAILABLE", "TIMEOUT"]
 
@@ -209,13 +221,37 @@ class IntegratedAssociatedServiceAvailabilityItem(_IntegratedTimedItem):
     reference: IntegratedAssociatedServiceReference
 
 
+class IntegratedAppointmentReference(BaseModel):
+    appointment_id: UUID
+    service_id: UUID
+    availability_id: UUID
+
+
+class IntegratedOwnAppointmentItem(_IntegratedTimedItem):
+    """HU040 (ADR-046 §4): cita reservada en un servicio propio del profesional."""
+
+    source: Literal["OWN_APPOINTMENT"]
+    status: Annotated[
+        Literal["BOOKED", "CANCELLED_BY_ATHLETE"],
+        Field(description="Una cita cancelada por el deportista se muestra como tal."),
+    ]
+    category: str
+    modality: str
+    athlete_display_name: Annotated[
+        str | None,
+        Field(description="Nombre visible del deportista; `null` si Usuarios no lo entregó."),
+    ]
+    reference: IntegratedAppointmentReference
+
+
 IntegratedItem = Annotated[
     IntegratedOwnEventItem
     | IntegratedPublishedEventItem
     | IntegratedEventRegistrationItem
     | IntegratedTrainingSessionItem
     | IntegratedOwnServiceAvailabilityItem
-    | IntegratedAssociatedServiceAvailabilityItem,
+    | IntegratedAssociatedServiceAvailabilityItem
+    | IntegratedOwnAppointmentItem,
     Field(discriminator="source"),
 ]
 
@@ -335,6 +371,7 @@ class _Sources:
         services: ComplementaryServicesClient,
         training: TrainingManagementClient,
         deadline: Callable[[], _Deadline],
+        users: UsersManagementClient | None = None,
     ) -> None:
         self._token = token
         self._period = period
@@ -342,6 +379,7 @@ class _Sources:
         self._services = services
         self._training = training
         self._deadline = deadline
+        self._users = users
 
     def fetcher(self, name: str) -> Callable[[], Collected]:
         fetchers: dict[str, Callable[[], Collected]] = {
@@ -351,6 +389,7 @@ class _Sources:
             TRAINING_PLAN_SESSION: self.planned_sessions,
             OWN_SERVICE_AVAILABILITY: self.own_services,
             ASSOCIATED_SERVICE_AVAILABILITY: self.associated_services,
+            OWN_APPOINTMENT: self.own_appointments,
         }
         return fetchers[name]
 
@@ -488,6 +527,52 @@ class _Sources:
                     items[item["item_id"]] = item
         return capped(list(items.values()))
 
+    def own_appointments(self) -> Collected:
+        """HU040: citas de los servicios propios (`GET /v1/me/appointments`, ordenado por
+        inicio) con el nombre visible del deportista desde Usuarios."""
+        window = {
+            "from": utc_instant(self._period.period_from - APPOINTMENT_SPAN),
+            "to": utc_instant(self._period.period_to + timedelta(seconds=1)),
+        }
+        athlete_of: dict[str, str] = {}
+
+        def to_item(appointment: dict[str, Any]) -> dict[str, Any]:
+            item = own_appointment_item(appointment, None)
+            athlete_of[item["item_id"]] = str(appointment["athlete_id"])
+            return item
+
+        items, truncated = self._time_ordered(
+            lambda params: self._services.list_my_appointments(self._token, {**window, **params}),
+            lambda appointment: instant(appointment["starts_at"]),
+            lambda appointment: instant(appointment["ends_at"]),
+            lambda appointment: True,
+            to_item,
+        )
+        names = self._display_names([athlete_of[item["item_id"]] for item in items])
+        for item in items:
+            item["athlete_display_name"] = names.get(athlete_of[item["item_id"]])
+        return items, truncated
+
+    def _display_names(self, athlete_ids: list[str]) -> dict[str, str]:
+        """`full_name` por deportista (ADR-039); si Usuarios no responde, sin nombres: la cita
+        se muestra igual con `athlete_display_name: null`."""
+        unique = list(dict.fromkeys(athlete_ids))
+        if self._users is None or not unique:
+            return {}
+        names: dict[str, str] = {}
+        try:
+            for start in range(0, len(unique), DIRECTORY_BATCH):
+                batch = [UUID(value) for value in unique[start : start + DIRECTORY_BATCH]]
+                for entry in self._users.directory_lookup(batch):
+                    names[str(entry["user_id"])] = str(entry["full_name"])
+        except (UpstreamTimeout, UpstreamUnavailable, KeyError, TypeError, ValueError) as error:
+            _logger.warning(
+                "bff.directory_lookup_unavailable",
+                extra={"fields": {"reason": type(error).__name__}},
+            )
+            return {}
+        return names
+
     def _catalog(self, query: list[tuple[str, str]]) -> list[dict[str, Any]]:
         return self._all_pages(
             lambda cursor: self._services.service_availability(
@@ -506,6 +591,7 @@ def build_integrated_calendar_router(
     training: TrainingManagementClient,
     channel: str,
     source_timeout: float,
+    users: UsersManagementClient | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     monotonic: Callable[[], float] = time.monotonic,
 ) -> APIRouter:
@@ -552,6 +638,7 @@ def build_integrated_calendar_router(
             services=services,
             training=training,
             deadline=lambda: _Deadline(source_timeout, monotonic),
+            users=users,
         )
         names = SOURCES_BY_ACTOR[actor]
         with ThreadPoolExecutor(max_workers=len(names)) as pool:
@@ -567,7 +654,8 @@ def build_integrated_calendar_router(
         response_model=IntegratedCalendarResponse,
         summary="Calendario integrado de eventos y servicios por actor (HU018)",
         description="Compone por actor las fuentes de ADR-039: organizador `OWN_EVENT`; "
-        "profesional `OWN_SERVICE_AVAILABILITY` y `EVENT_PUBLISHED`; deportista "
+        "profesional `OWN_SERVICE_AVAILABILITY`, `EVENT_PUBLISHED` y `OWN_APPOINTMENT` (citas "
+        "de sus servicios con `athlete_display_name`, HU040); deportista "
         "`EVENT_PUBLISHED`, `TRAINING_PLAN_SESSION`, `ASSOCIATED_SERVICE_AVAILABILITY` y "
         "`EVENT_REGISTRATION`. Periodo de hasta 92 días; hasta 200 elementos por fuente "
         "(`truncated`); orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`. "

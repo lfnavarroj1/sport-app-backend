@@ -496,6 +496,11 @@ class BookAppointmentTest(AppointmentCase):
         fields = record.__dict__["fields"]
         self.assertEqual((fields["action"], fields["result"]), ("book", "booked"))
         self.assertEqual(fields["availability_id"], str(self.slot.availability_id))
+        self.assertEqual(
+            set(fields),
+            {"athlete_id", "service_id", "availability_id", "appointment_id", "action", "result"},
+            "solo identificadores, acción y resultado: sin cuerpo, token ni datos de salud",
+        )
 
 
 class CancelAppointmentTest(AppointmentCase):

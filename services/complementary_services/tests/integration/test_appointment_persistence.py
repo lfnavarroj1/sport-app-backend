@@ -3,6 +3,7 @@ concurrentes, cita duplicada, idempotencia, cancelación, outbox, consulta por a
 migración `0006_appointments` sobre intervalos existentes (ADR-046)."""
 
 import unittest
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -33,6 +34,7 @@ from complementary_services.application.commands.publish_service import (
     PublishServiceCommand,
 )
 from complementary_services.application.errors import (
+    ActiveAppointmentConflict,
     AppointmentExists,
     AvailabilityFull,
     CancellationWindowClosed,
@@ -254,6 +256,20 @@ class AppointmentPersistenceTest(unittest.TestCase):
                 )
             )
             session.commit()
+
+    def test_partial_index_violation_is_translated_on_commit(self) -> None:
+        """Defensa de la base: una segunda cita activa del mismo deportista en el intervalo
+        aflora en el COMMIT como `ActiveAppointmentConflict` (el comando la traduce)."""
+        first = self.book(self.athlete, self.command(self.roomy)).appointment.appointment
+
+        with SqlAlchemyAppointmentUnitOfWork(self.sessions) as unit_of_work:
+            slot = unit_of_work.lock_slot(self.service_id, self.roomy)
+            assert slot is not None
+            unit_of_work.save_booked_count(replace(slot, booked_count=slot.booked_count + 1))
+            unit_of_work.add_appointment(replace(first, appointment_id=uuid4()))
+            with self.assertRaises(ActiveAppointmentConflict):
+                unit_of_work.commit()
+        self.assertEqual(self.booked_count(self.roomy), 1)
 
     def test_counter_never_exceeds_capacity(self) -> None:
         with self.sessions() as session, self.assertRaises(IntegrityError):

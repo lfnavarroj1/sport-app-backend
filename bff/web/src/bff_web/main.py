@@ -215,7 +215,6 @@ def create_app(
                 training=training,
                 channel=CHANNEL,
                 source_timeout=settings.upstream_timeout_seconds,
-                users=users,
             ),
             build_appointments_router(
                 verify_token=verifier.verify,

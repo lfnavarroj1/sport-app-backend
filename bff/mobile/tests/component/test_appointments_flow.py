@@ -461,8 +461,8 @@ class AppointmentsFlowTest(unittest.TestCase):
         self.assertEqual(calendar.status_code, 200, calendar.text)
         own = [i for i in calendar.json()["items"] if i["source"] == "OWN_APPOINTMENT"]
         self.assertEqual(
-            [(i["reference"]["appointment_id"], i["athlete_display_name"]) for i in own],
-            [(booked["appointment_id"], "Ana Pérez")],
+            [(i["reference"]["appointment_id"], i["status"]) for i in own],
+            [(booked["appointment_id"], "BOOKED")],
         )
         self.assertIn(
             {"name": "OWN_APPOINTMENT", "status": "OK", "truncated": False},

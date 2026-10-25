@@ -285,8 +285,10 @@ class BookAppointment:
                 slot=slot,
                 now=now,
             )
-            unit_of_work.add_appointment(appointment)
+            # El contador va primero: su UPDATE sale enseguida y el INSERT de la cita queda para
+            # el COMMIT, donde el índice parcial se traduce a `ActiveAppointmentConflict`.
             unit_of_work.save_booked_count(replace(slot, booked_count=slot.booked_count + 1))
+            unit_of_work.add_appointment(appointment)
             unit_of_work.add_outbox(
                 OutboxMessage(
                     event_id=self._new_id(),

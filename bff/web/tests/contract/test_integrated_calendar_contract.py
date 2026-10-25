@@ -29,7 +29,6 @@ STATUSES = {
     "ASSIGNED",
     "REGISTERED",
     "BOOKED",
-    "CANCELLED_BY_ATHLETE",
 }
 
 

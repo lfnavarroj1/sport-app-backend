@@ -2262,20 +2262,8 @@
         "type": "object"
       },
       "IntegratedOwnAppointmentItem": {
-        "description": "HU040 (ADR-046 §4): cita reservada en un servicio propio del profesional.",
+        "description": "HU040 (ADR-046 §4): cita reservada en un servicio propio del profesional. Solo\n`BOOKED`: una cancelada no aparece (ADR-039, CA4); el detalle con el nombre del deportista\nestá en `GET /v1/me/appointments`.",
         "properties": {
-          "athlete_display_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Nombre visible del deportista; `null` si Usuarios no lo entregó.",
-            "title": "Athlete Display Name"
-          },
           "category": {
             "title": "Category",
             "type": "string"
@@ -2315,11 +2303,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Una cita cancelada por el deportista se muestra como tal.",
-            "enum": [
-              "BOOKED",
-              "CANCELLED_BY_ATHLETE"
-            ],
+            "const": "BOOKED",
             "title": "Status",
             "type": "string"
           },
@@ -2344,7 +2328,6 @@
           "status",
           "category",
           "modality",
-          "athlete_display_name",
           "reference"
         ],
         "title": "IntegratedOwnAppointmentItem",
@@ -8704,7 +8687,7 @@
     },
     "/v1/me/integrated-calendar": {
       "get": {
-        "description": "Compone por actor las fuentes de ADR-039: organizador `OWN_EVENT`; profesional `OWN_SERVICE_AVAILABILITY`, `EVENT_PUBLISHED` y `OWN_APPOINTMENT` (citas de sus servicios con `athlete_display_name`, HU040); deportista `EVENT_PUBLISHED`, `TRAINING_PLAN_SESSION`, `ASSOCIATED_SERVICE_AVAILABILITY` y `EVENT_REGISTRATION`. Periodo de hasta 92 días; hasta 200 elementos por fuente (`truncated`); orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`. Instantes en UTC con la `time_zone` de cada elemento: el cliente los presenta en la zona del navegador. Una fuente caída se declara en `sources[]` (`UNAVAILABLE` o `TIMEOUT`) y el calendario no afirma que no haya actividades.",
+        "description": "Compone por actor las fuentes de ADR-039: organizador `OWN_EVENT`; profesional `OWN_SERVICE_AVAILABILITY`, `EVENT_PUBLISHED` y `OWN_APPOINTMENT` (citas `BOOKED` de sus servicios, HU040); deportista `EVENT_PUBLISHED`, `TRAINING_PLAN_SESSION`, `ASSOCIATED_SERVICE_AVAILABILITY` y `EVENT_REGISTRATION`. Periodo de hasta 92 días; hasta 200 elementos por fuente (`truncated`); orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`. Instantes en UTC con la `time_zone` de cada elemento: el cliente los presenta en la zona del navegador. Una fuente caída se declara en `sources[]` (`UNAVAILABLE` o `TIMEOUT`) y el calendario no afirma que no haya actividades.",
         "operationId": "integrated_calendar_v1_me_integrated_calendar_get",
         "parameters": [
           {

@@ -2005,6 +2005,26 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HealthBodyArea": {
+        "enum": [
+          "HEAD",
+          "NECK",
+          "SHOULDER",
+          "ARM",
+          "ELBOW",
+          "WRIST_HAND",
+          "CHEST",
+          "BACK",
+          "HIP",
+          "THIGH",
+          "KNEE",
+          "LOWER_LEG",
+          "ANKLE_FOOT",
+          "OTHER"
+        ],
+        "title": "HealthBodyArea",
+        "type": "string"
+      },
       "HealthConsent": {
         "properties": {
           "accepted_at": {
@@ -2024,6 +2044,123 @@
         ],
         "title": "HealthConsent",
         "type": "object"
+      },
+      "HealthReportHistoryItem": {
+        "properties": {
+          "body_area": {
+            "$ref": "#/components/schemas/HealthBodyArea"
+          },
+          "expected_recovery_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Recovery Days"
+          },
+          "occurred_at": {
+            "description": "Instante UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "report_id": {
+            "format": "uuid",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/HealthSeverity"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HealthReportStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/HealthReportType"
+          }
+        },
+        "required": [
+          "report_id",
+          "type",
+          "body_area",
+          "severity",
+          "occurred_at",
+          "expected_recovery_days",
+          "status",
+          "session_id"
+        ],
+        "title": "HealthReportHistoryItem",
+        "type": "object"
+      },
+      "HealthReportHistoryResponse": {
+        "properties": {
+          "items": {
+            "description": "Reportes en orden `occurred_at` desc, `report_id` desc; vacía si no hay.",
+            "items": {
+              "$ref": "#/components/schemas/HealthReportHistoryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "HealthReportHistoryResponse",
+        "type": "object"
+      },
+      "HealthReportStatus": {
+        "enum": [
+          "OPEN"
+        ],
+        "title": "HealthReportStatus",
+        "type": "string"
+      },
+      "HealthReportType": {
+        "enum": [
+          "DISCOMFORT",
+          "INJURY",
+          "INCAPACITY"
+        ],
+        "title": "HealthReportType",
+        "type": "string"
+      },
+      "HealthSeverity": {
+        "enum": [
+          "LOW",
+          "MODERATE",
+          "HIGH"
+        ],
+        "title": "HealthSeverity",
+        "type": "string"
       },
       "HealthStatus": {
         "properties": {
@@ -6133,7 +6270,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.32.0"
+    "version": "0.33.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6369,6 +6506,204 @@
         "summary": "Historial de alimentación de un deportista que me autorizó (HU013)",
         "tags": [
           "nutrition"
+        ]
+      }
+    },
+    "/v1/athletes/{athlete_id}/health-reports": {
+      "get": {
+        "operationId": "athlete_reports_v1_athletes__athlete_id__health_reports_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "athlete_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Athlete Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Fecha inicial (UTC) de `occurred_at`, inclusiva.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha inicial (UTC) de `occurred_at`, inclusiva.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Fecha final (UTC) de `occurred_at`, inclusiva.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha final (UTC) de `occurred_at`, inclusiva.",
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/HealthReportType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/HealthSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReportHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` o `athlete_authorization_required`, sin revelar si el deportista existe (HU012 CA3)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: periodo, filtro, límite o cursor inválidos (CA6)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Historial de salud de un deportista que me autorizó (HU012)",
+        "tags": [
+          "health"
         ]
       }
     },
@@ -9154,6 +9489,194 @@
         "summary": "Mi historial de alimentación (HU013)",
         "tags": [
           "nutrition"
+        ]
+      }
+    },
+    "/v1/me/health-reports": {
+      "get": {
+        "operationId": "own_reports_v1_me_health_reports_get",
+        "parameters": [
+          {
+            "description": "Fecha inicial (UTC) de `occurred_at`, inclusiva.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha inicial (UTC) de `occurred_at`, inclusiva.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Fecha final (UTC) de `occurred_at`, inclusiva.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fecha final (UTC) de `occurred_at`, inclusiva.",
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/HealthReportType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/HealthSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReportHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` o `athlete_authorization_required`, sin revelar si el deportista existe (HU012 CA3)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: periodo, filtro, límite o cursor inválidos (CA6)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Mi historial de molestias, incapacidades o lesiones (HU012)",
+        "tags": [
+          "health"
         ]
       }
     },

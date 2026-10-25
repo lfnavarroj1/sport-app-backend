@@ -17,6 +17,7 @@ from training_management.api.devices import build_devices_router
 from training_management.api.food_catalog import build_food_catalog_router
 from training_management.api.food_intake_history import build_food_intake_history_router
 from training_management.api.food_intakes import build_food_intakes_router
+from training_management.api.health_history import build_health_history_router
 from training_management.api.health_reports import build_health_reports_router
 from training_management.api.history import build_history_router
 from training_management.api.measurements import build_measurements_router
@@ -67,6 +68,7 @@ from training_management.application.queries.devices import ListMyDevices
 from training_management.application.queries.food_catalog import GetFoodCatalog
 from training_management.application.queries.food_intakes import GetFoodIntakeHistory
 from training_management.application.queries.get_training_plan import GetTrainingPlan
+from training_management.application.queries.health_history import GetHealthHistory
 from training_management.application.queries.monitoring_settings import GetMonitoringSettings
 from training_management.application.queries.nutrition_plans import (
     GetNutritionPlan,
@@ -99,6 +101,9 @@ from training_management.infrastructure.integrations.users import (
     UsersNutritionRestrictions,
 )
 from training_management.infrastructure.persistence_read.dashboard import SqlAlchemyDashboardReader
+from training_management.infrastructure.persistence_read.health_history import (
+    SqlAlchemyHealthReportHistoryReader,
+)
 from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyActiveSessionReader,
     SqlAlchemyAuthorizationReader,
@@ -139,7 +144,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.18.0"
+API_VERSION = "0.19.0"
 
 
 def create_app(
@@ -275,6 +280,14 @@ def create_app(
                     unit_of_work=lambda: SqlAlchemyHealthReportUnitOfWork(writes),
                     clock=clock,
                     consent_version=settings.health_data_consent_version,
+                ),
+            ),
+            build_health_history_router(
+                verify_token=verifier.verify,
+                get_health_history=GetHealthHistory(
+                    reader=SqlAlchemyHealthReportHistoryReader(reads),
+                    authorizations=authorization_views,
+                    permissions=permissions,
                 ),
             ),
             build_training_dashboard_router(

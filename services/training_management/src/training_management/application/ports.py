@@ -503,6 +503,47 @@ class HealthReportUnitOfWork(Transaction, Protocol):
 
 
 @dataclass(frozen=True)
+class HealthReportHistoryEntry:
+    """Reporte de salud del historial (HU012): solo los campos que ADR-037 permite exponer."""
+
+    report_id: UUID
+    athlete_id: UUID
+    type: str
+    body_area: str
+    severity: str
+    occurred_at: datetime
+    expected_recovery_days: int | None
+    status: str
+    session_id: UUID | None
+
+
+@dataclass(frozen=True)
+class HealthReportPosition:
+    """Posición del cursor: último reporte entregado en el orden `occurred_at`, `report_id`."""
+
+    occurred_at: datetime
+    report_id: UUID
+
+
+@dataclass(frozen=True)
+class HealthReportHistoryQuery:
+    athlete_id: UUID
+    occurred_from: datetime | None
+    occurred_before: datetime | None
+    type: str | None
+    severity: str | None
+    after: HealthReportPosition | None
+    limit: int
+
+
+class HealthReportHistoryReader(Protocol):
+    def list(self, query: HealthReportHistoryQuery) -> list[HealthReportHistoryEntry]:
+        """Hasta `limit` reportes de `health_report_view`, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`occurred_at` desc, `report_id` desc)."""
+        ...
+
+
+@dataclass(frozen=True)
 class MonitoringView:
     """HU036: `session_monitoring_view`, acumulado de los resúmenes `medicion.recibida.v1`.
 

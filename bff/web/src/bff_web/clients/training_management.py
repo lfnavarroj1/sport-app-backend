@@ -50,6 +50,15 @@ class TrainingManagementClient:
         )
         return self._send("GET", path, access_token, params=params)
 
+    def get_health_reports(
+        self, access_token: str, athlete_id: UUID | None, params: dict[str, str]
+    ) -> httpx.Response:
+        """HU012: reportes de salud propios (`athlete_id=None`) o de un deportista que autorizó."""
+        path = (
+            f"/v1/athletes/{athlete_id}/health-reports" if athlete_id else "/v1/me/health-reports"
+        )
+        return self._send("GET", path, access_token, params=params)
+
     def get_authorized_athletes(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU011 (CA5): deportistas con autorización vigente hacia el profesional del token."""
         return self._send("GET", "/v1/me/authorized-athletes", access_token, params=params)

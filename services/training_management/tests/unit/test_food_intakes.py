@@ -358,7 +358,20 @@ class RegisterFoodIntakeTest(CommandCase):
         self.assertEqual(
             {record.getMessage() for record in logs.records}, {"audit.food_intake_created"}
         )
-        rendered = json.dumps(fields)
+        allowed = {"result", "reason", "intake_id", "athlete_id"}
+        for record_fields in fields:
+            self.assertLessEqual(set(record_fields), allowed, "sin alimentos, cantidades ni token")
+        # Los identificadores son UUID aleatorios y pueden contener cifras: se excluyen.
+        rendered = json.dumps(
+            [
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"intake_id", "athlete_id"}
+                }
+                for item in fields
+            ]
+        )
         for sensitive in ("OATS", "BANANA", "MILK", "80", "250", "9999", "BREAKFAST", "Bearer"):
             self.assertNotIn(sensitive, rendered)
 

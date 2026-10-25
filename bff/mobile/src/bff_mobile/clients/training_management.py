@@ -1,4 +1,4 @@
-"""Cliente HTTP de `training_management` según su OpenAPI (HU026, HU028, HU032-HU035, HU037).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU026, HU028, HU032-HU038).
 
 Reenvía el access token del usuario, la clave de idempotencia, `If-None-Match` y la
 correlación; el servicio vuelve a verificar identidad, actor y capacidad. Los segmentos de
@@ -139,6 +139,19 @@ class TrainingManagementClient:
     def update_monitoring_settings(self, access_token: str, body: Any) -> httpx.Response:
         """HU036: reemplazar el umbral; el cuerpo viaja tal cual (PUT idempotente)."""
         return self._send("PUT", "/v1/me/monitoring-settings", access_token, body=body)
+
+    def session_reminder_rules(self, access_token: str) -> httpx.Response:
+        """HU038: ruleset versionado de recordatorios durante la sesión."""
+        return self._send("GET", "/v1/session-reminder-rules", access_token)
+
+    def session_reminder_preferences(self, access_token: str) -> httpx.Response:
+        """HU038: preferencias de recordatorios del deportista del token."""
+        return self._send("GET", "/v1/me/session-reminder-preferences", access_token)
+
+    def update_session_reminder_preferences(self, access_token: str, body: Any) -> httpx.Response:
+        """HU038: reemplazar las preferencias; el cuerpo (con `expected_version`) viaja tal
+        cual."""
+        return self._send("PUT", "/v1/me/session-reminder-preferences", access_token, body=body)
 
     def _send(
         self,

@@ -122,3 +122,7 @@ class AthleteContextUnavailable(Exception):
 
 class MonitoringSettingsConflict(Exception):
     """HU036: otra solicitud concurrente creó primero la configuración del deportista."""
+
+
+class SessionReminderPreferencesConflict(Exception):
+    """HU038: otra solicitud concurrente creó primero las preferencias del deportista."""

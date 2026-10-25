@@ -126,3 +126,13 @@ class MonitoringSettingsConflict(Exception):
 
 class SessionReminderPreferencesConflict(Exception):
     """HU038: otra solicitud concurrente creó primero las preferencias del deportista."""
+
+
+class IntakeIdReused(Exception):
+    """HU043: el `intake_id` ya existe con otros datos o pertenece a otra persona."""
+
+    code = "intake_id_reused"
+
+
+class IntakeIdConflict(Exception):
+    """HU043: otra solicitud concurrente insertó primero el mismo `intake_id`."""

@@ -1,7 +1,7 @@
 """Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
 proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011), sesión
-activa (HU032), resultados de indicadores (HU034), planes de alimentación (HU014) y monitoreo
-de sesiones (HU036)."""
+activa (HU032), resultados de indicadores (HU034), planes de alimentación (HU014), consumos de
+alimentos (HU043) y monitoreo de sesiones (HU036)."""
 
 from datetime import date, datetime
 from types import TracebackType
@@ -24,6 +24,7 @@ from training_management.application.ports import (
     SessionView,
 )
 from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.nutrition.intake import FoodIntake
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.events import planned_session_id
 from training_management.domain.routes.model import Route
@@ -36,6 +37,7 @@ from training_management.infrastructure.persistence_read.models import (
     PLAN_VIEW_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     ActiveTrainingSessionRow,
+    FoodIntakeViewRow,
     NutritionPlanViewRow,
     ProcessedEventRow,
     RouteViewRow,
@@ -48,7 +50,10 @@ from training_management.infrastructure.persistence_read.models import (
     TrainingPlanViewRow,
     TrainingSessionHistoryRow,
 )
-from training_management.infrastructure.persistence_read.nutrition import nutrition_plan_values
+from training_management.infrastructure.persistence_read.nutrition import (
+    food_intake_values,
+    nutrition_plan_values,
+)
 from training_management.infrastructure.persistence_read.routes import route_view_values
 from training_management.infrastructure.persistence_read.templates import (
     template_view_values,
@@ -314,6 +319,24 @@ class SqlAlchemyProjectionUnitOfWork:
             statement.on_conflict_do_update(
                 index_elements=["plan_id"],
                 set_={key: statement.excluded[key] for key in values if key != "plan_id"},
+            )
+        )
+
+    def food_intake_version(self, intake_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(FoodIntakeViewRow.version)
+            .where(FoodIntakeViewRow.intake_id == intake_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_food_intake_view(self, intake: FoodIntake, projected_at: datetime) -> None:
+        values = food_intake_values(intake, projected_at)
+        statement = insert(FoodIntakeViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["intake_id"],
+                set_={key: statement.excluded[key] for key in values if key != "intake_id"},
             )
         )
 

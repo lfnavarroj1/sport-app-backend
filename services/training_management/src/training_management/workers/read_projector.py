@@ -28,6 +28,7 @@ from sportapp_platform.database import create_database_engine
 from sportapp_platform.logging import configure_logging
 from training_management.application.messages import (
     AuthorizationChangedEvent,
+    FoodIntakeRegisteredEvent,
     InvalidEvent,
     MeasurementReceivedEvent,
     MetricCalculatedEvent,
@@ -69,7 +70,13 @@ class InboundMessage(Protocol):
 def _aggregate_id(event: TrainingEvent) -> object:
     if isinstance(event, PlanCreatedEvent | NutritionPlanCreatedEvent):
         return event.plan.plan_id
-    if isinstance(event, AuthorizationChangedEvent | MeasurementReceivedEvent | RiskDetectedEvent):
+    if isinstance(
+        event,
+        AuthorizationChangedEvent
+        | MeasurementReceivedEvent
+        | RiskDetectedEvent
+        | FoodIntakeRegisteredEvent,
+    ):
         return event.aggregate_id
     if isinstance(event, MetricCalculatedEvent):
         return event.calculation.calculation_id

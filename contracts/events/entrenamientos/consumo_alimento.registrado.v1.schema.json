@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/consumo_alimento.registrado.v1.schema.json",
+  "title": "consumo_alimento.registrado.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = intake_id (= aggregate_id) cuando un deportista registra un consumo de alimentos y bebidas (HU043, ADR-037). Estado completo del consumo para entrenamientos-read-projector (food_intake_view), que consulta HU013. Alimentación es dato personal de salud: sin calorías, nutrientes, nombres, correos ni texto libre.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "consumo_alimento.registrado.v1"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"const": "training-management"},
+    "aggregate_type": {"const": "food_intake"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "intake_id del consumo."
+    },
+    "aggregate_version": {"const": 1},
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": ["string", "null"],
+      "description": "Idempotency-Key del comando que registró el consumo."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intake_id",
+        "athlete_id",
+        "consumed_at",
+        "meal_type",
+        "items",
+        "catalog_version",
+        "version",
+        "registered_at"
+      ],
+      "properties": {
+        "intake_id": {"type": "string", "format": "uuid"},
+        "athlete_id": {"type": "string", "format": "uuid"},
+        "consumed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Instante del consumo en UTC con sufijo Z; el cliente lo convierte a la zona del usuario."
+        },
+        "meal_type": {"enum": ["BREAKFAST", "LUNCH", "DINNER", "SNACK", "HYDRATION"]},
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "description": "Alimentos en el orden enviado por el deportista.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["food_code", "quantity", "unit"],
+            "properties": {
+              "food_code": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+                "description": "Código del catálogo de alimentos; el catálogo se amplía solo por migración."
+              },
+              "quantity": {
+                "type": "string",
+                "pattern": "^[0-9]{1,4}\\.[0-9]$",
+                "description": "Cadena decimal con un decimal entre 0.1 y 5000.0."
+              },
+              "unit": {"enum": ["G", "ML", "UNIT", "CUP", "TBSP"]}
+            }
+          }
+        },
+        "catalog_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Versión del catálogo de alimentos con la que se validó el consumo (food-catalog-2026-10-13.v1)."
+        },
+        "version": {"const": 1},
+        "registered_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

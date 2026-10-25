@@ -5,7 +5,9 @@ Solo existe con `FCM_ENABLED`. El proyector lo invoca **después** del COMMIT de
 - sin `push_enabled` en las preferencias, o sin tokens registrados, no se envía nada (CA2);
 - por cada token: hasta `MAX_ATTEMPTS` intentos ante fallos transitorios (respetando
   `Retry-After` con tope), sin reintentar un rechazo definitivo;
-- el resultado (`SENT`/`FAILED`, intentos, causa) queda en `notification_delivery`.
+- el resultado (`SENT`/`FAILED`, intentos, causa) queda en `notification_delivery`;
+- un token que ya recibió la notificación (`SENT`) no se vuelve a usar: reproyectar o
+  reconstruir la bandeja no repite el *push* (CMP-004).
 Cualquier error se registra y se absorbe: nunca impide confirmar el mensaje.
 """
 
@@ -63,7 +65,10 @@ class DeliverPush:
             if not self._store.push_enabled(notification.recipient_id):
                 _logger.info("push.skipped", extra={"fields": {**fields, "reason": "disabled"}})
                 return
+            delivered = self._store.sent_token_ids(notification.notification_id)
             for target in self._store.targets(notification.recipient_id):
+                if target.token_id in delivered:
+                    continue
                 sent, attempts, error = self._send(target.token, data_message(notification))
                 self._store.record(
                     notification.notification_id,

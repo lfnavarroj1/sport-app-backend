@@ -27,6 +27,7 @@ from events_management.application.ports import (
 
 MAX_LIMIT = 50
 DEFAULT_LIMIT = 20
+CURSOR_MAX = 512
 
 
 class InvalidNotificationsQuery(Exception):
@@ -53,6 +54,8 @@ def encode_cursor(position: InboxPosition) -> str:
 
 
 def decode_cursor(cursor: str) -> InboxPosition:
+    if len(cursor) > CURSOR_MAX:
+        raise InvalidNotificationsQuery("cursor", "invalid_cursor")
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         document = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))

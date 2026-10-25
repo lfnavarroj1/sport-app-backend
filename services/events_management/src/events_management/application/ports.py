@@ -413,6 +413,12 @@ class AttendeeReader(Protocol):
 # HU039 (ADR-045): notificaciones de eventos masivos.
 
 
+class StoreUnavailable(Exception):
+    """La base del dominio no respondió; la API responde `503 upstream_unavailable`."""
+
+    code = "upstream_unavailable"
+
+
 class RecipientsUnavailable(Exception):
     """Usuarios no respondió la búsqueda de destinatarios: el mensaje se reintenta."""
 
@@ -537,6 +543,10 @@ class PushDeliveryStore(Protocol):
     def push_enabled(self, recipient_id: UUID) -> bool: ...
 
     def targets(self, recipient_id: UUID) -> list[PushTarget]: ...
+
+    def sent_token_ids(self, notification_id: UUID) -> set[UUID]:
+        """Tokens a los que la notificación ya se entregó (`SENT`)."""
+        ...
 
     def record(
         self,

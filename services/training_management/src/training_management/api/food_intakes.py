@@ -67,7 +67,10 @@ _CONFLICTS: dict[type[Exception], str] = {
 }
 
 
-class FoodIntakeItemRequest(BaseModel):
+class FoodIntakeItem(BaseModel):
+    """Alimento del consumo; el mismo esquema en la solicitud y en la respuesta (normalizada
+    con exactamente un decimal)."""
+
     model_config = ConfigDict(extra="forbid")
 
     food_code: Annotated[str, Field(description="Código de `GET /v1/food-catalog`.")]
@@ -90,15 +93,9 @@ class RegisterFoodIntakeRequest(BaseModel):
     ]
     meal_type: MealType
     items: Annotated[
-        list[FoodIntakeItemRequest],
+        list[FoodIntakeItem],
         Field(min_length=ITEMS_MIN, max_length=ITEMS_MAX, description="En el orden enviado."),
     ]
-
-
-class FoodIntakeItemResponse(BaseModel):
-    food_code: str
-    quantity: Annotated[str, Field(description="Cadena con exactamente un decimal.")]
-    unit: FoodUnit
 
 
 class FoodIntakeResponse(BaseModel):
@@ -108,7 +105,7 @@ class FoodIntakeResponse(BaseModel):
     athlete_id: Annotated[UUID, Field(description="Deportista del token.")]
     consumed_at: datetime
     meal_type: MealType
-    items: list[FoodIntakeItemResponse]
+    items: list[FoodIntakeItem]
     catalog_version: str
     version: int
     registered_at: datetime

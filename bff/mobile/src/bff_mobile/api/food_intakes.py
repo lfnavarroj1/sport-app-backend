@@ -68,7 +68,10 @@ class FoodCatalogResponse(BaseModel):
     items: list[FoodCatalogItem]
 
 
-class FoodIntakeItemRequest(BaseModel):
+class FoodIntakeItem(BaseModel):
+    """Alimento del consumo; el mismo esquema en la solicitud y en la respuesta (normalizada
+    con exactamente un decimal)."""
+
     model_config = ConfigDict(extra="forbid")
 
     food_code: Annotated[str, Field(description="Código de `GET /v1/food-catalog`.")]
@@ -90,13 +93,7 @@ class RegisterFoodIntakeRequest(BaseModel):
         ),
     ]
     meal_type: MealType
-    items: Annotated[list[FoodIntakeItemRequest], Field(min_length=1, max_length=20)]
-
-
-class FoodIntakeItem(BaseModel):
-    food_code: str
-    quantity: Annotated[str, Field(description="Cadena con exactamente un decimal.")]
-    unit: FoodUnit
+    items: Annotated[list[FoodIntakeItem], Field(min_length=1, max_length=20)]
 
 
 class FoodIntakeResponse(BaseModel):

@@ -19,6 +19,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from training_management.application.health_documents import (
+    InvalidHealthReportDocument,
+    health_report_from_document,
+)
 from training_management.application.ports import (
     ActiveSessionView,
     AuthorizationView,
@@ -44,6 +48,9 @@ from training_management.domain.authorizations.events import (
     SCHEMA_VERSION as AUTHORIZATION_SCHEMA,
 )
 from training_management.domain.authorizations.model import AuthorizationStatus
+from training_management.domain.health.events import EVENT_TYPE as HEALTH_REPORT_REGISTERED
+from training_management.domain.health.events import SCHEMA_VERSION as HEALTH_REPORT_SCHEMA
+from training_management.domain.health.model import HealthReport
 from training_management.domain.measurements.model import (
     MAX_HEART_RATE,
     MAX_SAMPLES,
@@ -233,6 +240,17 @@ class RiskDetectedEvent:
         return self.alert.session_id
 
 
+@dataclass(frozen=True)
+class HealthReportRegisteredEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    report: HealthReport
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.report.report_id
+
+
 TrainingEvent = (
     PlanCreatedEvent
     | AuthorizationChangedEvent
@@ -244,6 +262,7 @@ TrainingEvent = (
     | TemplateChangedEvent
     | MeasurementReceivedEvent
     | RiskDetectedEvent
+    | HealthReportRegisteredEvent
 )
 
 
@@ -666,6 +685,23 @@ def _template_changed(envelope: dict[str, Any], event_type: str) -> TemplateChan
     )
 
 
+def _health_report_registered(envelope: dict[str, Any]) -> HealthReportRegisteredEvent:
+    """HU042 (ADR-037): `reporte_salud.registrado.v1` con el estado completo del reporte."""
+    payload = _payload(envelope, HEALTH_REPORT_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        report = health_report_from_document({**payload, "version": version})
+    except InvalidHealthReportDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != report.report_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    return HealthReportRegisteredEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        report=report,
+    )
+
+
 _DEVICE_ID_PATTERN = re.compile(r"[0-9a-f]{64}")
 _AVERAGE_PATTERN = re.compile(r"[0-9]{2,3}\.[0-9]")
 
@@ -774,8 +810,15 @@ def _parse_snapshot(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
         return _route_changed(envelope, event_type)
     if event_type in (TEMPLATE_PUBLISHED, TEMPLATE_RETIRED):
         return _template_changed(envelope, event_type)
+    if event_type in (MEASUREMENT_EVENT_TYPE, RISK_EVENT_TYPE):
+        return _parse_monitoring(envelope, event_type)
+    if event_type == HEALTH_REPORT_REGISTERED:
+        return _health_report_registered(envelope)
+    raise UnsupportedEvent(event_type)
+
+
+def _parse_monitoring(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
+    """Eventos de HU036 (`medicion.recibida.v1` y `riesgo.detectado.v1`)."""
     if event_type == MEASUREMENT_EVENT_TYPE:
         return _measurement_received(envelope)
-    if event_type == RISK_EVENT_TYPE:
-        return _risk_detected(envelope)
-    raise UnsupportedEvent(event_type)
+    return _risk_detected(envelope)

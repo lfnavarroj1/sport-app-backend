@@ -1,5 +1,5 @@
 """Unidades de trabajo SQLAlchemy de la base de escritura de entrenamientos (HU010, HU032,
-HU034, HU014, HU026, HU028, HU037, HU036)."""
+HU034, HU014, HU026, HU028, HU037, HU036, HU042)."""
 
 from datetime import datetime
 from types import TracebackType
@@ -18,6 +18,7 @@ from training_management.application.errors import (
     DeviceConflict,
     IdempotencyKeyConflict,
     MonitoringSettingsConflict,
+    ReportIdConflict,
     SessionIdConflict,
     SessionReminderPreferencesConflict,
 )
@@ -36,6 +37,13 @@ from training_management.domain.devices.model import (
     DeviceProtocol,
     DeviceStatus,
     DeviceType,
+)
+from training_management.domain.health.model import (
+    BodyArea,
+    HealthReport,
+    ReportStatus,
+    ReportType,
+    Severity,
 )
 from training_management.domain.measurements.model import (
     Measurement,
@@ -76,6 +84,7 @@ from training_management.infrastructure.persistence_write.models import (
     ATHLETE_DEVICE_PRIMARY_KEY,
     AUTHORIZATION_PRIMARY_KEY,
     COMMAND_IDEMPOTENCY_PRIMARY_KEY,
+    HEALTH_REPORT_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
     METRIC_CALCULATION_PRIMARY_KEY,
     MONITORING_SETTINGS_PRIMARY_KEY,
@@ -83,6 +92,7 @@ from training_management.infrastructure.persistence_write.models import (
     TRAINING_SESSION_PRIMARY_KEY,
     AthleteDeviceRow,
     CommandIdempotencyRow,
+    HealthReportRow,
     IdempotencyKeyRow,
     MonitoringSettingsRow,
     NutritionPlanItemRow,
@@ -508,6 +518,71 @@ class SqlAlchemyMetricUnitOfWork(_CommandUnitOfWork):
         except IntegrityError as error:
             self.session.rollback()
             conflict = _METRIC_CONFLICTS.get(_violated_constraint(error))
+            if conflict is not None:
+                raise conflict() from None
+            raise
+
+
+def _health_report(row: HealthReportRow) -> HealthReport:
+    return HealthReport(
+        report_id=row.report_id,
+        athlete_id=row.athlete_id,
+        type=ReportType(row.type),
+        body_area=BodyArea(row.body_area),
+        severity=Severity(row.severity),
+        occurred_at=row.occurred_at,
+        session_id=row.session_id,
+        expected_recovery_days=row.expected_recovery_days,
+        consent_version=row.health_consent_version,
+        reported_at=row.reported_at,
+        status=ReportStatus(row.status),
+        version=row.version,
+    )
+
+
+_HEALTH_REPORT_CONFLICTS: dict[str | None, type[Exception]] = {
+    COMMAND_IDEMPOTENCY_PRIMARY_KEY: IdempotencyKeyConflict,
+    HEALTH_REPORT_PRIMARY_KEY: ReportIdConflict,
+}
+
+
+class SqlAlchemyHealthReportUnitOfWork(_CommandUnitOfWork):
+    """HU042: reporte de salud, outbox e idempotencia en una transacción de escritura."""
+
+    def get_session(self, session_id: UUID) -> TrainingSession | None:
+        with self.session.no_autoflush:
+            row = self.session.get(TrainingSessionRow, session_id)
+        return _session(row) if row is not None else None
+
+    def get_health_report(self, report_id: UUID) -> HealthReport | None:
+        with self.session.no_autoflush:
+            row = self.session.get(HealthReportRow, report_id)
+        return _health_report(row) if row is not None else None
+
+    def add_health_report(self, report: HealthReport) -> None:
+        self.session.add(
+            HealthReportRow(
+                report_id=report.report_id,
+                athlete_id=report.athlete_id,
+                session_id=report.session_id,
+                type=report.type.value,
+                body_area=report.body_area.value,
+                severity=report.severity.value,
+                occurred_at=report.occurred_at,
+                expected_recovery_days=report.expected_recovery_days,
+                health_consent_version=report.consent_version,
+                status=report.status.value,
+                version=report.version,
+                reported_at=report.reported_at,
+            )
+        )
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            conflict = _HEALTH_REPORT_CONFLICTS.get(_violated_constraint(error))
             if conflict is not None:
                 raise conflict() from None
             raise

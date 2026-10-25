@@ -29,6 +29,7 @@ PLAN_VIEW_PRIMARY_KEY = "pk_training_plan_view"
 AUTHORIZATION_VIEW_PRIMARY_KEY = "pk_training_authorization_view"
 SESSION_HISTORY_PRIMARY_KEY = "pk_training_session_history"
 METRIC_RESULT_ORDER_INDEX = "ix_training_metric_result_athlete_order"
+HEALTH_REPORT_ORDER_INDEX = "ix_health_report_view_athlete_order"
 NUTRITION_PLAN_ORDER_INDEX = "ix_nutrition_plan_view_athlete_order"
 ROUTE_SUGGESTION_INDEX = "ix_route_view_status_sport_city"
 ROUTE_ORGANIZER_ORDER_INDEX = "ix_route_view_organizer_order"
@@ -178,6 +179,37 @@ class TrainingMetricResultRow(ReadBase):
     status: Mapped[str] = mapped_column(String(16))
     disclaimer_key: Mapped[str] = mapped_column(String(64))
     version: Mapped[int] = mapped_column(BigInteger)
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class HealthReportViewRow(ReadBase):
+    """Reporte de salud (HU042) a partir de `reporte_salud.registrado.v1`; reconstruible.
+
+    La consulta HU012 lo lee en el orden `occurred_at` desc, `report_id` desc. Sin la versión
+    del consentimiento: no forma parte de lo que se consulta.
+    """
+
+    __tablename__ = "health_report_view"
+    __table_args__ = (
+        Index(
+            HEALTH_REPORT_ORDER_INDEX,
+            "athlete_id",
+            text("occurred_at DESC"),
+            text("report_id DESC"),
+        ),
+    )
+
+    report_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID]
+    session_id: Mapped[UUID | None]
+    type: Mapped[str] = mapped_column(String(16))
+    body_area: Mapped[str] = mapped_column(String(16))
+    severity: Mapped[str] = mapped_column(String(16))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expected_recovery_days: Mapped[int | None] = mapped_column(SmallInteger)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

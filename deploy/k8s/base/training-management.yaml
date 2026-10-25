@@ -51,6 +51,10 @@ spec:
                 configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
             - name: AFFILIATION_MANAGEMENT_BASE_URL
               value: http://affiliation-management
+            # HU042 (ADR-037): versión vigente del consentimiento de datos de salud (ADR-034).
+            - name: HEALTH_DATA_CONSENT_VERSION
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: HEALTH_DATA_CONSENT_VERSION}
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

@@ -129,6 +129,8 @@ _TRAINING = {
     **_CQRS,
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
     "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
+    # HU042: consentimiento de datos de salud de los reportes.
+    "HEALTH_DATA_CONSENT_VERSION": "contract",
 }
 
 COMPONENTS = (

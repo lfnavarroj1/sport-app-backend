@@ -15,11 +15,11 @@ from training_management.settings import TrainingManagementSettings
 HISTORIES = {
     "write": (
         "training_management.infrastructure.persistence_write:migrations",
-        "0011_session_reminders",
+        "0013_health_reports",
     ),
     "read": (
         "training_management.infrastructure.persistence_read:migrations",
-        "0011_session_monitoring_views",
+        "0013_health_report_view",
     ),
 }
 
@@ -70,6 +70,7 @@ class DatabaseIntegrationTest(unittest.TestCase):
                 database_read_url=url,
                 users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
                 affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
+                health_data_consent_version="local-dev",
             )
             with TestClient(create_app(settings)) as client:
                 # HU014: sin el catálogo de alimentos migrado el servicio no queda listo.

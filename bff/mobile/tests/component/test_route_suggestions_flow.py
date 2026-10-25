@@ -87,6 +87,7 @@ class RouteSuggestionsFlowTest(unittest.TestCase):
                         database_read_url=self.urls["training_r"],  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
                         affiliation_management_base_url=services,  # type: ignore[arg-type]
+                        health_data_consent_version="local-dev",
                     ),
                     users_http=self.users,
                     affiliation_http=affiliation,

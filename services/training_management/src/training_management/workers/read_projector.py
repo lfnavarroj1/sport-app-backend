@@ -10,6 +10,7 @@ Ejecución: `python -m training_management.workers.read_projector`.
   backoff de la suscripción y, tras 10 intentos, lo envía a
   `sportapp.entrenamientos.proyeccion.dlq`.
 - Un tipo de evento que este proyector aún no proyecta se confirma sin efectos.
+- HU042: `reporte_salud.registrado.v1` alimenta `health_report_view` (clave `report_id`).
 """
 
 import json
@@ -28,6 +29,7 @@ from sportapp_platform.database import create_database_engine
 from sportapp_platform.logging import configure_logging
 from training_management.application.messages import (
     AuthorizationChangedEvent,
+    HealthReportRegisteredEvent,
     InvalidEvent,
     MeasurementReceivedEvent,
     MetricCalculatedEvent,
@@ -69,7 +71,13 @@ class InboundMessage(Protocol):
 def _aggregate_id(event: TrainingEvent) -> object:
     if isinstance(event, PlanCreatedEvent | NutritionPlanCreatedEvent):
         return event.plan.plan_id
-    if isinstance(event, AuthorizationChangedEvent | MeasurementReceivedEvent | RiskDetectedEvent):
+    if isinstance(
+        event,
+        AuthorizationChangedEvent
+        | MeasurementReceivedEvent
+        | RiskDetectedEvent
+        | HealthReportRegisteredEvent,
+    ):
         return event.aggregate_id
     if isinstance(event, MetricCalculatedEvent):
         return event.calculation.calculation_id

@@ -81,6 +81,19 @@ class TrainingManagementClient:
         """HU034: resultados propios proyectados; solo los parámetros recibidos."""
         return self._send("GET", "/v1/training-metrics/calculations", access_token, params=params)
 
+    def report_health(
+        self, access_token: str, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU042: reportar una molestia, incapacidad o lesión; cuerpo y clave viajan tal cual
+        (ADR-037)."""
+        return self._send(
+            "POST",
+            "/v1/me/health-reports",
+            access_token,
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+
     def training_dashboard(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU033: tablero propio; `from`/`to` tal como llegaron."""
         return self._send("GET", "/v1/me/training-dashboard", access_token, params=params)

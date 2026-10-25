@@ -11,6 +11,7 @@ SETTINGS = TrainingManagementSettings(
     database_read_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
     users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
     affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
+    health_data_consent_version="local-dev",
     db_connect_timeout_seconds=1,
 )
 

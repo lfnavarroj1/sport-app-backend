@@ -1,0 +1,10 @@
+{
+  "version": "discipline-aliases.v1",
+  "description": "HU027 (ADR-041): disciplinas de evento (texto libre de ADR-028, normalizado: minúsculas, sin acentos, recortado) que coinciden con cada deporte del catálogo de HU006. `other` no genera coincidencia. Ampliar la tabla es una versión nueva de este archivo.",
+  "sports": {
+    "running": ["running", "carrera", "atletismo", "trail", "maraton", "media maraton", "5k", "10k"],
+    "cycling": ["cycling", "ciclismo", "mtb", "ruta", "gran fondo"],
+    "swimming": ["swimming", "natacion", "aguas abiertas"],
+    "strength": ["strength", "fuerza", "crossfit", "funcional"]
+  }
+}

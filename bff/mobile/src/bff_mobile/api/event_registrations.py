@@ -45,7 +45,7 @@ class Fee(BaseModel):
 
 
 class EventFee(Fee):
-    billing_unit: str
+    """Tarifa informativa del evento (ADR-040): `{amount, currency}`; `0.00` es gratuito."""
 
 
 class MyRegistration(BaseModel):
@@ -66,7 +66,7 @@ class EventDetailResponse(BaseModel):
     capacity: int
     status: Literal["PUBLISHED"]
     version: int
-    fee: Annotated[EventFee | None, Field(description="`null` hasta HU025.")]
+    fee: Annotated[EventFee | None, Field(description="Informativa; `null` sin tarifa (HU025).")]
     my_registration: MyRegistration | None
 
 

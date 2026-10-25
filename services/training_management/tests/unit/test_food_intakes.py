@@ -1,6 +1,5 @@
 """HU043 sin infraestructura: reglas, comando, evento y proyección (ADR-037)."""
 
-import json
 import unittest
 import uuid
 from datetime import timedelta
@@ -15,6 +14,7 @@ from intake_fakes import (
     intake_body,
     intake_item,
 )
+from leak_checks import leaks
 from nutrition_fakes import StaticFoodCatalog
 from test_workers import Message
 
@@ -361,19 +361,26 @@ class RegisterFoodIntakeTest(CommandCase):
         allowed = {"result", "reason", "intake_id", "athlete_id"}
         for record_fields in fields:
             self.assertLessEqual(set(record_fields), allowed, "sin alimentos, cantidades ni token")
-        # Los identificadores son UUID aleatorios y pueden contener cifras: se excluyen.
-        rendered = json.dumps(
-            [
-                {
-                    key: value
-                    for key, value in item.items()
-                    if key not in {"intake_id", "athlete_id"}
-                }
-                for item in fields
-            ]
+        # Criterio de `leak_checks` (PR #61): solo se omite un campo que es exactamente un UUID
+        # canónico (los aleatorios pueden contener las cifras sintéticas); el resto se revisa.
+        sensitive = ("OATS", "BANANA", "MILK", "80", "250", "9999", "BREAKFAST", "Bearer")
+        for record_fields in fields:
+            self.assertEqual(leaks(record_fields, sensitive), [])
+
+    def test_audit_check_tolerates_ids_with_the_digits(self) -> None:
+        """Regresión: un `athlete_id` aleatorio con `80` hacía fallar la prueba anterior."""
+        athlete = Caller(UUID("00000080-0000-4000-8000-000000000250"), "athlete")
+        body = intake_body(intake_id="80800000-0000-4000-8000-000000000080")
+        with self.assertLogs("sportapp.audit", level="INFO") as logs:
+            self.run_command(body, caller=athlete)
+
+        [record] = logs.records
+        fields = record.__dict__["fields"]
+        self.assertEqual(
+            (fields["athlete_id"], fields["intake_id"]), (str(athlete.user_id), body["intake_id"])
         )
-        for sensitive in ("OATS", "BANANA", "MILK", "80", "250", "9999", "BREAKFAST", "Bearer"):
-            self.assertNotIn(sensitive, rendered)
+        self.assertEqual(leaks(fields, ("80", "250", "OATS")), [])
+        self.assertEqual(leaks({**fields, "result": "80 g"}, ("80",)), ["result: 80"])
 
 
 def an_intake(**overrides: Any) -> FoodIntake:

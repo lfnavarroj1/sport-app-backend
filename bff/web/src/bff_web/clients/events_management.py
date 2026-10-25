@@ -1,5 +1,5 @@
 """Cliente HTTP de `events_management` según su OpenAPI 0.8.0 (HU021, HU024, HU023, HU022,
-HU025).
+HU025 y HU018).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad, permiso y
 propiedad.
@@ -86,6 +86,11 @@ class EventsManagementClient:
         return self._send(
             "GET", f"/v1/me/events/{event_id}/registrations", access_token, params=params
         )
+
+    def list_my_registrations(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU018 (ADR-039): inscripciones propias del deportista (HU041), por inicio del
+        evento."""
+        return self._send("GET", "/v1/me/event-registrations", access_token, params=params)
 
     def _send(
         self,

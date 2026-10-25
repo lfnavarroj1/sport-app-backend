@@ -191,7 +191,7 @@ class OrganizerCalendarApiTest(unittest.TestCase):
         same = self.get(**{"to": "2026-11-01T00:00:00Z"})
         long = self.get(**{"to": "2027-02-02T00:00:00Z"})
         blank = self.get(city=" ")
-        provider = self.get("service_provider")
+        other = self.get("administrator")
 
         self.assertEqual(
             same.json()["details"], [{"field": "query.to", "issue": "ends_before_starts"}]
@@ -200,9 +200,7 @@ class OrganizerCalendarApiTest(unittest.TestCase):
         self.assertEqual(
             blank.json()["details"], [{"field": "query.city", "issue": "invalid_length"}]
         )
-        self.assertEqual(
-            (provider.status_code, provider.json()["code"]), (403, "permission_required")
-        )
+        self.assertEqual((other.status_code, other.json()["code"]), (403, "permission_required"))
 
 
 if __name__ == "__main__":

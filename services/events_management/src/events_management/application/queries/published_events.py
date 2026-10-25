@@ -1,7 +1,11 @@
-"""Eventos publicados por periodo (ADR-031 para HU035, ampliado por ADR-040 para HU023).
+"""Eventos publicados por periodo (ADR-031 para HU035, ampliado por ADR-040 para HU023 y por
+ADR-039 para HU018).
 
 - `athlete`: capacidad vigente `calendar.sport.view` consultada en Afiliación (HU035).
 - `organizer`: permiso `events.calendar.view` del contrato de permisos (HU023), sin Afiliación.
+- `service_provider`: permiso `calendar.integrated.view` del contrato de permisos (HU018,
+  fuente `EVENT_PUBLISHED` del calendario integrado), sin Afiliación y con el periodo de
+  ADR-031 (`from ≤ to`), como el deportista.
 - Otro actor: `permission_required`.
 - Eventos `PUBLISHED` cuyo intervalo `[starts_at, ends_at]` se superpone con `[from, to]`;
   nunca borradores. Filtros opcionales `discipline` y `city` por igualdad normalizada
@@ -35,8 +39,15 @@ from events_management.domain.sport_events.terms import normalize_term
 
 ATHLETE = "athlete"
 ORGANIZER = "organizer"
+SERVICE_PROVIDER = "service_provider"
 CALENDAR_CAPABILITY = "calendar.sport.view"
 ORGANIZER_CALENDAR_PERMISSION = "events.calendar.view"
+PROVIDER_CALENDAR_PERMISSION = "calendar.integrated.view"
+# Actores que entran por un permiso del contrato (sin Afiliación) y el permiso que exigen.
+_PERMISSION_BY_ACTOR = {
+    ORGANIZER: ORGANIZER_CALENDAR_PERMISSION,
+    SERVICE_PROVIDER: PROVIDER_CALENDAR_PERMISSION,
+}
 MAX_LIMIT = 200
 DEFAULT_LIMIT = 200
 MAX_WINDOW = timedelta(days=92)
@@ -132,17 +143,14 @@ class ListPublishedEvents:
         return decode_cursor(filters.cursor) if filters.cursor else None
 
     def __call__(self, caller: Caller, filters: EventsFilters) -> EventsPage:
-        organizer = caller.actor_type == ORGANIZER
-        if organizer:
-            if not self._permissions.allows(caller.actor_type, ORGANIZER_CALENDAR_PERMISSION):
+        athlete = caller.actor_type == ATHLETE
+        if not athlete:
+            permission = _PERMISSION_BY_ACTOR.get(caller.actor_type)
+            if permission is None or not self._permissions.allows(caller.actor_type, permission):
                 raise PermissionRequired()
-        elif caller.actor_type != ATHLETE:
-            raise PermissionRequired()
-        after = self.validate(filters, strict_period=organizer)
+        after = self.validate(filters, strict_period=caller.actor_type == ORGANIZER)
         # Afiliación se consulta fuera de cualquier transacción; nunca se concede por suposición.
-        if not organizer and not self._capabilities.has_capability(
-            caller.user_id, CALENDAR_CAPABILITY
-        ):
+        if athlete and not self._capabilities.has_capability(caller.user_id, CALENDAR_CAPABILITY):
             raise CapabilityRequired()
         # Se pide uno de más para saber si existe una página siguiente.
         events = self._reader.published(

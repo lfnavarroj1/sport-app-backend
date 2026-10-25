@@ -3,6 +3,7 @@
 import httpx
 from fastapi import FastAPI
 
+from bff_mobile.api.appointments import build_appointments_router
 from bff_mobile.api.calendar import build_calendar_router
 from bff_mobile.api.capabilities import build_capabilities_router
 from bff_mobile.api.devices import build_devices_router
@@ -14,6 +15,7 @@ from bff_mobile.api.route_suggestions import (
     AthleteContextCache,
     build_route_suggestions_router,
 )
+from bff_mobile.api.service_availability import build_service_availability_router
 from bff_mobile.api.service_suggestions import build_service_suggestions_router
 from bff_mobile.api.session_reminders import build_session_reminders_router
 from bff_mobile.api.sessions import build_sessions_router
@@ -33,7 +35,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.18.0"
+API_VERSION = "0.19.0"
 CHANNEL = "mobile"
 
 
@@ -150,6 +152,12 @@ def create_app(
                 verify_token=verifier.verify,
                 athlete_snapshot=affiliation.user_capabilities,
                 training=training,
+            ),
+            build_service_availability_router(verify_token=verifier.verify, services=services),
+            build_appointments_router(
+                verify_token=verifier.verify,
+                athlete_snapshot=affiliation.user_capabilities,
+                services=services,
             ),
             build_food_intakes_router(verify_token=verifier.verify, training=training),
         ],

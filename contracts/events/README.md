@@ -26,6 +26,8 @@ Cada esquema se ubica en `<dominio>/<tipo>.vN.schema.json` y debe incluir el sob
 | [`usuario.inscrito.v1`](eventos/usuario.inscrito.v1.schema.json) | `sportapp.eventos.v1` | `aggregate_id` (= `registration_id`) | `events_management` (`eventos-outbox-publisher`; versión 1 del agregado `event_registration`) | Aprobado 2026-10-12 (ADR-032, HU041); sin datos del evento ni de pago; `applied_fee` informativa o `null` |
 | [`notificacion.solicitada.v1`](eventos/notificacion.solicitada.v1.schema.json) | `sportapp.eventos.v1` | `recipient_id` (distinta de `aggregate_id` = `notification_id`) | `events_management` (`eventos-notificaciones-worker` y planificador de recordatorios, vía `eventos-outbox-publisher`; versión 1 del agregado `notification`) | Aprobado 2026-10-13 (ADR-045, HU039); `EVENT_PUBLISHED_MATCH` (`NORMAL`) o `EVENT_REMINDER_24H` (`HIGH`); sin correo ni perfil |
 | [`servicio.publicado.v1`](servicios/servicio.publicado.v1.schema.json) | `sportapp.servicios.v1` | `aggregate_id` (= `service_id`) | `complementary_services` (`servicios-outbox-publisher`; versión resultante de la publicación) | Aprobado 2026-10-12 (ADR-027, HU019); payload mínimo `service_id`, `provider_id`, `status`, `published_at` (sin nombre, tarifa ni disponibilidad); publicados retenidos 7 días |
+| [`sesion.programada.v1`](servicios/sesion.programada.v1.schema.json) | `sportapp.servicios.v1` | `aggregate_id` (= `appointment_id`) | `complementary_services` (`servicios-outbox-publisher`; `aggregate_type = appointment`, versión 1) | Aprobado 2026-10-13 (ADR-046, HU040); estado completo de la cita `BOOKED` (`appointment_id`, `athlete_id`, `provider_id`, `service_id`, `availability_id`, `starts_at`, `ends_at`, `time_zone`, `status`, `meeting_url: null`, `booked_at`, `cancelled_at: null`); `causation_id` = `Idempotency-Key`; sin datos de salud |
+| [`sesion.cancelada.v1`](servicios/sesion.cancelada.v1.schema.json) | `sportapp.servicios.v1` | `aggregate_id` (= `appointment_id`) | `complementary_services` (`servicios-outbox-publisher`; versión ≥ 2) | Aprobado 2026-10-13 (ADR-046, HU040); el mismo estado completo con `status: CANCELLED_BY_ATHLETE` y `cancelled_at`; `causation_id: null`; una cancelación repetida no publica otro evento |
 
 Consumidores aprobados:
 
@@ -39,6 +41,6 @@ Consumidores aprobados:
 
 `suscripcion.activada.v1` todavía no tiene consumidores aprobados: no se crea suscripción ni DLQ para él (ADR-024).
 
-`servicio.publicado.v1` tampoco tiene consumidores aprobados (ADR-027): en el emulador solo se crea el tópico `sportapp.servicios.v1`, sin suscripción, proyector ni DLQ; cada consumidor futuro necesita contrato propio.
+`servicio.publicado.v1`, `sesion.programada.v1` y `sesion.cancelada.v1` tampoco tienen consumidores aprobados (ADR-027, ADR-046): en el emulador solo se crea el tópico `sportapp.servicios.v1`, sin suscripción, proyector ni DLQ; cada consumidor futuro necesita contrato propio.
 
 Los atributos del mensaje Pub/Sub repiten `event_id`, `event_type`, `schema_version` y `correlation_id` para filtrar sin leer el cuerpo; en `sportapp.usuarios.v1` también `aggregate_type` (R-19, ADR-034).

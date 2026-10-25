@@ -50,6 +50,7 @@ def interval(starts_at: datetime) -> AvailabilityInterval:
         ends_at=starts_at + timedelta(hours=1),
         time_zone="America/Bogota",
         capacity=3,
+        availability_id=uuid4(),
     )
 
 
@@ -284,6 +285,9 @@ class AvailabilityApiTest(unittest.TestCase):
         self.assertEqual(body["restricted_categories"], ["SPORTS_MEDICINE"])
         self.assertIsNone(body["next_cursor"])
         [item] = body["items"]
+        # HU040: cada intervalo trae su identificador para reservarlo.
+        availability_id = item["availability"][0]["availability_id"]
+        self.assertEqual(str(UUID(availability_id)), availability_id)
         self.assertEqual(
             item["price"], {"amount": "120000.00", "currency": "COP", "billing_unit": "SESSION"}
         )
@@ -295,6 +299,7 @@ class AvailabilityApiTest(unittest.TestCase):
                     "ends_at": "2026-11-02T06:00:00Z",
                     "time_zone": "America/Bogota",
                     "capacity": 3,
+                    "availability_id": availability_id,
                 }
             ],
         )

@@ -1,6 +1,138 @@
 {
   "components": {
     "schemas": {
+      "AppointmentResponse": {
+        "properties": {
+          "appointment_id": {
+            "format": "uuid",
+            "title": "Appointment Id",
+            "type": "string"
+          },
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "availability_id": {
+            "format": "uuid",
+            "title": "Availability Id",
+            "type": "string"
+          },
+          "booked_at": {
+            "format": "date-time",
+            "title": "Booked At",
+            "type": "string"
+          },
+          "cancelled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Instante de la cancelación; `null` si sigue reservada.",
+            "title": "Cancelled At"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "meeting_url": {
+            "description": "Siempre `null` en el MVP: no hay videollamada; el profesional coordina el enlace.",
+            "title": "Meeting Url",
+            "type": "null"
+          },
+          "provider_id": {
+            "description": "Profesional dueño del servicio.",
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "service": {
+            "$ref": "#/components/schemas/AssociatedServiceSummary",
+            "description": "Resumen del servicio; la tarifa es informativa: reservar no cobra."
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Inicio del intervalo en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "BOOKED",
+              "CANCELLED_BY_ATHLETE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el profesional.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "appointment_id",
+          "athlete_id",
+          "provider_id",
+          "service_id",
+          "availability_id",
+          "service",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "status",
+          "meeting_url",
+          "booked_at",
+          "cancelled_at",
+          "version"
+        ],
+        "title": "AppointmentResponse",
+        "type": "object"
+      },
+      "AppointmentsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AppointmentResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` al final.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AppointmentsResponse",
+        "type": "object"
+      },
       "AssociatedServiceSummary": {
         "description": "Resumen del servicio; la tarifa es informativa: asociar no contrata ni paga.",
         "properties": {
@@ -72,12 +204,53 @@
         "title": "BillingUnit",
         "type": "string"
       },
+      "CatalogInterval": {
+        "additionalProperties": false,
+        "description": "Intervalo del catálogo con su identificador (HU040): se reserva con\n`POST /v1/me/appointments`.",
+        "properties": {
+          "availability_id": {
+            "format": "uuid",
+            "title": "Availability Id",
+            "type": "string"
+          },
+          "capacity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada, p. ej. America/Bogota.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "capacity",
+          "availability_id"
+        ],
+        "title": "CatalogInterval",
+        "type": "object"
+      },
       "CatalogService": {
         "properties": {
           "availability": {
             "description": "Intervalos futuros que empiezan en el rango, en UTC con su zona.",
             "items": {
-              "$ref": "#/components/schemas/AvailabilityInterval"
+              "$ref": "#/components/schemas/CatalogInterval"
             },
             "title": "Availability",
             "type": "array"
@@ -563,7 +736,7 @@
   },
   "info": {
     "title": "SportApp - Servicios complementarios",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -616,6 +789,424 @@
         "summary": "Ready",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/v1/me/appointments": {
+      "get": {
+        "description": "Del deportista, o de los servicios del profesional (fuente `OWN_APPOINTMENT` del calendario integrado). Ordenadas por `starts_at` y `appointment_id` ascendentes con cursor keyset; incluye las canceladas salvo que se filtre por `status`.",
+        "operationId": "my_appointments_v1_me_appointments_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase; junto con `to`.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase; junto con `to`.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase, posterior a `from`.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase, posterior a `from`.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "`BOOKED` o `CANCELLED_BY_ATHLETE`; sin valor, todas.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`BOOKED` o `CANCELLED_BY_ATHLETE`; sin valor, todas.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Entero de 1 a 100; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 100; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppointmentsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista o el profesional."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.from`/`query.to` (`required` si llega solo uno, `unknown_value`), `query.to` (`ends_before_starts`), `query.status` o `query.cursor` (`unknown_value`), `query.limit` (`unknown_value` u `out_of_range`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la capacidad ante Afiliación (también por timeout)."
+          }
+        },
+        "summary": "Mis citas (HU040)",
+        "tags": [
+          "appointments"
+        ]
+      },
+      "post": {
+        "description": "Bloquea el intervalo y confirma la cita, el cupo, la clave y `sesion.programada.v1` en una transacción. No cobra ni crea videollamada.",
+        "operationId": "book_v1_me_appointments_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el transporte.",
+                "properties": {
+                  "availability_id": {
+                    "description": "Intervalo del servicio (de `GET /v1/services/availability`) que empieza por lo menos 1 h después.",
+                    "format": "uuid",
+                    "title": "Availability Id",
+                    "type": "string"
+                  },
+                  "service_id": {
+                    "description": "Servicio `PUBLISHED` de `COACHING` con modalidad `VIRTUAL`/`HYBRID`.",
+                    "format": "uuid",
+                    "title": "Service Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "service_id",
+                  "availability_id"
+                ],
+                "title": "BookAppointmentRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppointmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista; `capability_required`: su plan no incluye `services.virtual_sessions.schedule`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`availability_full`: el intervalo no tiene cupo; `appointment_exists` con `details: [{field: \"appointment_id\", issue: <identificador de la cita activa>}]`; `idempotency_key_reused`: la clave se usó con otro servicio o intervalo."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`service_not_bookable`: el servicio no existe, no está publicado o no es `COACHING` `VIRTUAL`/`HYBRID`; `availability_not_bookable`: el intervalo no es del servicio o empieza en menos de 1 h; `validation_error` con `details[{field, issue}]`: `service_id`/`availability_id` (`required`, `unknown_value`), otro campo (`field_not_allowed`), cuerpo ausente o que no es un objeto (`field: null`), `Idempotency-Key` ausente (`required`) o que no es un UUID (`unknown_value`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la capacidad ante Afiliación (también por timeout)."
+          }
+        },
+        "summary": "Reservar una sesión virtual con un entrenador (HU040)",
+        "tags": [
+          "appointments"
+        ]
+      }
+    },
+    "/v1/me/appointments/{appointment_id}": {
+      "delete": {
+        "description": "Con 24 h o más de antelación la cita pasa a `CANCELLED_BY_ATHLETE`, el intervalo recupera el cupo y se publica `sesion.cancelada.v1`; repetirlo devuelve la cita sin cambios. No hay reprogramación: cancelar y reservar otro intervalo.",
+        "operationId": "cancel_v1_me_appointments__appointment_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "appointment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Appointment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppointmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`appointment_not_found`: no existe o es de otro deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`cancellation_window_closed`: faltan menos de 24 h; `validation_error`: `path.appointment_id` no es un UUID."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la capacidad ante Afiliación (también por timeout)."
+          }
+        },
+        "summary": "Cancelar una cita propia (HU040)",
+        "tags": [
+          "appointments"
         ]
       }
     },

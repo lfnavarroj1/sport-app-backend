@@ -1,4 +1,4 @@
-"""Unidades de trabajo SQLAlchemy de la base única de servicios (HU015, HU019, HU017)."""
+"""Unidades de trabajo SQLAlchemy de la base única de servicios (HU015, HU019, HU017, HU040)."""
 
 from collections.abc import Iterable
 from datetime import UTC
@@ -11,10 +11,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from complementary_services.application.errors import (
+    ActiveAppointmentConflict,
     ActiveAssociationConflict,
     IdempotencyKeyConflict,
 )
 from complementary_services.application.ports import IdempotencyRecord, OutboxMessage
+from complementary_services.domain.appointments.appointment import (
+    Appointment,
+    AppointmentStatus,
+    BookableSlot,
+)
 from complementary_services.domain.association.association import (
     AssociationStatus,
     ServiceAssociation,
@@ -30,8 +36,10 @@ from complementary_services.domain.catalog.offer import (
     ServiceStatus,
 )
 from complementary_services.infrastructure.persistence.models import (
+    ACTIVE_APPOINTMENT_INDEX,
     ACTIVE_ASSOCIATION_INDEX,
     IDEMPOTENCY_PRIMARY_KEY,
+    AppointmentRow,
     IdempotencyKeyRow,
     OutboxEventRow,
     ServiceAssociationRow,
@@ -65,6 +73,7 @@ def service_offer(row: ServiceRow, intervals: Iterable[ServiceAvailabilityRow]) 
                 ends_at=interval.ends_at.astimezone(UTC),
                 time_zone=interval.time_zone,
                 capacity=interval.capacity,
+                availability_id=interval.availability_id,
             )
             for interval in sorted(intervals, key=lambda item: item.position)
         ),
@@ -321,4 +330,139 @@ class SqlAlchemyAssociationUnitOfWork(_UnitOfWork):
                 raise IdempotencyKeyConflict() from None
             if constraint == ACTIVE_ASSOCIATION_INDEX:
                 raise ActiveAssociationConflict() from None
+            raise
+
+
+def bookable_slot(row: ServiceAvailabilityRow) -> BookableSlot:
+    return BookableSlot(
+        availability_id=row.availability_id,
+        service_id=row.service_id,
+        starts_at=row.starts_at.astimezone(UTC),
+        ends_at=row.ends_at.astimezone(UTC),
+        time_zone=row.time_zone,
+        capacity=row.capacity,
+        booked_count=row.booked_count,
+    )
+
+
+def appointment_of(row: AppointmentRow) -> Appointment:
+    """Agregado a partir de su fila; los instantes se devuelven siempre en UTC."""
+    return Appointment(
+        appointment_id=row.appointment_id,
+        athlete_id=row.athlete_id,
+        provider_id=row.provider_id,
+        service_id=row.service_id,
+        availability_id=row.availability_id,
+        starts_at=row.starts_at.astimezone(UTC),
+        ends_at=row.ends_at.astimezone(UTC),
+        time_zone=row.time_zone,
+        status=AppointmentStatus(row.status),
+        booked_at=row.booked_at.astimezone(UTC),
+        version=row.version,
+        cancelled_at=row.cancelled_at.astimezone(UTC) if row.cancelled_at else None,
+        meeting_url=row.meeting_url,
+    )
+
+
+class SqlAlchemyAppointmentUnitOfWork(SqlAlchemyPublicationUnitOfWork):
+    """HU040: intervalo bloqueado, cita, contador, outbox e idempotencia del deportista.
+
+    Hereda `add_outbox` de HU019; no usa `lock_service` ni `save_publication`.
+    """
+
+    def service(self, service_id: UUID) -> ServiceOffer | None:
+        row = self.session.get(ServiceRow, service_id)
+        return service_offer(row, ()) if row is not None else None
+
+    def lock_slot(self, service_id: UUID, availability_id: UUID) -> BookableSlot | None:
+        row = self.session.scalar(
+            select(ServiceAvailabilityRow)
+            .where(
+                ServiceAvailabilityRow.service_id == service_id,
+                ServiceAvailabilityRow.availability_id == availability_id,
+            )
+            .with_for_update()
+        )
+        return bookable_slot(row) if row is not None else None
+
+    def save_booked_count(self, slot: BookableSlot) -> None:
+        # La fila está bloqueada; la base además rechaza superar la capacidad.
+        self.session.execute(
+            update(ServiceAvailabilityRow)
+            .where(ServiceAvailabilityRow.availability_id == slot.availability_id)
+            .values(booked_count=slot.booked_count)
+            .execution_options(synchronize_session=False)
+        )
+
+    def active_appointment(self, athlete_id: UUID, availability_id: UUID) -> Appointment | None:
+        with self.session.no_autoflush:
+            row = self.session.scalar(
+                select(AppointmentRow).where(
+                    AppointmentRow.athlete_id == athlete_id,
+                    AppointmentRow.availability_id == availability_id,
+                    AppointmentRow.status == AppointmentStatus.BOOKED.value,
+                )
+            )
+        return appointment_of(row) if row is not None else None
+
+    def appointment(self, appointment_id: UUID) -> Appointment | None:
+        row = self.session.get(AppointmentRow, appointment_id)
+        return appointment_of(row) if row is not None else None
+
+    def lock_appointment(self, appointment_id: UUID) -> Appointment | None:
+        row = self.session.scalar(
+            select(AppointmentRow)
+            .where(AppointmentRow.appointment_id == appointment_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return appointment_of(row) if row is not None else None
+
+    def add_appointment(self, appointment: Appointment) -> None:
+        self.session.add(
+            AppointmentRow(
+                appointment_id=appointment.appointment_id,
+                athlete_id=appointment.athlete_id,
+                provider_id=appointment.provider_id,
+                service_id=appointment.service_id,
+                availability_id=appointment.availability_id,
+                starts_at=appointment.starts_at,
+                ends_at=appointment.ends_at,
+                time_zone=appointment.time_zone,
+                status=appointment.status.value,
+                meeting_url=appointment.meeting_url,
+                booked_at=appointment.booked_at,
+                cancelled_at=appointment.cancelled_at,
+                version=appointment.version,
+            )
+        )
+
+    def save_cancellation(self, appointment: Appointment) -> None:
+        # La fila está bloqueada; la versión anterior se exige igualmente como defensa.
+        result = self.session.execute(
+            update(AppointmentRow)
+            .where(
+                AppointmentRow.appointment_id == appointment.appointment_id,
+                AppointmentRow.version == appointment.version - 1,
+            )
+            .values(
+                status=appointment.status.value,
+                cancelled_at=appointment.cancelled_at,
+                version=appointment.version,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise RuntimeError("La cita bloqueada cambió de versión.")
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            constraint = _violated_constraint(error)
+            if constraint == IDEMPOTENCY_PRIMARY_KEY:
+                raise IdempotencyKeyConflict() from None
+            if constraint == ACTIVE_APPOINTMENT_INDEX:
+                raise ActiveAppointmentConflict() from None
             raise

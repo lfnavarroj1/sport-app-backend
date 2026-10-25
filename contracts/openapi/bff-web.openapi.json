@@ -208,6 +208,29 @@
         "title": "AppliedFee",
         "type": "object"
       },
+      "AppointmentsSource": {
+        "properties": {
+          "source": {
+            "const": "users",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "OK",
+              "UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "status"
+        ],
+        "title": "AppointmentsSource",
+        "type": "object"
+      },
       "AssociatedServiceSummary": {
         "description": "Resumen del servicio; la tarifa es informativa: asociar no contrata ni paga.",
         "properties": {
@@ -491,12 +514,53 @@
         "title": "CapabilitiesResponse",
         "type": "object"
       },
+      "CatalogInterval": {
+        "additionalProperties": false,
+        "description": "Intervalo del catálogo con su identificador (HU040, `complementary-services` 0.6.0).",
+        "properties": {
+          "availability_id": {
+            "format": "uuid",
+            "title": "Availability Id",
+            "type": "string"
+          },
+          "capacity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada, p. ej. America/Bogota.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "capacity",
+          "availability_id"
+        ],
+        "title": "CatalogInterval",
+        "type": "object"
+      },
       "CatalogService": {
         "description": "HU020: servicio publicado con sus intervalos futuros que empiezan en el rango.",
         "properties": {
           "availability": {
             "items": {
-              "$ref": "#/components/schemas/AvailabilityInterval"
+              "$ref": "#/components/schemas/CatalogInterval"
             },
             "title": "Availability",
             "type": "array"
@@ -1896,6 +1960,32 @@
         "title": "HistoryFilters",
         "type": "object"
       },
+      "IntegratedAppointmentReference": {
+        "properties": {
+          "appointment_id": {
+            "format": "uuid",
+            "title": "Appointment Id",
+            "type": "string"
+          },
+          "availability_id": {
+            "format": "uuid",
+            "title": "Availability Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "appointment_id",
+          "service_id",
+          "availability_id"
+        ],
+        "title": "IntegratedAppointmentReference",
+        "type": "object"
+      },
       "IntegratedAssociatedServiceAvailabilityItem": {
         "properties": {
           "capacity": {
@@ -2011,6 +2101,7 @@
                   "ASSOCIATED_SERVICE_AVAILABILITY": "#/components/schemas/IntegratedAssociatedServiceAvailabilityItem",
                   "EVENT_PUBLISHED": "#/components/schemas/IntegratedPublishedEventItem",
                   "EVENT_REGISTRATION": "#/components/schemas/IntegratedEventRegistrationItem",
+                  "OWN_APPOINTMENT": "#/components/schemas/IntegratedOwnAppointmentItem",
                   "OWN_EVENT": "#/components/schemas/IntegratedOwnEventItem",
                   "OWN_SERVICE_AVAILABILITY": "#/components/schemas/IntegratedOwnServiceAvailabilityItem",
                   "TRAINING_PLAN_SESSION": "#/components/schemas/IntegratedTrainingSessionItem"
@@ -2035,6 +2126,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/IntegratedAssociatedServiceAvailabilityItem"
+                },
+                {
+                  "$ref": "#/components/schemas/IntegratedOwnAppointmentItem"
                 }
               ]
             },
@@ -2165,6 +2259,78 @@
           "country_code"
         ],
         "title": "IntegratedLocation",
+        "type": "object"
+      },
+      "IntegratedOwnAppointmentItem": {
+        "description": "HU040 (ADR-046 §4): cita reservada en un servicio propio del profesional. Solo\n`BOOKED`: una cancelada no aparece (ADR-039, CA4); el detalle con el nombre del deportista\nestá en `GET /v1/me/appointments`.",
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "`<source>:<identificador>`, único en la respuesta.",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "modality": {
+            "title": "Modality",
+            "type": "string"
+          },
+          "occurs_on": {
+            "description": "Fecha de inicio en la `time_zone` del elemento.",
+            "format": "date",
+            "title": "Occurs On",
+            "type": "string"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/IntegratedAppointmentReference"
+          },
+          "source": {
+            "const": "OWN_APPOINTMENT",
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "Instante original en UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "const": "BOOKED",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el dominio.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "occurs_on",
+          "title",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "source",
+          "status",
+          "category",
+          "modality",
+          "reference"
+        ],
+        "title": "IntegratedOwnAppointmentItem",
         "type": "object"
       },
       "IntegratedOwnEventItem": {
@@ -2453,7 +2619,8 @@
               "EVENT_REGISTRATION",
               "TRAINING_PLAN_SESSION",
               "OWN_SERVICE_AVAILABILITY",
-              "ASSOCIATED_SERVICE_AVAILABILITY"
+              "ASSOCIATED_SERVICE_AVAILABILITY",
+              "OWN_APPOINTMENT"
             ],
             "title": "Name",
             "type": "string"
@@ -3838,6 +4005,156 @@
           "nutrition_habits"
         ],
         "title": "ProfileVersions",
+        "type": "object"
+      },
+      "ProviderAppointmentItem": {
+        "properties": {
+          "appointment_id": {
+            "format": "uuid",
+            "title": "Appointment Id",
+            "type": "string"
+          },
+          "athlete_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nombre visible (`full_name`); `null` si Usuarios no lo entregó.",
+            "title": "Athlete Display Name"
+          },
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "availability_id": {
+            "format": "uuid",
+            "title": "Availability Id",
+            "type": "string"
+          },
+          "booked_at": {
+            "format": "date-time",
+            "title": "Booked At",
+            "type": "string"
+          },
+          "cancelled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled At"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "meeting_url": {
+            "description": "Siempre `null` en el MVP: el profesional coordina el enlace.",
+            "title": "Meeting Url",
+            "type": "null"
+          },
+          "provider_id": {
+            "format": "uuid",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "service": {
+            "$ref": "#/components/schemas/AssociatedServiceSummary"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "starts_at": {
+            "description": "UTC (`Z`).",
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "BOOKED",
+              "CANCELLED_BY_ATHLETE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "Zona IANA declarada por el profesional.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "appointment_id",
+          "athlete_id",
+          "athlete_display_name",
+          "provider_id",
+          "service_id",
+          "availability_id",
+          "service",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "status",
+          "meeting_url",
+          "booked_at",
+          "cancelled_at",
+          "version"
+        ],
+        "title": "ProviderAppointmentItem",
+        "type": "object"
+      },
+      "ProviderAppointmentsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderAppointmentItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "sources": {
+            "description": "Estado de la consulta de nombres a Usuarios.",
+            "items": {
+              "$ref": "#/components/schemas/AppointmentsSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "sources"
+        ],
+        "title": "ProviderAppointmentsResponse",
         "type": "object"
       },
       "PublishRouteRequest": {
@@ -5700,7 +6017,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.30.0"
+    "version": "0.31.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7423,6 +7740,185 @@
         ]
       }
     },
+    "/v1/me/appointments": {
+      "get": {
+        "description": "Orden `starts_at`, `appointment_id` ascendente con cursor keyset; incluye las canceladas salvo que se filtre por `status`. Identidad mínima del deportista: `athlete_display_name` desde Usuarios, sin correo ni perfil. Si Usuarios no responde, `athlete_display_name` es `null` y `sources[users]` es `UNAVAILABLE`.",
+        "operationId": "provider_appointments_v1_me_appointments_get",
+        "parameters": [
+          {
+            "description": "Instante ISO 8601 con desfase; junto con `to`.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase; junto con `to`.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instante ISO 8601 con desfase.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instante ISO 8601 con desfase.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "`BOOKED` o `CANCELLED_BY_ATHLETE`; sin valor, todas.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`BOOKED` o `CANCELLED_BY_ATHLETE`; sin valor, todas.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "1 a 100; por defecto 20.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 a 100; por defecto 20.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAppointmentsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el profesional (`service_provider`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` del servicio: `query.from`/`query.to` (`required` si llega solo uno, `unknown_value`, `ends_before_starts`), `query.status`, `query.cursor` o `query.limit`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Citas de mis servicios (HU040, ADR-046)",
+        "tags": [
+          "appointments"
+        ]
+      }
+    },
     "/v1/me/capabilities": {
       "get": {
         "operationId": "get_capabilities_v1_me_capabilities_get",
@@ -8191,7 +8687,7 @@
     },
     "/v1/me/integrated-calendar": {
       "get": {
-        "description": "Compone por actor las fuentes de ADR-039: organizador `OWN_EVENT`; profesional `OWN_SERVICE_AVAILABILITY` y `EVENT_PUBLISHED`; deportista `EVENT_PUBLISHED`, `TRAINING_PLAN_SESSION`, `ASSOCIATED_SERVICE_AVAILABILITY` y `EVENT_REGISTRATION`. Periodo de hasta 92 días; hasta 200 elementos por fuente (`truncated`); orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`. Instantes en UTC con la `time_zone` de cada elemento: el cliente los presenta en la zona del navegador. Una fuente caída se declara en `sources[]` (`UNAVAILABLE` o `TIMEOUT`) y el calendario no afirma que no haya actividades.",
+        "description": "Compone por actor las fuentes de ADR-039: organizador `OWN_EVENT`; profesional `OWN_SERVICE_AVAILABILITY`, `EVENT_PUBLISHED` y `OWN_APPOINTMENT` (citas `BOOKED` de sus servicios, HU040); deportista `EVENT_PUBLISHED`, `TRAINING_PLAN_SESSION`, `ASSOCIATED_SERVICE_AVAILABILITY` y `EVENT_REGISTRATION`. Periodo de hasta 92 días; hasta 200 elementos por fuente (`truncated`); orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`. Instantes en UTC con la `time_zone` de cada elemento: el cliente los presenta en la zona del navegador. Una fuente caída se declara en `sources[]` (`UNAVAILABLE` o `TIMEOUT`) y el calendario no afirma que no haya actividades.",
         "operationId": "integrated_calendar_v1_me_integrated_calendar_get",
         "parameters": [
           {

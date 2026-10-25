@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from bff_web.api.account import build_account_router
 from bff_web.api.account_statement import build_account_statement_router
+from bff_web.api.appointments import build_appointments_router
 from bff_web.api.capabilities import build_capabilities_router
 from bff_web.api.event_attendees import build_event_attendees_router
 from bff_web.api.event_calendar import build_event_calendar_router
@@ -41,7 +42,7 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.30.0"
+API_VERSION = "0.31.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
@@ -214,6 +215,11 @@ def create_app(
                 training=training,
                 channel=CHANNEL,
                 source_timeout=settings.upstream_timeout_seconds,
+            ),
+            build_appointments_router(
+                verify_token=verifier.verify,
+                services=ComplementaryServicesClient(services_http),
+                users=users,
             ),
         ],
         shutdown_hooks=[

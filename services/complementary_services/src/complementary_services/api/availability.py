@@ -3,7 +3,8 @@
 Servicios `PUBLISHED` con sus intervalos futuros que empiezan en `[from, to)`, en UTC (`Z`)
 con la zona declarada: el frontend convierte a la zona del usuario. La categoría médica
 exige `services.sports_medicine.access` (Afiliación); sin ella se declara en
-`restricted_categories`. La tarifa es informativa y la lectura no reserva cupos.
+`restricted_categories`. La tarifa es informativa y la lectura no reserva cupos. HU040 agrega
+el `availability_id` de cada intervalo para reservar una sesión virtual.
 """
 
 import logging
@@ -47,6 +48,13 @@ NO_STORE = "no-store"
 _logger = logging.getLogger("sportapp.services")
 
 
+class CatalogInterval(AvailabilityInterval):
+    """Intervalo del catálogo con su identificador (HU040): se reserva con
+    `POST /v1/me/appointments`."""
+
+    availability_id: UUID
+
+
 class CatalogService(BaseModel):
     service_id: UUID
     provider_id: UUID
@@ -56,7 +64,7 @@ class CatalogService(BaseModel):
     modality: Modality
     price: Annotated[ServicePrice, Field(description="Tarifa informativa: no es un cobro.")]
     availability: Annotated[
-        list[AvailabilityInterval],
+        list[CatalogInterval],
         Field(description="Intervalos futuros que empiezan en el rango, en UTC con su zona."),
     ]
     available: Annotated[
@@ -97,6 +105,7 @@ def _item(offer: ServiceOffer) -> dict[str, Any]:
                 "ends_at": utc_instant(interval.ends_at),
                 "time_zone": interval.time_zone,
                 "capacity": interval.capacity,
+                "availability_id": str(interval.availability_id),
             }
             for interval in offer.availability
         ],

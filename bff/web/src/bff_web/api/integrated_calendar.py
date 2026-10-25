@@ -41,6 +41,7 @@ from bff_web.api.integrated_calendar_composition import (
     EVENT_PUBLISHED,
     EVENT_REGISTRATION,
     EVENT_STATUSES,
+    OWN_APPOINTMENT,
     OWN_EVENT,
     OWN_SERVICE_AVAILABILITY,
     SERVICE_STATUSES,
@@ -56,6 +57,7 @@ from bff_web.api.integrated_calendar_composition import (
     interval_overlaps,
     normalize_period,
     ordered,
+    own_appointment_item,
     own_event_item,
     own_service_item,
     published_event_item,
@@ -86,7 +88,8 @@ CAPABILITY_REQUIRED = "capability_required"
 # Fuentes de cada actor y su orden en `sources[]` (ADR-039).
 SOURCES_BY_ACTOR: dict[str, tuple[str, ...]] = {
     ORGANIZER: (OWN_EVENT,),
-    SERVICE_PROVIDER: (OWN_SERVICE_AVAILABILITY, EVENT_PUBLISHED),
+    # HU040 agrega `OWN_APPOINTMENT` al final: las fuentes previas conservan su orden.
+    SERVICE_PROVIDER: (OWN_SERVICE_AVAILABILITY, EVENT_PUBLISHED, OWN_APPOINTMENT),
     ATHLETE: (
         EVENT_PUBLISHED,
         TRAINING_PLAN_SESSION,
@@ -98,6 +101,9 @@ SOURCES_BY_ACTOR: dict[str, tuple[str, ...]] = {
 PAGE_LIMIT = 100
 AVAILABILITY_PAGE_LIMIT = 50
 AVAILABILITY_SPAN = timedelta(days=31)
+# Una cita dura como su intervalo (≤ 24 h, ADR-027): se piden también las que empezaron
+# hasta un día antes del periodo para no perder las que lo cruzan.
+APPOINTMENT_SPAN = timedelta(hours=24)
 INSTANT = "Instante ISO 8601 con desfase (zona del navegador); sin ambos, el mes UTC en curso."
 
 _logger = logging.getLogger("sportapp.bff")
@@ -109,6 +115,7 @@ SourceName = Literal[
     "TRAINING_PLAN_SESSION",
     "OWN_SERVICE_AVAILABILITY",
     "ASSOCIATED_SERVICE_AVAILABILITY",
+    "OWN_APPOINTMENT",
 ]
 SourceStatus = Literal["OK", "UNAVAILABLE", "TIMEOUT"]
 
@@ -209,13 +216,32 @@ class IntegratedAssociatedServiceAvailabilityItem(_IntegratedTimedItem):
     reference: IntegratedAssociatedServiceReference
 
 
+class IntegratedAppointmentReference(BaseModel):
+    appointment_id: UUID
+    service_id: UUID
+    availability_id: UUID
+
+
+class IntegratedOwnAppointmentItem(_IntegratedTimedItem):
+    """HU040 (ADR-046 §4): cita reservada en un servicio propio del profesional. Solo
+    `BOOKED`: una cancelada no aparece (ADR-039, CA4); el detalle con el nombre del deportista
+    está en `GET /v1/me/appointments`."""
+
+    source: Literal["OWN_APPOINTMENT"]
+    status: Literal["BOOKED"]
+    category: str
+    modality: str
+    reference: IntegratedAppointmentReference
+
+
 IntegratedItem = Annotated[
     IntegratedOwnEventItem
     | IntegratedPublishedEventItem
     | IntegratedEventRegistrationItem
     | IntegratedTrainingSessionItem
     | IntegratedOwnServiceAvailabilityItem
-    | IntegratedAssociatedServiceAvailabilityItem,
+    | IntegratedAssociatedServiceAvailabilityItem
+    | IntegratedOwnAppointmentItem,
     Field(discriminator="source"),
 ]
 
@@ -351,6 +377,7 @@ class _Sources:
             TRAINING_PLAN_SESSION: self.planned_sessions,
             OWN_SERVICE_AVAILABILITY: self.own_services,
             ASSOCIATED_SERVICE_AVAILABILITY: self.associated_services,
+            OWN_APPOINTMENT: self.own_appointments,
         }
         return fetchers[name]
 
@@ -488,6 +515,22 @@ class _Sources:
                     items[item["item_id"]] = item
         return capped(list(items.values()))
 
+    def own_appointments(self) -> Collected:
+        """HU040: citas `BOOKED` de los servicios propios (`GET /v1/me/appointments`, ordenado
+        por inicio)."""
+        window = {
+            "from": utc_instant(self._period.period_from - APPOINTMENT_SPAN),
+            "to": utc_instant(self._period.period_to + timedelta(seconds=1)),
+            "status": "BOOKED",
+        }
+        return self._time_ordered(
+            lambda params: self._services.list_my_appointments(self._token, {**window, **params}),
+            lambda appointment: instant(appointment["starts_at"]),
+            lambda appointment: instant(appointment["ends_at"]),
+            lambda appointment: appointment["status"] == "BOOKED",
+            own_appointment_item,
+        )
+
     def _catalog(self, query: list[tuple[str, str]]) -> list[dict[str, Any]]:
         return self._all_pages(
             lambda cursor: self._services.service_availability(
@@ -567,7 +610,8 @@ def build_integrated_calendar_router(
         response_model=IntegratedCalendarResponse,
         summary="Calendario integrado de eventos y servicios por actor (HU018)",
         description="Compone por actor las fuentes de ADR-039: organizador `OWN_EVENT`; "
-        "profesional `OWN_SERVICE_AVAILABILITY` y `EVENT_PUBLISHED`; deportista "
+        "profesional `OWN_SERVICE_AVAILABILITY`, `EVENT_PUBLISHED` y `OWN_APPOINTMENT` (citas "
+        "`BOOKED` de sus servicios, HU040); deportista "
         "`EVENT_PUBLISHED`, `TRAINING_PLAN_SESSION`, `ASSOCIATED_SERVICE_AVAILABILITY` y "
         "`EVENT_REGISTRATION`. Periodo de hasta 92 días; hasta 200 elementos por fuente "
         "(`truncated`); orden `occurs_on`, `starts_at` (nulos primero), `source`, `item_id`. "

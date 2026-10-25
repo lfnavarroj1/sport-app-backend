@@ -1,5 +1,5 @@
-"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU014, HU026 y
-HU028).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU014, HU026,
+HU028 y HU018).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad,
 permiso, capacidad y autorización del deportista.
@@ -126,6 +126,10 @@ class TrainingManagementClient:
     ) -> httpx.Response:
         """HU028: plantillas del profesional del token (lectura CQRS)."""
         return self._send("GET", "/v1/me/training-plan-templates", access_token, params=params)
+
+    def planned_sessions(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU018 (ADR-031): sesiones planificadas del deportista del token por fecha."""
+        return self._send("GET", "/v1/me/training-plan-sessions", access_token, params=params)
 
     def _send(
         self,

@@ -1,4 +1,4 @@
-"""Cliente HTTP de `events_management` según su OpenAPI 0.4.0 (HU035 y HU041).
+"""Cliente HTTP de `events_management` según su OpenAPI (HU035, HU041, HU029 y HU027).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad y la
 capacidad `calendar.sport.view` ante Afiliación.
@@ -38,6 +38,10 @@ class EventsManagementClient:
         return self._send(
             "GET", "/v1/me/event-registrations", access_token, params=params, timeout=timeout
         )
+
+    def published_events_page(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU027: una página de `GET /v1/events` (`from`, `to`, `limit` y `cursor` del BFF)."""
+        return self._send("GET", "/v1/events", access_token, params=params)
 
     def _send(
         self,

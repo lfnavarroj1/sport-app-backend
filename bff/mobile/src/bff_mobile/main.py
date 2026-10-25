@@ -12,6 +12,9 @@ from bff_mobile.api.event_suggestions import build_event_suggestions_router
 from bff_mobile.api.food_intakes import build_food_intakes_router
 from bff_mobile.api.health_reports import build_health_reports_router
 from bff_mobile.api.notifications import build_notifications_router
+from bff_mobile.api.nutrition_routine_suggestions import (
+    build_nutrition_routine_suggestions_router,
+)
 from bff_mobile.api.route_suggestions import (
     AthleteContextCache,
     build_route_suggestions_router,
@@ -36,7 +39,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.20.0"
+API_VERSION = "0.21.0"
 CHANNEL = "mobile"
 
 
@@ -125,6 +128,13 @@ def create_app(
                 cache=contexts,
             ),
             build_template_suggestions_router(
+                verify_token=verifier.verify,
+                athlete_snapshot=affiliation.user_capabilities,
+                users=users,
+                training=training,
+                cache=contexts,
+            ),
+            build_nutrition_routine_suggestions_router(
                 verify_token=verifier.verify,
                 athlete_snapshot=affiliation.user_capabilities,
                 users=users,

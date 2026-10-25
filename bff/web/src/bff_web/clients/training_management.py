@@ -1,5 +1,5 @@
 """Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU013, HU014,
-HU026, HU028 y HU018).
+HU026, HU028, HU030 y HU018).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad,
 permiso, capacidad y autorización del deportista.
@@ -142,6 +142,35 @@ class TrainingManagementClient:
     ) -> httpx.Response:
         """HU028: plantillas del profesional del token (lectura CQRS)."""
         return self._send("GET", "/v1/me/training-plan-templates", access_token, params=params)
+
+    def publish_nutrition_routine_template(
+        self, access_token: str, payload: dict[str, Any], idempotency_key: UUID
+    ) -> httpx.Response:
+        """HU030: publicar una rutina de alimentación sugerible (ADR-041)."""
+        return self._send(
+            "POST",
+            "/v1/nutrition-routine-templates",
+            access_token,
+            json=payload,
+            headers={IDEMPOTENCY_HEADER: str(idempotency_key)},
+        )
+
+    def retire_nutrition_routine_template(
+        self, access_token: str, template_id: UUID, payload: dict[str, Any]
+    ) -> httpx.Response:
+        """HU030: retirar una rutina propia con `expected_version`."""
+        return self._send(
+            "POST",
+            f"/v1/nutrition-routine-templates/{template_id}/retire",
+            access_token,
+            json=payload,
+        )
+
+    def list_my_nutrition_routine_templates(
+        self, access_token: str, params: dict[str, str]
+    ) -> httpx.Response:
+        """HU030: rutinas del profesional del token (lectura CQRS)."""
+        return self._send("GET", "/v1/me/nutrition-routine-templates", access_token, params=params)
 
     def planned_sessions(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU018 (ADR-031): sesiones planificadas del deportista del token por fecha."""

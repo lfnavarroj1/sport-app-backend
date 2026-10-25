@@ -20,6 +20,7 @@ import sys
 import threading
 from collections.abc import Callable
 from typing import Protocol
+from uuid import UUID
 
 from google.cloud import pubsub_v1
 from sqlalchemy.orm import sessionmaker
@@ -38,6 +39,7 @@ from training_management.application.messages import (
     PlanCreatedEvent,
     RiskDetectedEvent,
     RouteChangedEvent,
+    RoutineChangedEvent,
     TemplateChangedEvent,
     TrainingEvent,
     UnsupportedEvent,
@@ -83,11 +85,18 @@ def _aggregate_id(event: TrainingEvent) -> object:
         return event.aggregate_id
     if isinstance(event, MetricCalculatedEvent):
         return event.calculation.calculation_id
+    if isinstance(event, RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent):
+        return _publishable_id(event)
+    return event.session.session_id
+
+
+def _publishable_id(event: RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent) -> UUID:
+    """Contenido sugerible de ADR-041 (HU026, HU028 y HU030)."""
     if isinstance(event, RouteChangedEvent):
         return event.route.route_id
     if isinstance(event, TemplateChangedEvent):
         return event.template.template_id
-    return event.session.session_id
+    return event.routine.template_id
 
 
 class ProjectionMessageHandler:

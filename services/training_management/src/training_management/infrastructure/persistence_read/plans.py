@@ -29,6 +29,7 @@ from training_management.domain.nutrition.intake import FoodIntake
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.events import planned_session_id
 from training_management.domain.routes.model import Route
+from training_management.domain.routines.model import NutritionRoutineTemplate
 from training_management.domain.templates.model import TrainingPlanTemplate
 from training_management.infrastructure.persistence_read.health import health_report_values
 from training_management.infrastructure.persistence_read.metrics import (
@@ -42,6 +43,7 @@ from training_management.infrastructure.persistence_read.models import (
     FoodIntakeViewRow,
     HealthReportViewRow,
     NutritionPlanViewRow,
+    NutritionRoutineTemplateViewRow,
     ProcessedEventRow,
     RouteViewRow,
     SessionMonitoringViewRow,
@@ -58,6 +60,7 @@ from training_management.infrastructure.persistence_read.nutrition import (
     nutrition_plan_values,
 )
 from training_management.infrastructure.persistence_read.routes import route_view_values
+from training_management.infrastructure.persistence_read.routines import routine_view_values
 from training_management.infrastructure.persistence_read.templates import (
     template_view_values,
 )
@@ -388,6 +391,24 @@ class SqlAlchemyProjectionUnitOfWork:
     def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
         values = template_view_values(template, projected_at)
         statement = insert(TrainingPlanTemplateViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["template_id"],
+                set_={key: statement.excluded[key] for key in values if key != "template_id"},
+            )
+        )
+
+    def routine_version(self, template_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(NutritionRoutineTemplateViewRow.version)
+            .where(NutritionRoutineTemplateViewRow.template_id == template_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_routine_view(self, routine: NutritionRoutineTemplate, projected_at: datetime) -> None:
+        values = routine_view_values(routine, projected_at)
+        statement = insert(NutritionRoutineTemplateViewRow).values(**values)
         self.session.execute(
             statement.on_conflict_do_update(
                 index_elements=["template_id"],

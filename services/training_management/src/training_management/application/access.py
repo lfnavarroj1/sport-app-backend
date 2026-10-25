@@ -23,6 +23,7 @@ TEMPLATE_SUGGEST_CAPABILITY = "training.plans.suggest"
 DEVICES_CAPABILITY = "devices.measurement.connect"
 REALTIME_MONITOR_CAPABILITY = "training.realtime.monitor"
 SESSION_REMINDERS_CAPABILITY = "nutrition.session.reminders"
+ROUTINE_SUGGEST_CAPABILITY = "nutrition.routines.suggest"
 
 
 def require_plan_author(caller: Caller, permissions: PermissionPolicy) -> None:
@@ -109,4 +110,12 @@ def require_session_reminders_capability(caller: Caller, capabilities: Capabilit
     `nutrition.session.reminders`. Consulta Afiliación fuera de cualquier transacción."""
     require_athlete(caller)
     if not capabilities.has_capability(caller.user_id, SESSION_REMINDERS_CAPABILITY):
+        raise CapabilityRequired()
+
+
+def require_routine_suggest_capability(caller: Caller, capabilities: CapabilityChecker) -> None:
+    """HU030 (ADR-041): las sugerencias de rutinas alimenticias exigen `athlete` con
+    `nutrition.routines.suggest`. Consulta Afiliación antes de leer."""
+    require_athlete(caller)
+    if not capabilities.has_capability(caller.user_id, ROUTINE_SUGGEST_CAPABILITY):
         raise CapabilityRequired()

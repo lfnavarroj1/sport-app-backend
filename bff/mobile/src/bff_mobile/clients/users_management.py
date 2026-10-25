@@ -1,5 +1,5 @@
 """Cliente HTTP de `users_management` (operaciones del canal móvil y contratos internos de
-HU026: contexto del deportista y nombres del directorio)."""
+HU026: contexto del deportista y nombres del directorio; HU030: restricciones alimenticias)."""
 
 from typing import Any
 from uuid import UUID
@@ -48,6 +48,30 @@ class UsersManagementClient:
         try:
             response = self._http.get(
                 f"/v1/users/{user_id}/athlete-context", headers=headers, timeout=timeout
+            )
+        except httpx.TimeoutException:
+            raise UpstreamTimeout() from None
+        except httpx.TransportError:
+            raise UpstreamUnavailable() from None
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return None
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        document: dict[str, Any] = response.json()
+        return document
+
+    def nutrition_restrictions(self, user_id: UUID, *, timeout: float) -> dict[str, Any] | None:
+        """HU030 (ADR-035): restricciones, alergias y patrón alimenticio del deportista (contrato
+        interno, sin token). Datos de salud: solo transitan en la solicitud, sin caché ni logs.
+        `None` si no hay una cuenta activa (`404`); cualquier otra respuesta distinta de `200` es
+        indisponibilidad."""
+        headers = {}
+        correlation_id = current_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_HEADER] = correlation_id
+        try:
+            response = self._http.get(
+                f"/v1/users/{user_id}/nutrition-restrictions", headers=headers, timeout=timeout
             )
         except httpx.TimeoutException:
             raise UpstreamTimeout() from None

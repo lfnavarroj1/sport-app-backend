@@ -15,6 +15,7 @@ from training_management.api.authorizations import build_authorizations_router
 from training_management.api.authorized_athletes import build_authorized_athletes_router
 from training_management.api.devices import build_devices_router
 from training_management.api.food_catalog import build_food_catalog_router
+from training_management.api.food_intake_history import build_food_intake_history_router
 from training_management.api.food_intakes import build_food_intakes_router
 from training_management.api.health_history import build_health_history_router
 from training_management.api.health_reports import build_health_reports_router
@@ -65,6 +66,7 @@ from training_management.application.queries.active_session import GetActiveTrai
 from training_management.application.queries.authorized_athletes import GetAuthorizedAthletes
 from training_management.application.queries.devices import ListMyDevices
 from training_management.application.queries.food_catalog import GetFoodCatalog
+from training_management.application.queries.food_intakes import GetFoodIntakeHistory
 from training_management.application.queries.get_training_plan import GetTrainingPlan
 from training_management.application.queries.health_history import GetHealthHistory
 from training_management.application.queries.monitoring_settings import GetMonitoringSettings
@@ -113,6 +115,7 @@ from training_management.infrastructure.persistence_read.metrics import (
     SqlAlchemyMetricResultReader,
 )
 from training_management.infrastructure.persistence_read.nutrition import (
+    SqlAlchemyFoodIntakeReader,
     SqlAlchemyNutritionPlanReader,
 )
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
@@ -318,6 +321,14 @@ def create_app(
                     unit_of_work=lambda: SqlAlchemyFoodIntakeUnitOfWork(writes),
                     catalog=food_catalog,
                     clock=clock,
+                ),
+            ),
+            build_food_intake_history_router(
+                verify_token=verifier.verify,
+                get_intakes=GetFoodIntakeHistory(
+                    reader=SqlAlchemyFoodIntakeReader(reads),
+                    authorizations=authorization_views,
+                    permissions=permissions,
                 ),
             ),
             build_routes_router(

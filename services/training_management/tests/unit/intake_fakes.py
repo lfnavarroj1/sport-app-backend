@@ -1,14 +1,20 @@
-"""Dobles en memoria y datos sintéticos para probar HU043 sin infraestructura."""
+"""Dobles en memoria y datos sintéticos para probar HU043 y HU013 sin infraestructura."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from decimal import Decimal
 from types import TracebackType
 from typing import Any, Self
 from uuid import UUID, uuid4
 
+from fakes import NOW, InMemoryReadStore
+
 from training_management.application.errors import IdempotencyKeyConflict, IntakeIdConflict
-from training_management.application.ports import CommandRecord, OutboxMessage
-from training_management.domain.nutrition.intake import FoodIntake
+from training_management.application.ports import CommandRecord, FoodIntakeQuery, OutboxMessage
+from training_management.domain.nutrition.catalog import FOOD_CATALOG_VERSION
+from training_management.domain.nutrition.intake import FoodIntake, IntakeItem
+from training_management.domain.nutrition.model import MealType
 
 
 @dataclass
@@ -97,3 +103,45 @@ def intake_body(**overrides: Any) -> dict[str, Any]:
     }
     values.update(overrides)
     return values
+
+
+def stored_intake(
+    athlete_id: UUID, consumed_at: datetime, meal_type: MealType = MealType.BREAKFAST
+) -> FoodIntake:
+    """HU013: consumo ya proyectado con datos sintéticos."""
+    return FoodIntake(
+        intake_id=uuid4(),
+        athlete_id=athlete_id,
+        consumed_at=consumed_at,
+        meal_type=meal_type,
+        items=(
+            IntakeItem(food_code="OATS", quantity=Decimal("80.0"), unit="G"),
+            IntakeItem(food_code="MILK", quantity=Decimal("250.0"), unit="ML"),
+        ),
+        catalog_version=FOOD_CATALOG_VERSION,
+        registered_at=min(consumed_at + timedelta(minutes=1), NOW),
+    )
+
+
+class InMemoryFoodIntakeReader:
+    """HU013: mismo filtro, orden y keyset que `SqlAlchemyFoodIntakeReader`."""
+
+    def __init__(self, store: InMemoryReadStore) -> None:
+        self.store = store
+
+    def list(self, query: FoodIntakeQuery) -> list[FoodIntake]:
+        intakes = [
+            intake
+            for intake in self.store.food_intakes.values()
+            if intake.athlete_id == query.athlete_id
+            and (query.consumed_from is None or intake.consumed_at >= query.consumed_from)
+            and (query.consumed_before is None or intake.consumed_at < query.consumed_before)
+            and (query.meal_type is None or intake.meal_type.value == query.meal_type)
+            and (
+                query.after is None
+                or (intake.consumed_at, intake.intake_id)
+                < (query.after.consumed_at, query.after.intake_id)
+            )
+        ]
+        intakes.sort(key=lambda intake: (intake.consumed_at, intake.intake_id), reverse=True)
+        return intakes[: query.limit]

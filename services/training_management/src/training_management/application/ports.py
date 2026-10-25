@@ -1041,3 +1041,31 @@ class MeasurementRetentionStore(Protocol):
         """Elimina como máximo `batch_size` muestras con `measured_at` anterior a `older_than`
         en una transacción corta y devuelve cuántas eliminó."""
         ...
+
+
+@dataclass(frozen=True)
+class FoodIntakePosition:
+    """HU013: posición del cursor, último consumo entregado en el orden `consumed_at`,
+    `intake_id` desc."""
+
+    consumed_at: datetime
+    intake_id: UUID
+
+
+@dataclass(frozen=True)
+class FoodIntakeQuery:
+    athlete_id: UUID
+    consumed_from: datetime | None
+    consumed_before: datetime | None
+    meal_type: str | None
+    after: FoodIntakePosition | None
+    limit: int
+
+
+class FoodIntakeReader(Protocol):
+    """Proyección `food_intake_view` (HU043) para el historial de alimentación de HU013."""
+
+    def list(self, query: FoodIntakeQuery) -> list[FoodIntake]:
+        """Hasta `limit` consumos del deportista, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`consumed_at`, `intake_id`) desc."""
+        ...

@@ -1,5 +1,5 @@
-"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU014, HU026,
-HU028 y HU018).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU010, HU011, HU013, HU014,
+HU026, HU028 y HU018).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad,
 permiso, capacidad y autorización del deportista.
@@ -82,6 +82,13 @@ class TrainingManagementClient:
     def list_my_nutrition_plans(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU014: planes de alimentación propios del deportista del token."""
         return self._send("GET", "/v1/me/nutrition-plans", access_token, params=params)
+
+    def list_food_intakes(
+        self, access_token: str, athlete_id: UUID | None, params: dict[str, str]
+    ) -> httpx.Response:
+        """HU013: consumos propios (`athlete_id=None`) o de un deportista que autorizó."""
+        path = f"/v1/athletes/{athlete_id}/food-intakes" if athlete_id else "/v1/me/food-intakes"
+        return self._send("GET", path, access_token, params=params)
 
     def food_catalog(self, access_token: str, if_none_match: str | None) -> httpx.Response:
         """HU014: catálogo cerrado de alimentos con `ETag`; `304` si `If-None-Match` coincide."""

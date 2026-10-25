@@ -41,11 +41,11 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.29.0"
+API_VERSION = "0.30.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
-CORS_ALLOWED_METHODS = ("GET", "POST", "PUT", "DELETE")
+CORS_ALLOWED_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 CORS_ALLOWED_HEADERS = (
     "Authorization",
     "Content-Type",

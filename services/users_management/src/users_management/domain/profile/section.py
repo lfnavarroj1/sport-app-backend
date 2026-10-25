@@ -26,6 +26,14 @@ class VersionConflict(Exception):
         self.current_version = current_version
 
 
+class SectionNotFound(Exception):
+    """El comando edita una sección que todavía no existe (HU008: primero HU006)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 def next_version(expected_version: int | None, current_version: int | None) -> int:
     """Versión que tendrá la sección; un conflicto nunca se sobrescribe en silencio.
 

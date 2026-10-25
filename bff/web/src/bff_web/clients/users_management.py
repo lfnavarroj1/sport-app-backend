@@ -90,6 +90,19 @@ class UsersManagementClient:
             idempotency_key=idempotency_key,
         )
 
+    def patch_sport_habits(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU008 (ADR-035): edición parcial; bytes del cuerpo y clave tal cual. El servicio
+        fusiona, valida y responde `404`, `409` o `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PATCH",
+            "/v1/me/sport-habits",
+            access_token,
+            content=body,
+            idempotency_key=idempotency_key,
+        )
+
     def put_nutrition_habits(
         self, access_token: str, body: bytes, idempotency_key: str | None
     ) -> httpx.Response:

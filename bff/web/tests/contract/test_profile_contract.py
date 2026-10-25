@@ -1,4 +1,4 @@
-"""HU005, HU006 y HU009 (ADR-034 y ADR-035): `bff-web` expone las cinco operaciones del
+"""HU005, HU006, HU008 y HU009 (ADR-034 y ADR-035): `bff-web` expone las seis operaciones del
 perfil con el mismo
 contrato que `users-management`.
 
@@ -18,6 +18,7 @@ OPERATIONS = (
     ("/v1/me/demographic-profile", "put"),
     ("/v1/me/physiological-profile", "put"),
     ("/v1/me/sport-habits", "put"),
+    ("/v1/me/sport-habits", "patch"),
     ("/v1/me/nutrition-habits", "put"),
     ("/v1/me/profile", "get"),
 )

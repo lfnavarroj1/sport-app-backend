@@ -8,6 +8,7 @@ from typing import Any, Self
 from uuid import UUID, uuid4
 
 from users_management.application.commands.login import Login
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
 from users_management.application.commands.revoke_session import RevokeSession
@@ -424,6 +425,17 @@ def update_sport_habits_with(
     before_commit: Callable[[], None] | None = None,
 ) -> UpdateSportHabits:
     return UpdateSportHabits(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+    )
+
+
+def patch_sport_habits_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> PatchSportHabits:
+    return PatchSportHabits(
         unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
         clock=clock or FixedClock(),
     )

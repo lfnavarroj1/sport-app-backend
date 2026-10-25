@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sportapp_platform.migrations import upgrade
 from sportapp_platform.testing.postgres import temporary_database
 from users_management.application.commands.login import Login
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import (
     RegisterUser,
@@ -120,6 +121,9 @@ class WriteDatabase:
 
     def update_sport_habits(self, clock: Clock | None = None) -> UpdateSportHabits:
         return UpdateSportHabits(unit_of_work=self.profile, clock=clock or SystemClock())
+
+    def patch_sport_habits(self, clock: Clock | None = None) -> PatchSportHabits:
+        return PatchSportHabits(unit_of_work=self.profile, clock=clock or SystemClock())
 
     def update_nutrition_habits(self, clock: Clock | None = None) -> UpdateNutritionHabits:
         return UpdateNutritionHabits(

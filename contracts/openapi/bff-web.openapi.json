@@ -5700,7 +5700,7 @@
   },
   "info": {
     "title": "SportApp - BFF web",
-    "version": "0.29.0"
+    "version": "0.30.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -9899,6 +9899,343 @@
       }
     },
     "/v1/me/sport-habits": {
+      "patch": {
+        "description": "Cada sección enviada (`sports`, `availability`, `primary_goal`) reemplaza completa a la vigente y las demás se conservan; se revalida el agregado completo. No modifica planes de entrenamiento vigentes.",
+        "operationId": "patch_sport_habits_v1_me_sport_habits_patch",
+        "parameters": [
+          {
+            "description": "UUID; obligatorio (lo valida el servicio).",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "UUID; obligatorio (lo valida el servicio).",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "required": [
+                      "sports"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "availability"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "primary_goal"
+                    ]
+                  }
+                ],
+                "description": "Edición parcial de los hábitos deportivos (HU008, ADR-035): una o más secciones; cada\nsección enviada reemplaza completa a la vigente y las no enviadas se conservan.\n`primary_goal: null` borra el objetivo. Sin secciones → `422 required` (`field: null`).",
+                "properties": {
+                  "availability": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "days": {
+                            "description": "Valores únicos.",
+                            "items": {
+                              "enum": [
+                                "MON",
+                                "TUE",
+                                "WED",
+                                "THU",
+                                "FRI",
+                                "SAT",
+                                "SUN"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 7,
+                            "minItems": 1,
+                            "title": "Days",
+                            "type": "array"
+                          },
+                          "time_slots": {
+                            "description": "Valores únicos.",
+                            "items": {
+                              "enum": [
+                                "MORNING",
+                                "AFTERNOON",
+                                "EVENING",
+                                "NIGHT"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 4,
+                            "minItems": 1,
+                            "title": "Time Slots",
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "days",
+                          "time_slots"
+                        ],
+                        "title": "SportAvailability",
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Reemplaza días y franjas."
+                  },
+                  "expected_version": {
+                    "description": "Obligatoria: la versión vigente de los hábitos.",
+                    "minimum": 1,
+                    "title": "Expected Version",
+                    "type": "integer"
+                  },
+                  "primary_goal": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "HEALTH",
+                          "PERFORMANCE",
+                          "WEIGHT_MANAGEMENT",
+                          "RECREATION",
+                          "COMPETITION"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Enviado como `null`, borra el objetivo.",
+                    "title": "Primary Goal"
+                  },
+                  "sports": {
+                    "anyOf": [
+                      {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "frequency_per_week": {
+                              "maximum": 7,
+                              "minimum": 1,
+                              "title": "Frequency Per Week",
+                              "type": "integer"
+                            },
+                            "intensity": {
+                              "enum": [
+                                "LOW",
+                                "MODERATE",
+                                "HIGH"
+                              ],
+                              "title": "Intensity",
+                              "type": "string"
+                            },
+                            "level": {
+                              "enum": [
+                                "BEGINNER",
+                                "INTERMEDIATE",
+                                "ADVANCED"
+                              ],
+                              "title": "Level",
+                              "type": "string"
+                            },
+                            "session_duration_minutes": {
+                              "maximum": 600,
+                              "minimum": 10,
+                              "title": "Session Duration Minutes",
+                              "type": "integer"
+                            },
+                            "sport": {
+                              "description": "Catálogo de deportes de HU010; sin repetir.",
+                              "enum": [
+                                "running",
+                                "cycling",
+                                "swimming",
+                                "strength",
+                                "other"
+                              ],
+                              "title": "Sport",
+                              "type": "string"
+                            },
+                            "years_practicing": {
+                              "anyOf": [
+                                {
+                                  "maximum": 80,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "Years Practicing"
+                            }
+                          },
+                          "required": [
+                            "sport",
+                            "frequency_per_week",
+                            "session_duration_minutes",
+                            "intensity",
+                            "level"
+                          ],
+                          "title": "SportHabit",
+                          "type": "object"
+                        },
+                        "maxItems": 5,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Reemplaza la lista completa.",
+                    "title": "Sports"
+                  }
+                },
+                "required": [
+                  "expected_version"
+                ],
+                "title": "SportHabitsPatchRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SportHabitsResponse"
+                }
+              }
+            },
+            "description": "Secciones actualizadas (o reintento): estado completo con la versión nueva.",
+            "headers": {
+              "Cache-Control": {
+                "description": "`no-store`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista (`athlete`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`sport_habits_not_found`: primero se registran los hábitos (HU006)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` con `details=[{field: \"expected_version\", issue: \"<versión vigente>\"}]`, o `idempotency_key_reused` (la clave ya se usó con otro cuerpo o por otro deportista)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` (catálogo de ADR-034); incluye `Idempotency-Key` ausente (`required`) o que no es un UUID (`unknown_value`). Todo o nada: no se guarda ningún dato parcial."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`."
+          }
+        },
+        "summary": "Actualizar parcialmente mis hábitos deportivos (HU008, ADR-035)",
+        "tags": [
+          "profile"
+        ]
+      },
       "put": {
         "description": "Registrar hábitos no crea planes ni recomendaciones.",
         "operationId": "put_sport_habits_v1_me_sport_habits_put",

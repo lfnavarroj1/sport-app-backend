@@ -17,7 +17,7 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from projection_support import ReadDatabase, profile_envelope, read_database, registered_envelope
-from sqlalchemy import create_engine, insert, pool
+from sqlalchemy import create_engine, insert, null, pool
 from sqlalchemy.orm import sessionmaker
 
 from sportapp_platform.app import create_service_app
@@ -137,8 +137,16 @@ class AthletesSearchPersistenceTest(unittest.TestCase):
         ]
         with self.read.sessions() as session, session.begin():
             session.execute(insert(UserDirectoryRow), directory)
-            if with_profile:
+            if with_profile and sport_list is not None and city is not None:
                 session.execute(insert(AthleteProfileViewRow), profiles)
+            elif with_profile:
+                # Una sección ausente es `NULL` de SQL, no el JSON `null` que dejaría un
+                # `None` en una columna JSONB (la restricción de sección y versión lo exige).
+                for profile in profiles:
+                    values = {
+                        key: null() if value is None else value for key, value in profile.items()
+                    }
+                    session.execute(insert(AthleteProfileViewRow).values(**values))
         return user_ids
 
     def found(self, criteria: AthleteSearchCriteria) -> list[UUID]:

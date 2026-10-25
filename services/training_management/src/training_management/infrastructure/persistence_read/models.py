@@ -38,6 +38,8 @@ ROUTE_LATEST_INDEX = "ix_route_view_status_published"
 TEMPLATE_SUGGESTION_INDEX = "ix_training_plan_template_view_suggestion"
 TEMPLATE_PROFESSIONAL_ORDER_INDEX = "ix_training_plan_template_view_professional_order"
 TEMPLATE_LATEST_INDEX = "ix_training_plan_template_view_status_published"
+ROUTINE_PROFESSIONAL_ORDER_INDEX = "ix_nutrition_routine_template_view_professional_order"
+ROUTINE_LATEST_INDEX = "ix_nutrition_routine_template_view_status_published"
 SESSION_RISK_ALERT_ORDER_INDEX = "ix_session_risk_alert_view_session_order"
 
 
@@ -349,6 +351,40 @@ class TrainingPlanTemplateViewRow(ReadBase):
     status: Mapped[str] = mapped_column(String(16))
     sport: Mapped[str] = mapped_column(String(16))
     goal: Mapped[str] = mapped_column(String(32))
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NutritionRoutineTemplateViewRow(ReadBase):
+    """Rutina alimenticia (HU030) a partir de `plantilla_rutina.*.v1`; reconstruible.
+
+    `document` es el estado completo de la rutina (el mismo de la respuesta); `dietary_pattern`
+    y `contains_allergens` se copian como columnas para excluir en la consulta de sugerencias.
+    """
+
+    __tablename__ = "nutrition_routine_template_view"
+    __table_args__ = (
+        # Orden estable de `GET /v1/me/nutrition-routine-templates`.
+        Index(
+            ROUTINE_PROFESSIONAL_ORDER_INDEX,
+            "professional_id",
+            text("created_at DESC"),
+            text("template_id DESC"),
+        ),
+        # Sugerencias: publicadas en orden de publicación.
+        Index(ROUTINE_LATEST_INDEX, "status", text("published_at DESC"), text("template_id DESC")),
+    )
+
+    template_id: Mapped[UUID] = mapped_column(primary_key=True)
+    professional_id: Mapped[UUID]
+    status: Mapped[str] = mapped_column(String(16))
+    goal: Mapped[str] = mapped_column(String(32))
+    sport: Mapped[str | None] = mapped_column(String(16))
+    dietary_pattern: Mapped[str] = mapped_column(String(16))
+    contains_allergens: Mapped[list[str]] = mapped_column(JSONB)
     document: Mapped[dict[str, Any]] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -2665,6 +2665,283 @@
         "title": "RouteSuggestionsResponse",
         "type": "object"
       },
+      "RoutineItem": {
+        "properties": {
+          "food_code": {
+            "title": "Food Code",
+            "type": "string"
+          },
+          "portions": {
+            "title": "Portions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "food_code",
+          "portions"
+        ],
+        "title": "RoutineItem",
+        "type": "object"
+      },
+      "RoutineMeal": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "meal": {
+            "enum": [
+              "BREAKFAST",
+              "LUNCH",
+              "DINNER",
+              "SNACK",
+              "HYDRATION"
+            ],
+            "title": "Meal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meal",
+          "items"
+        ],
+        "title": "RoutineMeal",
+        "type": "object"
+      },
+      "RoutineReference": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "nutrition_routine_template",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "title": "RoutineReference",
+        "type": "object"
+      },
+      "RoutineSuggestionItem": {
+        "properties": {
+          "author_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nombre del profesional; `null` si Usuarios no respondió.",
+            "title": "Author Name"
+          },
+          "contains_allergens": {
+            "description": "Alérgenos de la rutina, en el orden del catálogo.",
+            "items": {
+              "enum": [
+                "PEANUTS",
+                "TREE_NUTS",
+                "MILK",
+                "EGGS",
+                "WHEAT",
+                "SOY",
+                "FISH",
+                "SHELLFISH",
+                "SESAME"
+              ],
+              "type": "string"
+            },
+            "title": "Contains Allergens",
+            "type": "array"
+          },
+          "daily_meals": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineMeal"
+            },
+            "title": "Daily Meals",
+            "type": "array"
+          },
+          "dietary_pattern": {
+            "enum": [
+              "OMNIVORE",
+              "VEGETARIAN",
+              "VEGAN",
+              "PESCATARIAN",
+              "FLEXITARIAN"
+            ],
+            "title": "Dietary Pattern",
+            "type": "string"
+          },
+          "duration_days": {
+            "title": "Duration Days",
+            "type": "integer"
+          },
+          "goal": {
+            "enum": [
+              "HEALTH",
+              "PERFORMANCE",
+              "WEIGHT_MANAGEMENT",
+              "RECREATION",
+              "COMPETITION"
+            ],
+            "title": "Goal",
+            "type": "string"
+          },
+          "professional_id": {
+            "description": "Profesional autor de la rutina.",
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "published_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "reasons": {
+            "description": "Motivos de la sugerencia; vacío en la lista no personalizada.",
+            "items": {
+              "enum": [
+                "RESTRICTION_COMPATIBLE",
+                "GOAL_MATCH",
+                "SPORT_MATCH"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/RoutineReference"
+          },
+          "sport": {
+            "anyOf": [
+              {
+                "enum": [
+                  "running",
+                  "cycling",
+                  "swimming",
+                  "strength",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sport"
+          },
+          "summary": {
+            "description": "Descripción de la rutina.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Título de la rutina.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "title",
+          "summary",
+          "reasons",
+          "template_id",
+          "professional_id",
+          "goal",
+          "sport",
+          "dietary_pattern",
+          "contains_allergens",
+          "duration_days",
+          "daily_meals",
+          "published_at",
+          "author_name"
+        ],
+        "title": "RoutineSuggestionItem",
+        "type": "object"
+      },
+      "RoutineSuggestionsResponse": {
+        "properties": {
+          "generated_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineSuggestionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "missing_context": {
+            "description": "Datos del perfil que faltan: `nutrition_habits` (HU009, también si Usuarios no respondió), `sports` y `primary_goal` (HU006; ambos si Usuarios no respondió).",
+            "items": {
+              "enum": [
+                "nutrition_habits",
+                "sports",
+                "primary_goal"
+              ],
+              "type": "string"
+            },
+            "title": "Missing Context",
+            "type": "array"
+          },
+          "notices": {
+            "description": "Avisos fijos que el cliente localiza: `RESTRICTIONS_NOT_VERIFIED` cuando la lista no está personalizada (no se comprobaron alergias ni patrón alimenticio) y `NOT_MEDICAL_ADVICE` siempre (la sugerencia no reemplaza una valoración médica).",
+            "items": {
+              "enum": [
+                "RESTRICTIONS_NOT_VERIFIED",
+                "NOT_MEDICAL_ADVICE"
+              ],
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "personalized": {
+            "description": "`false` sin hábitos alimenticios registrados (HU009) o si Usuarios no respondió: últimas rutinas publicadas, sin motivos y sin verificar restricciones.",
+            "title": "Personalized",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "personalized",
+          "missing_context",
+          "notices",
+          "generated_at",
+          "sources"
+        ],
+        "title": "RoutineSuggestionsResponse",
+        "type": "object"
+      },
       "SampleIssue": {
         "description": "Motivos por muestra de `training-management` (ADR-044); el BFF solo los documenta.",
         "enum": [
@@ -3845,7 +4122,7 @@
   },
   "info": {
     "title": "SportApp - BFF móvil",
-    "version": "0.20.0"
+    "version": "0.21.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7067,6 +7344,114 @@
           }
         },
         "summary": "Eventos sugeridos (HU027)",
+        "tags": [
+          "suggestions"
+        ]
+      }
+    },
+    "/v1/me/suggestions/nutrition-routines": {
+      "get": {
+        "description": "Rutinas publicadas por profesionales compatibles con el patrón alimenticio y sin los alérgenos del deportista (HU009): primero las de su objetivo, luego las de sus deportes y las más recientes, con `reasons`. Sin hábitos alimenticios registrados o sin respuesta de Usuarios: las últimas publicadas, `personalized: false`, `missing_context` y el aviso `RESTRICTIONS_NOT_VERIFIED`. Una rutina retirada no se sugiere. Sugerir no asigna la rutina ni reemplaza una valoración médica.",
+        "operationId": "nutrition_routine_suggestions_v1_me_suggestions_nutrition_routines_get",
+        "parameters": [
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineSuggestionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`nutrition.routines.suggest`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.limit` (`out_of_range`, también si no es un entero)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: plan no verificable o Entrenamientos caído (si solo falla Usuarios, la lista se entrega sin personalizar)."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: plan o Entrenamientos sin respuesta."
+          }
+        },
+        "summary": "Rutinas de alimentación sugeridas (HU030)",
         "tags": [
           "suggestions"
         ]

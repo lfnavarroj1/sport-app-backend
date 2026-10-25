@@ -63,6 +63,22 @@
         "title": "AlertSeverity",
         "type": "string"
       },
+      "Allergy": {
+        "description": "Catálogo de alergias de HU009 (ADR-035), en su orden.",
+        "enum": [
+          "PEANUTS",
+          "TREE_NUTS",
+          "MILK",
+          "EGGS",
+          "WHEAT",
+          "SOY",
+          "FISH",
+          "SHELLFISH",
+          "SESAME"
+        ],
+        "title": "Allergy",
+        "type": "string"
+      },
       "AuthorizedAthleteItem": {
         "properties": {
           "athlete_id": {
@@ -612,6 +628,18 @@
         ],
         "title": "DevicesResponse",
         "type": "object"
+      },
+      "DietPattern": {
+        "description": "Catálogo `diet_pattern` de HU009 (ADR-035).",
+        "enum": [
+          "OMNIVORE",
+          "VEGETARIAN",
+          "VEGAN",
+          "PESCATARIAN",
+          "FLEXITARIAN"
+        ],
+        "title": "DietPattern",
+        "type": "string"
       },
       "Difficulty": {
         "enum": [
@@ -1866,6 +1894,78 @@
         "title": "PublishRouteRequest",
         "type": "object"
       },
+      "PublishRoutineRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contains_allergens": {
+            "description": "Alérgenos que contiene (catálogo de HU009), sin repetir; puede ir vacía. El servicio agrega los alérgenos del catálogo de cada alimento.",
+            "items": {
+              "$ref": "#/components/schemas/Allergy"
+            },
+            "maxItems": 9,
+            "title": "Contains Allergens",
+            "type": "array"
+          },
+          "daily_meals": {
+            "description": "Comidas de un día tipo, en el orden del profesional.",
+            "items": {
+              "$ref": "#/components/schemas/RoutineMealRequest"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Daily Meals",
+            "type": "array"
+          },
+          "description": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "dietary_pattern": {
+            "$ref": "#/components/schemas/DietPattern",
+            "description": "Patrón alimenticio de la rutina (catálogo de HU009)."
+          },
+          "duration_days": {
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Duration Days",
+            "type": "integer"
+          },
+          "goal": {
+            "$ref": "#/components/schemas/Goal",
+            "description": "Catálogo de objetivos de ADR-034."
+          },
+          "sport": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deporte opcional (catálogo de HU010)."
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "goal",
+          "dietary_pattern",
+          "contains_allergens",
+          "duration_days",
+          "daily_meals"
+        ],
+        "title": "PublishRoutineRequest",
+        "type": "object"
+      },
       "PublishTemplateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2066,6 +2166,22 @@
           "expected_version"
         ],
         "title": "RetireRouteRequest",
+        "type": "object"
+      },
+      "RetireRoutineRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "description": "Versión vigente que conoce el cliente.",
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "RetireRoutineRequest",
         "type": "object"
       },
       "RetireTemplateRequest": {
@@ -2481,6 +2597,390 @@
           "next_cursor"
         ],
         "title": "RoutesResponse",
+        "type": "object"
+      },
+      "RoutineItemRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "food_code": {
+            "description": "Código del catálogo de alimentos (`GET /v1/food-catalog`).",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Food Code",
+            "type": "string"
+          },
+          "portions": {
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Portions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "food_code",
+          "portions"
+        ],
+        "title": "RoutineItemRequest",
+        "type": "object"
+      },
+      "RoutineItemResponse": {
+        "properties": {
+          "food_code": {
+            "title": "Food Code",
+            "type": "string"
+          },
+          "portions": {
+            "title": "Portions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "food_code",
+          "portions"
+        ],
+        "title": "RoutineItemResponse",
+        "type": "object"
+      },
+      "RoutineMealRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineItemRequest"
+            },
+            "maxItems": 15,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "meal": {
+            "$ref": "#/components/schemas/MealType"
+          }
+        },
+        "required": [
+          "meal",
+          "items"
+        ],
+        "title": "RoutineMealRequest",
+        "type": "object"
+      },
+      "RoutineMealResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "meal": {
+            "$ref": "#/components/schemas/MealType"
+          }
+        },
+        "required": [
+          "meal",
+          "items"
+        ],
+        "title": "RoutineMealResponse",
+        "type": "object"
+      },
+      "RoutineResponse": {
+        "properties": {
+          "contains_allergens": {
+            "description": "En el orden del catálogo de HU009.",
+            "items": {
+              "$ref": "#/components/schemas/Allergy"
+            },
+            "title": "Contains Allergens",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "daily_meals": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineMealResponse"
+            },
+            "title": "Daily Meals",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "dietary_pattern": {
+            "$ref": "#/components/schemas/DietPattern"
+          },
+          "duration_days": {
+            "description": "Vigencia de la rutina en días.",
+            "title": "Duration Days",
+            "type": "integer"
+          },
+          "goal": {
+            "$ref": "#/components/schemas/Goal"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "sport": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "PUBLISHED",
+              "RETIRED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "template_id",
+          "professional_id",
+          "title",
+          "description",
+          "goal",
+          "sport",
+          "dietary_pattern",
+          "contains_allergens",
+          "duration_days",
+          "daily_meals",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "published_at",
+          "retired_at"
+        ],
+        "title": "RoutineResponse",
+        "type": "object"
+      },
+      "RoutineSuggestionResponse": {
+        "properties": {
+          "contains_allergens": {
+            "description": "En el orden del catálogo de HU009.",
+            "items": {
+              "$ref": "#/components/schemas/Allergy"
+            },
+            "title": "Contains Allergens",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "daily_meals": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineMealResponse"
+            },
+            "title": "Daily Meals",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "dietary_pattern": {
+            "$ref": "#/components/schemas/DietPattern"
+          },
+          "duration_days": {
+            "description": "Vigencia de la rutina en días.",
+            "title": "Duration Days",
+            "type": "integer"
+          },
+          "goal": {
+            "$ref": "#/components/schemas/Goal"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "reasons": {
+            "description": "Motivos de la sugerencia; vacío en la lista no personalizada.",
+            "items": {
+              "enum": [
+                "RESTRICTION_COMPATIBLE",
+                "GOAL_MATCH",
+                "SPORT_MATCH"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "sport": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "PUBLISHED",
+              "RETIRED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "template_id",
+          "professional_id",
+          "title",
+          "description",
+          "goal",
+          "sport",
+          "dietary_pattern",
+          "contains_allergens",
+          "duration_days",
+          "daily_meals",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "published_at",
+          "retired_at",
+          "reasons"
+        ],
+        "title": "RoutineSuggestionResponse",
+        "type": "object"
+      },
+      "RoutineSuggestionsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineSuggestionResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "personalized": {
+            "description": "`false` si no llegó `dietary_pattern` (sin hábitos alimenticios): últimas publicadas, sin motivos y sin verificar restricciones.",
+            "title": "Personalized",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "personalized"
+        ],
+        "title": "RoutineSuggestionsResponse",
+        "type": "object"
+      },
+      "RoutinesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "RoutinesResponse",
         "type": "object"
       },
       "SampleIssue": {
@@ -3427,7 +3927,7 @@
   },
   "info": {
     "title": "SportApp - Entrenamientos",
-    "version": "0.18.0"
+    "version": "0.20.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5266,6 +5766,122 @@
         ]
       }
     },
+    "/v1/me/nutrition-routine-templates": {
+      "get": {
+        "description": "Rutinas publicadas y retiradas del profesional autenticado, orden `created_at` desc y `template_id` desc.",
+        "operationId": "my_routines_v1_me_nutrition_routine_templates_get",
+        "parameters": [
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutinesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`nutrition.plan.author`, solo profesional)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.limit` (`out_of_range`, también si no es un entero) o `query.cursor` (`invalid_cursor`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          }
+        },
+        "summary": "Mis rutinas alimenticias (HU030, lectura CQRS)",
+        "tags": [
+          "nutrition-routine-templates"
+        ]
+      }
+    },
     "/v1/me/routes": {
       "get": {
         "description": "Rutas publicadas y retiradas del organizador autenticado, orden `created_at` desc y `route_id` desc. Refleja un comando cuando el proyector aplica su evento.",
@@ -5637,6 +6253,192 @@
         "summary": "Configurar mis recordatorios durante la sesión (HU038)",
         "tags": [
           "training-session-reminders"
+        ]
+      }
+    },
+    "/v1/me/suggestions/nutrition-routines": {
+      "get": {
+        "description": "Con `dietary_pattern`: rutinas `PUBLISHED` sin los alérgenos indicados y con un patrón apto para el del deportista (las demás se excluyen), primero las de su objetivo, luego las de sus deportes y después por `published_at` y `template_id` descendentes, con `reasons`. Sin `dietary_pattern`: las últimas publicadas, `personalized: false` y sin motivos. Los filtros los envía `bff-mobile` con los datos de Usuarios; nunca el cliente.",
+        "operationId": "routine_suggestions_v1_me_suggestions_nutrition_routines_get",
+        "parameters": [
+          {
+            "description": "Patrón alimenticio del deportista (HU009).",
+            "in": "query",
+            "name": "dietary_pattern",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DietPattern"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Patrón alimenticio del deportista (HU009).",
+              "title": "Dietary Pattern"
+            }
+          },
+          {
+            "description": "Alergias del deportista (HU009); repetible.",
+            "in": "query",
+            "name": "exclude_allergens",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/Allergy"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Alergias del deportista (HU009); repetible.",
+              "title": "Exclude Allergens"
+            }
+          },
+          {
+            "description": "Deportes del deportista (HU006); repetible.",
+            "in": "query",
+            "name": "sport",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/Sport"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Deportes del deportista (HU006); repetible.",
+              "title": "Sport"
+            }
+          },
+          {
+            "description": "Objetivo principal del deportista (HU006).",
+            "in": "query",
+            "name": "primary_goal",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Goal"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Objetivo principal del deportista (HU006).",
+              "title": "Primary Goal"
+            }
+          },
+          {
+            "description": "Entero de 1 a 50; 20 por defecto.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50; 20 por defecto.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineSuggestionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (no es deportista) o `capability_required` (`nutrition.routines.suggest`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.limit` (`out_of_range`), `query.exclude_allergens` o `query.sport` (valor desconocido o `duplicate_value`), `query.dietary_pattern` o `query.primary_goal` (desconocido) y `query.dietary_pattern` `required` si llegan alergias sin patrón."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o plan."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_timeout`: Afiliación no respondió a tiempo."
+          }
+        },
+        "summary": "Rutinas alimenticias sugeridas para el deportista (HU030, lectura CQRS)",
+        "tags": [
+          "nutrition-routine-templates"
         ]
       }
     },
@@ -6549,6 +7351,250 @@
         "summary": "Consultar un plan de alimentación (HU014)",
         "tags": [
           "nutrition-plans"
+        ]
+      }
+    },
+    "/v1/nutrition-routine-templates": {
+      "post": {
+        "description": "La rutina nace `PUBLISHED` en versión 1; no es un plan asignado ni incluye envío, compra o pago. Reintentar con la misma `Idempotency-Key` (24 horas) devuelve la misma rutina.",
+        "operationId": "publish_routine_v1_nutrition_routine_templates_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRoutineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "`/v1/nutrition-routine-templates/{template_id}`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`nutrition.plan.author`, solo profesional)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]` por campo (longitudes, catálogos, días, comidas, porciones); `body.daily_meals.<i>.items.<j>.food_code` con `unknown_value` si el alimento no existe en el catálogo o `conflicts_with_restriction` si es incompatible con el `dietary_pattern` declarado; `body.contains_allergens` con `duplicate_value`. Nada se publica."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          }
+        },
+        "summary": "Publicar una rutina alimenticia (HU030)",
+        "tags": [
+          "nutrition-routine-templates"
+        ]
+      }
+    },
+    "/v1/nutrition-routine-templates/{template_id}/retire": {
+      "post": {
+        "description": "`PUBLISHED` → `RETIRED` con la versión siguiente; la rutina se conserva y deja de sugerirse. Una rutina ya retirada se devuelve tal cual (retiro idempotente).",
+        "operationId": "retire_routine_v1_nutrition_routine_templates__template_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Template Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireRoutineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required` (`nutrition.plan.author`, solo profesional)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`template_not_found`: no existe o es de otro profesional."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict`: `details[0]` = `{field: expected_version, issue: <versión vigente>}`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `body.expected_version`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar identidad o capacidades."
+          }
+        },
+        "summary": "Retirar una rutina alimenticia propia (HU030)",
+        "tags": [
+          "nutrition-routine-templates"
         ]
       }
     },

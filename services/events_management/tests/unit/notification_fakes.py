@@ -221,6 +221,13 @@ class InMemoryDeliveries:
     def targets(self, recipient_id: UUID) -> list[PushTarget]:
         return self.targets_by_recipient.get(recipient_id, [])
 
+    def sent_token_ids(self, notification_id: UUID) -> set[UUID]:
+        return {
+            record["token_id"]
+            for record in self.records
+            if record["notification_id"] == notification_id and record["sent"]
+        }
+
     def record(
         self,
         notification_id: UUID,

@@ -8,7 +8,10 @@ un access token OAuth 2.0 de la cuenta de servicio `FCM_SERVICE_ACCOUNT` (alcanc
 Clasificación de respuestas (reintento acotado en `DeliverPush`):
 - `200` → entregado a FCM;
 - `429`, `5xx`, timeout o error de red → `PushFailed` (transitorio, con `Retry-After`);
-- cualquier otro estado (p. ej. `400`, `403`, `404` token no registrado) → `PushRejected`.
+- cualquier otro estado (p. ej. `400`, `403`, `404` token no registrado) → `PushRejected`;
+- un fallo al obtener el access token de la cuenta de servicio → `PushFailed`
+  (`credential_error`), para que quede registrado.
+La prioridad de Android sigue la de la notificación (`HIGH` o `NORMAL`).
 El token del dispositivo y la credencial nunca se registran.
 """
 
@@ -42,12 +45,17 @@ class FcmPushSender:
         self._access_token = access_token
 
     def send(self, token: str, data: dict[str, str]) -> None:
-        body = {"message": {"token": token, "data": data, "android": {"priority": "HIGH"}}}
+        priority = "HIGH" if data.get("priority") == "HIGH" else "NORMAL"
+        body = {"message": {"token": token, "data": data, "android": {"priority": priority}}}
+        try:
+            access_token = self._access_token()
+        except Exception:
+            raise PushFailed("credential_error") from None
         try:
             response = self._http.post(
                 self._path,
                 json=body,
-                headers={"Authorization": f"Bearer {self._access_token()}"},
+                headers={"Authorization": f"Bearer {access_token}"},
             )
         except httpx.TimeoutException:
             raise PushFailed("timeout") from None

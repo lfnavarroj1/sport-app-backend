@@ -11,7 +11,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from support import EventDatabases, event_databases
 
 from events_management.application.commands.generate_notifications import (
@@ -45,7 +45,10 @@ from events_management.infrastructure.integrations.fcm import FcmPushSender
 from events_management.infrastructure.persistence_read.events import (
     SqlAlchemyProjectionUnitOfWork,
 )
-from events_management.infrastructure.persistence_read.models import NotificationInboxViewRow
+from events_management.infrastructure.persistence_read.models import (
+    NotificationInboxViewRow,
+    ProcessedEventRow,
+)
 from events_management.infrastructure.persistence_read.notifications import SqlAlchemyInboxReader
 from events_management.infrastructure.persistence_write.models import (
     EventRegistrationRow,
@@ -382,6 +385,54 @@ class NotificationsPersistenceTest(unittest.TestCase):
             delivery = session.scalars(select(NotificationDeliveryRow)).one()
         self.assertEqual((delivery.status, delivery.attempts), ("FAILED", 3))
         self.assertEqual(delivery.last_error, "http_503")
+
+    def test_rebuilding_the_inbox_does_not_push_again(self) -> None:
+        """I-2 (CMP-004): vaciar la bandeja y `processed_event` y volver a proyectar recrea la
+        notificación, pero el *push* ya entregado (`SENT`) no se repite."""
+        athlete = uuid4()
+        SqlAlchemyPushTokenStore(self.db.writes, CIPHER).register(
+            athlete, "dispositivo-sintetico", "android", datetime.now(UTC)
+        )
+        requests: list[httpx.Request] = []
+
+        def accepted(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json={"name": "projects/sportapp-test/messages/1"})
+
+        deliver = DeliverPush(
+            store=SqlAlchemyPushDeliveryStore(self.db.writes, CIPHER),
+            sender=FcmPushSender(
+                httpx.Client(base_url="https://fcm.test", transport=httpx.MockTransport(accepted)),
+                project_id="sportapp-test",
+                access_token=lambda: "acceso",
+            ),
+            clock=SystemClock(),
+            sleep=lambda _: None,
+        )
+        event = self.event(self.db.publish_event())
+        self.generate(ListDirectory([athlete]))(event, message_id=uuid4(), correlation_id=None)
+        store = SqlAlchemyOutboxStore(self.db.writes)
+        messages = [
+            parse_sport_event_message(build_envelope(claimed))
+            for claimed in store.claim_batch("test", 10, 30)
+        ]
+        self.assertEqual(len(messages), 1)
+        project = EventsProjector(
+            unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(self.db.reads),
+            clock=SystemClock(),
+            deliver_push=deliver,
+        )
+        project(messages[0])
+        with self.db.reads() as session, session.begin():
+            session.execute(delete(NotificationInboxViewRow))
+            session.execute(delete(ProcessedEventRow))
+        project(messages[0])
+
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(self.db.count(NotificationInboxViewRow, read=True), 1)
+        with self.db.writes() as session:
+            delivery = session.scalars(select(NotificationDeliveryRow)).one()
+        self.assertEqual((delivery.status, delivery.attempts), ("SENT", 1))
 
     def test_disabled_push_preference_sends_nothing(self) -> None:
         athlete = uuid4()

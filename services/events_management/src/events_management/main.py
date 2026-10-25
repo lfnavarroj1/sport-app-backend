@@ -69,7 +69,7 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "events-management"
-API_VERSION = "0.10.0"
+API_VERSION = "0.10.1"
 
 
 def create_app(
@@ -107,9 +107,13 @@ def create_app(
     )
     # HU025: inscripciones contadas en la base de escritura (sin contador proyectado).
     registration_counter = SqlAlchemyRegistrationCounter(writes)
-    # HU039: la clave solo existe con FCM; sin ella, `PUT /v1/me/push-tokens` responde `409`.
+    # HU039: sin FCM no hay almacén de tokens y `PUT /v1/me/push-tokens` responde `409`.
     key = settings.push_token_encryption_key
-    cipher = TokenCipher(decode_key(key.get_secret_value()) if key else bytes(32))
+    push_tokens = (
+        SqlAlchemyPushTokenStore(writes, TokenCipher(decode_key(key.get_secret_value())))
+        if settings.fcm_enabled and key is not None
+        else None
+    )
     preferences_reader = SqlAlchemyPreferencesReader(writes)
     return create_service_app(
         service_name=SERVICE_NAME,
@@ -182,11 +186,7 @@ def create_app(
                     reader=preferences_reader,
                     clock=SystemClock(),
                 ),
-                register_push_token=RegisterPushToken(
-                    store=SqlAlchemyPushTokenStore(writes, cipher),
-                    fcm_enabled=settings.fcm_enabled,
-                    clock=SystemClock(),
-                ),
+                register_push_token=RegisterPushToken(store=push_tokens, clock=SystemClock()),
             ),
         ],
         shutdown_hooks=[

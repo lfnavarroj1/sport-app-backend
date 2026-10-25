@@ -2,6 +2,7 @@
 (FCM simulado), proyección y worker (ADR-045)."""
 
 import json
+import threading
 import unittest
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -24,6 +25,9 @@ from notification_fakes import (
     ScriptedSender,
     published_event,
 )
+from pydantic import ValidationError
+from sqlalchemy.exc import InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from test_create_event import VERIFIER, token
 
 from events_management.api.notifications import build_notifications_router
@@ -55,6 +59,7 @@ from events_management.application.ports import (
     InboxItem,
     PushTarget,
     RecipientsUnavailable,
+    StoreUnavailable,
 )
 from events_management.application.projections.event_projection import (
     EventsProjector,
@@ -73,6 +78,8 @@ from events_management.domain.notifications.disciplines import (
 )
 from events_management.domain.notifications.events import requested_payload
 from events_management.domain.notifications.model import (
+    REMINDER_WINDOW_END,
+    REMINDER_WINDOW_START,
     TITLE_MAX,
     Notification,
     NotificationPreferences,
@@ -86,8 +93,13 @@ from events_management.domain.notifications.model import (
 )
 from events_management.domain.sport_events.model import SportEvent
 from events_management.domain.sport_events.published import aggregate_document
+from events_management.infrastructure.database_errors import unavailable_on_failure
 from events_management.infrastructure.integrations.fcm import FcmPushSender
 from events_management.infrastructure.integrations.users import UsersAthleteDirectory
+from events_management.infrastructure.persistence_read.notifications import SqlAlchemyInboxReader
+from events_management.infrastructure.persistence_write.notifications import (
+    SqlAlchemyPreferencesReader,
+)
 from events_management.infrastructure.persistence_write.outbox import ClaimedEvent
 from events_management.infrastructure.token_cipher import (
     InvalidEncryptionKey,
@@ -95,8 +107,13 @@ from events_management.infrastructure.token_cipher import (
     decode_key,
     token_hash,
 )
-from events_management.workers.notifications_worker import NotificationMessageHandler
+from events_management.settings import ReminderSchedulerSettings
+from events_management.workers.notifications_worker import (
+    NotificationMessageHandler,
+    await_subscription,
+)
 from events_management.workers.outbox_publisher import ordering_key
+from events_management.workers.read_projector import BackgroundPush
 from sportapp_platform.app import create_service_app
 from sportapp_platform.config import ServiceSettings
 
@@ -482,10 +499,10 @@ class PreferencesAndPushTokenTest(unittest.TestCase):
 
     def test_push_token_requires_fcm(self) -> None:
         tokens = InMemoryPushTokens()
-        disabled = RegisterPushToken(store=tokens, fcm_enabled=False, clock=FixedClock(NOW))
+        disabled = RegisterPushToken(store=None, clock=FixedClock(NOW))
         with self.assertRaises(PushNotEnabled):
             disabled(self.athlete, "token-sintetico", "android")
-        RegisterPushToken(store=tokens, fcm_enabled=True, clock=FixedClock(NOW))(
+        RegisterPushToken(store=tokens, clock=FixedClock(NOW))(
             self.athlete, "token-sintetico", "android"
         )
         self.assertEqual(tokens.tokens["token-sintetico"], (self.athlete.user_id, "android"))
@@ -537,12 +554,46 @@ class DeliverPushTest(unittest.TestCase):
         self.assertEqual(self.sleeps, [2.0, 1.0])  # Retry-After con tope; luego exponencial
         self.assertEqual(self.deliveries.records[0]["attempts"], 3)
 
+        # Otra notificación: la anterior ya quedó `SENT` en ese token y no se reenvía (I-2).
+        self.item = notification(recipient_id=self.item.recipient_id)
         exhausted = ScriptedSender([PushFailed("http_500")] * MAX_ATTEMPTS)
         self.deliver(exhausted)
         self.assertEqual(len(exhausted.sent), MAX_ATTEMPTS)
         self.assertEqual(
             self.deliveries.records[-1],
             {**self.deliveries.records[-1], "sent": False, "error": "http_500"},
+        )
+
+    def test_reprojection_does_not_push_again_to_delivered_tokens(self) -> None:
+        """CMP-004: reconstruir la bandeja no repite el *push* ya entregado."""
+        other = PushTarget(token_id=uuid4(), token="otro-dispositivo")
+        self.deliveries.targets_by_recipient[self.item.recipient_id].append(other)
+        self.deliver(ScriptedSender([None, PushFailed("http_503")] + [PushFailed("x")] * 2))
+        again = ScriptedSender([None])
+        self.deliver(again)
+        self.assertEqual([token for token, _ in again.sent], ["otro-dispositivo"])
+
+    def test_credential_failure_is_recorded(self) -> None:
+        """M-1: un fallo de la cuenta de servicio queda en `notification_delivery`."""
+
+        def broken() -> str:
+            raise RuntimeError("credencial inválida")
+
+        http = httpx.Client(
+            base_url="https://fcm.test",
+            transport=httpx.MockTransport(lambda _: httpx.Response(200)),
+        )
+        DeliverPush(
+            store=self.deliveries,
+            sender=FcmPushSender(http, project_id="p", access_token=broken),
+            clock=FixedClock(NOW),
+            sleep=self.sleeps.append,
+        )(self.item)
+        self.assertEqual(len(self.deliveries.records), 1)
+        record = self.deliveries.records[0]
+        self.assertEqual(
+            (record["sent"], record["attempts"], record["error"]),
+            (False, MAX_ATTEMPTS, "credential_error"),
         )
 
     def test_rejection_is_not_retried(self) -> None:
@@ -581,6 +632,25 @@ class FcmPushSenderTest(unittest.TestCase):
         body = json.loads(request.content)
         self.assertEqual(body["message"]["token"], "token-sintetico")
         self.assertNotIn("notification", body["message"])
+
+    def test_priority_follows_the_notification_and_credential_failure_is_transient(
+        self,
+    ) -> None:
+        self.sender(200).send("t", {"priority": "NORMAL"})
+        self.assertEqual(
+            json.loads(self.requests[0].content)["message"]["android"], {"priority": "NORMAL"}
+        )
+
+        def broken() -> str:
+            raise RuntimeError("credencial inválida")
+
+        http = httpx.Client(
+            base_url="https://fcm.test",
+            transport=httpx.MockTransport(lambda _: httpx.Response(200)),
+        )
+        with self.assertRaises(PushFailed) as failed:
+            FcmPushSender(http, project_id="p", access_token=broken).send("t", {})
+        self.assertEqual(failed.exception.reason, "credential_error")
 
     def test_classifies_responses(self) -> None:
         with self.assertRaises(PushFailed) as transient:
@@ -661,6 +731,28 @@ class NotificationProjectionTest(unittest.TestCase):
         self.assertEqual(self.store.inbox[item.notification_id], item)
         self.assertEqual(self.pushed, [item])
 
+    def test_rebuilding_the_inbox_does_not_push_again(self) -> None:
+        """I-2 (CMP-004): reconstruir la bandeja vuelve a proyectar, pero no reenvía el push."""
+        item = notification()
+        target = PushTarget(token_id=uuid4(), token="token-sintetico")
+        deliveries = InMemoryDeliveries(targets_by_recipient={item.recipient_id: [target]})
+        sender = ScriptedSender([])
+        deliver = DeliverPush(
+            store=deliveries, sender=sender, clock=FixedClock(NOW), sleep=lambda _: None
+        )
+        message = parse_sport_event_message(requested_envelope(item))
+        for _ in range(2):
+            rebuilt = ReadStore()  # vista y `processed_event` vacíos, como tras reconstruir
+            projector = EventsProjector(
+                unit_of_work=lambda store=rebuilt: InMemoryProjectionUnitOfWork(store),
+                clock=FixedClock(NOW),
+                deliver_push=deliver,
+            )
+            self.assertIs(projector(message), ProjectionOutcome.PROJECTED)
+            self.assertEqual(rebuilt.inbox[item.notification_id], item)
+        self.assertEqual([token for token, _ in sender.sent], ["token-sintetico"])
+        self.assertEqual(len(deliveries.records), 1)
+
     def test_invalid_messages_are_rejected(self) -> None:
         item = notification()
         payload = requested_payload(item)
@@ -739,6 +831,79 @@ class NotificationWorkerTest(unittest.TestCase):
         self.assertTrue(invalid.nacked)
 
 
+class WorkerProcessTest(unittest.TestCase):
+    def test_subscription_failure_is_an_error_exit(self) -> None:
+        class Broken:
+            def result(self) -> object:
+                raise RuntimeError("NotFound")
+
+        with self.assertLogs("sportapp.notifications", "ERROR"):
+            self.assertEqual(await_subscription(Broken(), threading.Event()), 1)
+        stopped = threading.Event()
+        stopped.set()
+        self.assertEqual(await_subscription(Broken(), stopped), 0)
+
+    def test_background_push_does_not_block_and_drops_when_full(self) -> None:
+        release = threading.Event()
+        started: list[Notification] = []
+
+        def slow(item: Notification) -> None:
+            started.append(item)
+            release.wait(5)
+
+        background = BackgroundPush(slow, workers=1, queue_size=1)
+        items = [notification() for _ in range(3)]
+        with self.assertLogs("sportapp.projector", "WARNING") as logs:
+            for item in items:
+                background(item)  # vuelve de inmediato aunque el envío tarde
+        self.assertIn("push.dropped", logs.output[0])
+        release.set()
+        background.close()
+        self.assertEqual(started, items[:2])
+
+
+class ReminderSchedulerSettingsTest(unittest.TestCase):
+    def test_interval_never_exceeds_the_reminder_window(self) -> None:
+        """M-2: con un periodo mayor que la ventana de 1800 s quedarían inicios sin evaluar."""
+
+        def settings(seconds: float) -> ReminderSchedulerSettings:
+            return ReminderSchedulerSettings(
+                app_env="test",
+                database_write_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
+                reminder_interval_seconds=seconds,
+            )
+
+        self.assertEqual(settings(900).reminder_interval_seconds, 900)
+        window = (REMINDER_WINDOW_END - REMINDER_WINDOW_START).total_seconds()
+        self.assertEqual(window, 1800)
+        for invalid in (901, 1800, 3600, 59):
+            with self.subTest(seconds=invalid), self.assertRaises(ValidationError):
+                settings(invalid)
+
+
+class StoreUnavailableTest(unittest.TestCase):
+    def test_database_failures_become_store_unavailable(self) -> None:
+        """M-5: el adaptador traduce la base inalcanzable para que la API responda `503`."""
+        for failure in (
+            OperationalError("SELECT 1", {}, Exception("conexión rechazada")),
+            InterfaceError("SELECT 1", {}, Exception("conexión cerrada")),
+            PoolTimeoutError("pool agotado"),
+        ):
+
+            def session_factory(failure: Exception = failure) -> Any:
+                raise failure
+
+            with self.subTest(failure=type(failure).__name__):
+                with self.assertRaises(StoreUnavailable):
+                    SqlAlchemyInboxReader(session_factory).page(uuid4(), None, 20)
+                with self.assertRaises(StoreUnavailable):
+                    SqlAlchemyPreferencesReader(session_factory).preferences(uuid4())
+
+    def test_other_errors_are_not_masked(self) -> None:
+        with self.assertRaises(ValueError), unavailable_on_failure():
+            raise ValueError("defecto")
+
+
 class OutboxOrderingKeyTest(unittest.TestCase):
     def test_notification_uses_its_own_ordering_key(self) -> None:
         base = {
@@ -786,7 +951,7 @@ class NotificationsApiTest(unittest.TestCase):
                         unit_of_work=lambda: self.preferences, reader=self.preferences, clock=clock
                     ),
                     register_push_token=RegisterPushToken(
-                        store=self.tokens, fcm_enabled=fcm_enabled, clock=clock
+                        store=self.tokens if fcm_enabled else None, clock=clock
                     ),
                 )
             ],
@@ -838,8 +1003,12 @@ class NotificationsApiTest(unittest.TestCase):
     def test_query_and_path_errors(self) -> None:
         cases = {
             "/v1/me/notifications?limit=0": ("query.limit", "out_of_range"),
+            "/v1/me/notifications?limit=abc": ("query.limit", "out_of_range"),
             "/v1/me/notifications?cursor=zzz": ("query.cursor", "invalid_cursor"),
+            f"/v1/me/notifications?cursor={'a' * 513}": ("query.cursor", "invalid_cursor"),
         }
+        unauthenticated = self.client.get("/v1/me/notifications?limit=abc")
+        self.assertEqual(unauthenticated.status_code, 401)
         for path, (field, issue) in cases.items():
             with self.subTest(path=path):
                 response = self.client.get(path, headers=self.headers())
@@ -917,6 +1086,23 @@ class NotificationsApiTest(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 422)
                 self.assertEqual(response.json()["details"], details)
+
+    def test_unavailable_store_is_503(self) -> None:
+        def down(*_: Any) -> Any:
+            raise StoreUnavailable()
+
+        self.inbox.page = down  # type: ignore[method-assign]
+        self.inbox.mark_read = down  # type: ignore[method-assign]
+        self.preferences.preferences = down  # type: ignore[method-assign]
+        for method, path in (
+            ("GET", "/v1/me/notifications"),
+            ("POST", f"/v1/me/notifications/{self.item.notification_id}/read"),
+            ("GET", "/v1/me/notification-preferences"),
+        ):
+            with self.subTest(path=path):
+                response = self.client.request(method, path, headers=self.headers())
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.json()["code"], "upstream_unavailable")
 
     def test_push_token(self) -> None:
         body = {"token": "token-sintetico", "platform": "android"}

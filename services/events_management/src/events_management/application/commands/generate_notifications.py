@@ -17,7 +17,6 @@ reintenta y los lotes ya confirmados se deduplican (CA4).
 lotes de 100; una corrida repetida o dos réplicas no duplican el recordatorio (CA1, CA3).
 """
 
-import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from uuid import UUID, uuid4
@@ -47,8 +46,6 @@ from events_management.domain.sport_events.model import SportEvent
 
 SEARCH_PAGE_SIZE = 1000
 BATCH_SIZE = 100
-
-_logger = logging.getLogger("sportapp.notifications")
 
 
 @dataclass

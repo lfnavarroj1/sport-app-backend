@@ -8,8 +8,10 @@
 - `POST /v1/me/integrations/strava/syncs`: sincronización manual (`202`, `Idempotency-Key`).
 
 Las operaciones autenticadas exigen `athlete` con `integrations.strava.connect` también en
-el servicio (ADR-024). Todas las respuestas llevan `Cache-Control: no-store`. Ningún
-token, `code` ni `state` sale del servicio ni se registra.
+el servicio (ADR-024). Las respuestas de estas rutas llevan `Cache-Control: no-store`,
+salvo el `422` por la forma del cuerpo del callback (lo genera el manejador común de
+validación y no repite los valores recibidos). Ningún token, `code` ni `state` sale del
+servicio ni se registra.
 """
 
 from datetime import datetime

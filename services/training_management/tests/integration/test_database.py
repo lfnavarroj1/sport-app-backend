@@ -15,7 +15,7 @@ from training_management.settings import TrainingManagementSettings
 HISTORIES = {
     "write": (
         "training_management.infrastructure.persistence_write:migrations",
-        "0013_health_reports",
+        "0014_nutrition_routine_templates",
     ),
     "read": (
         "training_management.infrastructure.persistence_read:migrations",

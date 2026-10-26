@@ -18,6 +18,7 @@ HU014 (ADR-037): `plan.alimentacion_creado.v1` se despacha a `ProjectNutritionPl
 HU043 (ADR-037): `consumo_alimento.registrado.v1` se despacha a `ProjectFoodIntakeRegistered`.
 HU026 (ADR-041): `ruta.publicada.v1` y `ruta.retirada.v1` se despachan a `ProjectRouteChanged`.
 HU028 (ADR-041): `plantilla_entrenamiento.*.v1` se despachan a `ProjectTemplateChanged`.
+HU030 (ADR-041): `plantilla_rutina.*.v1` se despachan a `ProjectRoutineChanged`.
 HU036 (ADR-044): `medicion.recibida.v1` y `riesgo.detectado.v1` se despachan a
 `ProjectMeasurementReceived` y `ProjectRiskDetected`.
 HU042 (ADR-037): `reporte_salud.registrado.v1` se despacha a `ProjectHealthReportRegistered`.
@@ -35,6 +36,7 @@ from training_management.application.messages import (
     PlanCreatedEvent,
     RiskDetectedEvent,
     RouteChangedEvent,
+    RoutineChangedEvent,
     SessionFinishedEvent,
     SessionStartedEvent,
     TemplateChangedEvent,
@@ -62,6 +64,9 @@ from training_management.application.projections.plan_projection import (
     ProjectPlanCreated,
 )
 from training_management.application.projections.route_projection import ProjectRouteChanged
+from training_management.application.projections.routine_projection import (
+    ProjectRoutineChanged,
+)
 from training_management.application.projections.template_projection import (
     ProjectTemplateChanged,
 )
@@ -165,6 +170,7 @@ class TrainingProjector:
         self._intakes = ProjectFoodIntakeRegistered(unit_of_work=unit_of_work, clock=clock)
         self._routes = ProjectRouteChanged(unit_of_work=unit_of_work, clock=clock)
         self._templates = ProjectTemplateChanged(unit_of_work=unit_of_work, clock=clock)
+        self._routines = ProjectRoutineChanged(unit_of_work=unit_of_work, clock=clock)
         self._measurements = ProjectMeasurementReceived(unit_of_work=unit_of_work, clock=clock)
         self._risks = ProjectRiskDetected(unit_of_work=unit_of_work, clock=clock)
         self._health_reports = ProjectHealthReportRegistered(unit_of_work=unit_of_work, clock=clock)
@@ -189,11 +195,19 @@ class TrainingProjector:
             return self._nutrition(event)
         if isinstance(event, FoodIntakeRegisteredEvent):
             return self._intakes(event)
+        if isinstance(event, RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent):
+            return self._project_publishable(event)
+        return self._project_finished(event)
+
+    def _project_publishable(
+        self, event: RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent
+    ) -> ProjectionOutcome:
+        """Contenido sugerible de ADR-041: rutas (HU026), plantillas (HU028) y rutinas (HU030)."""
         if isinstance(event, RouteChangedEvent):
             return self._routes(event)
         if isinstance(event, TemplateChangedEvent):
             return self._templates(event)
-        return self._project_finished(event)
+        return self._routines(event)
 
     def _project_finished(self, event: TrainingEvent) -> ProjectionOutcome:
         """Fin de sesión (HU032) y reporte de salud (HU042)."""

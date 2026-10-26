@@ -69,6 +69,14 @@ from training_management.domain.routes.model import (
     Route,
     RouteStatus,
 )
+from training_management.domain.routines.model import (
+    Allergy,
+    DietPattern,
+    NutritionRoutineTemplate,
+    RoutineItem,
+    RoutineMeal,
+    RoutineStatus,
+)
 from training_management.domain.sessions.model import (
     SessionEndReason,
     TrainingSession,
@@ -104,6 +112,7 @@ from training_management.infrastructure.persistence_write.models import (
     NutritionPlanItemRow,
     NutritionPlanMealRow,
     NutritionPlanRow,
+    NutritionRoutineTemplateRow,
     OutboxEventRow,
     RouteRow,
     SessionMonitoringStateRow,
@@ -862,6 +871,97 @@ class SqlAlchemyTemplateUnitOfWork(_CommandUnitOfWork):
         row.version = template.version
         row.updated_at = template.updated_at
         row.retired_at = template.retired_at
+
+    def commit(self) -> None:
+        try:
+            self.session.commit()
+        except IntegrityError as error:
+            self.session.rollback()
+            if _violated_constraint(error) == COMMAND_IDEMPOTENCY_PRIMARY_KEY:
+                raise IdempotencyKeyConflict() from None
+            raise
+
+
+def _routine(row: NutritionRoutineTemplateRow) -> NutritionRoutineTemplate:
+    return NutritionRoutineTemplate(
+        template_id=row.template_id,
+        professional_id=row.professional_id,
+        title=row.title,
+        description=row.description,
+        goal=Goal(row.goal),
+        sport=Sport(row.sport) if row.sport is not None else None,
+        dietary_pattern=DietPattern(row.dietary_pattern),
+        contains_allergens=tuple(Allergy(item) for item in row.contains_allergens),
+        duration_days=row.duration_days,
+        daily_meals=tuple(
+            RoutineMeal(
+                meal=MealType(meal["meal"]),
+                items=tuple(
+                    RoutineItem(food_code=item["food_code"], portions=item["portions"])
+                    for item in meal["items"]
+                ),
+            )
+            for meal in row.daily_meals
+        ),
+        status=RoutineStatus(row.status),
+        version=row.version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        published_at=row.published_at,
+        retired_at=row.retired_at,
+    )
+
+
+class SqlAlchemyRoutineUnitOfWork(_CommandUnitOfWork):
+    """HU030: rutina, outbox e idempotencia (`command_idempotency`) en una transacción."""
+
+    def get_routine_for_update(self, template_id: UUID) -> NutritionRoutineTemplate | None:
+        row = self.session.scalar(
+            select(NutritionRoutineTemplateRow)
+            .where(NutritionRoutineTemplateRow.template_id == template_id)
+            .with_for_update()
+        )
+        return _routine(row) if row is not None else None
+
+    def add_routine(self, routine: NutritionRoutineTemplate) -> None:
+        self.session.add(
+            NutritionRoutineTemplateRow(
+                template_id=routine.template_id,
+                professional_id=routine.professional_id,
+                title=routine.title,
+                description=routine.description,
+                goal=routine.goal.value,
+                sport=routine.sport.value if routine.sport is not None else None,
+                dietary_pattern=routine.dietary_pattern.value,
+                contains_allergens=[allergen.value for allergen in routine.contains_allergens],
+                duration_days=routine.duration_days,
+                daily_meals=[
+                    {
+                        "meal": meal.meal.value,
+                        "items": [
+                            {"food_code": item.food_code, "portions": item.portions}
+                            for item in meal.items
+                        ],
+                    }
+                    for meal in routine.daily_meals
+                ],
+                status=routine.status.value,
+                version=routine.version,
+                created_at=routine.created_at,
+                updated_at=routine.updated_at,
+                published_at=routine.published_at,
+                retired_at=routine.retired_at,
+            )
+        )
+
+    def update_routine(self, routine: NutritionRoutineTemplate) -> None:
+        row = self.session.get(NutritionRoutineTemplateRow, routine.template_id)
+        if row is None:
+            raise RuntimeError("La rutina a actualizar no está cargada.")
+        row.status = routine.status.value
+        row.version = routine.version
+        row.updated_at = routine.updated_at
+        row.retired_at = routine.retired_at
 
     def commit(self) -> None:
         try:

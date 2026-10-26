@@ -1,4 +1,5 @@
-"""Cliente HTTP de `training_management` según su OpenAPI (HU026, HU028, HU032-HU038, HU043).
+"""Cliente HTTP de `training_management` según su OpenAPI (HU026, HU028, HU030, HU032-HU038,
+HU043).
 
 Reenvía el access token del usuario, la clave de idempotencia, `If-None-Match` y la
 correlación; el servicio vuelve a verificar identidad, actor y capacidad. Los segmentos de
@@ -128,6 +129,19 @@ class TrainingManagementClient:
         return self._send(
             "GET",
             "/v1/me/suggestions/training-plan-templates",
+            access_token,
+            params=httpx.QueryParams(tuple(params)),
+        )
+
+    def nutrition_routine_suggestions(
+        self, access_token: str, params: list[tuple[str, str]]
+    ) -> httpx.Response:
+        """HU030: rutinas de alimentación sugeridas con las restricciones y el contexto del
+        deportista como filtros explícitos (`dietary_pattern`, `exclude_allergens` y `sport`
+        repetibles, `primary_goal`) y el `limit` recibido."""
+        return self._send(
+            "GET",
+            "/v1/me/suggestions/nutrition-routines",
             access_token,
             params=httpx.QueryParams(tuple(params)),
         )

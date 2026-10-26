@@ -23,6 +23,9 @@ from training_management.api.history import build_history_router
 from training_management.api.measurements import build_measurements_router
 from training_management.api.monitoring_settings import build_monitoring_settings_router
 from training_management.api.nutrition_plans import build_nutrition_plans_router
+from training_management.api.nutrition_routine_templates import (
+    build_nutrition_routine_templates_router,
+)
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
 from training_management.api.routes import build_routes_router
@@ -46,6 +49,10 @@ from training_management.application.commands.devices import RegisterDevice, Rev
 from training_management.application.commands.measurements import IngestMeasurements
 from training_management.application.commands.monitoring_settings import (
     UpdateMonitoringSettings,
+)
+from training_management.application.commands.nutrition_routine_templates import (
+    PublishRoutine,
+    RetireRoutine,
 )
 from training_management.application.commands.register_food_intake import RegisterFoodIntake
 from training_management.application.commands.report_health import ReportHealth
@@ -73,6 +80,10 @@ from training_management.application.queries.monitoring_settings import GetMonit
 from training_management.application.queries.nutrition_plans import (
     GetNutritionPlan,
     ListMyNutritionPlans,
+)
+from training_management.application.queries.nutrition_routine_templates import (
+    ListMyRoutines,
+    SuggestRoutines,
 )
 from training_management.application.queries.planned_sessions import GetPlannedSessions
 from training_management.application.queries.routes import ListMyRoutes, SuggestRoutes
@@ -120,6 +131,7 @@ from training_management.infrastructure.persistence_read.nutrition import (
 )
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
 from training_management.infrastructure.persistence_read.routes import SqlAlchemyRouteReader
+from training_management.infrastructure.persistence_read.routines import SqlAlchemyRoutineReader
 from training_management.infrastructure.persistence_read.templates import SqlAlchemyTemplateReader
 from training_management.infrastructure.persistence_write.food_catalog import (
     FoodCatalogReadinessCheck,
@@ -137,6 +149,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
     SqlAlchemyRouteUnitOfWork,
+    SqlAlchemyRoutineUnitOfWork,
     SqlAlchemySessionReminderPreferencesUnitOfWork,
     SqlAlchemySessionUnitOfWork,
     SqlAlchemyTemplateUnitOfWork,
@@ -185,6 +198,7 @@ def create_app(
     authorization_views = SqlAlchemyAuthorizationReader(reads)
     route_views = SqlAlchemyRouteReader(reads)
     template_views = SqlAlchemyTemplateReader(reads)
+    routine_views = SqlAlchemyRoutineReader(reads)
     thresholds = ResolveThreshold(
         unit_of_work=lambda: SqlAlchemyMonitoringSettingsUnitOfWork(writes),
         birth_dates=UsersAthleteBirthDates(users_http),
@@ -360,6 +374,22 @@ def create_app(
                 ),
                 list_templates=ListMyTemplates(reader=template_views, permissions=permissions),
                 suggest=SuggestTemplates(reader=template_views, capabilities=capabilities),
+            ),
+            build_nutrition_routine_templates_router(
+                verify_token=verifier.verify,
+                publish=PublishRoutine(
+                    unit_of_work=lambda: SqlAlchemyRoutineUnitOfWork(writes),
+                    permissions=permissions,
+                    catalog=food_catalog,
+                    clock=clock,
+                ),
+                retire=RetireRoutine(
+                    unit_of_work=lambda: SqlAlchemyRoutineUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                list_routines=ListMyRoutines(reader=routine_views, permissions=permissions),
+                suggest=SuggestRoutines(reader=routine_views, capabilities=capabilities),
             ),
             build_devices_router(
                 verify_token=verifier.verify,

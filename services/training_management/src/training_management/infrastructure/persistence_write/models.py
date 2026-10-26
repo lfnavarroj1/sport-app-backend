@@ -500,6 +500,53 @@ class TrainingPlanTemplateRow(WriteBase):
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class NutritionRoutineTemplateRow(WriteBase):
+    """Rutina alimenticia publicada por un profesional (HU030, ADR-041); al retirarse se
+    conserva. No es un plan de alimentación asignado: no tiene deportista ni fechas.
+
+    `professional_id` es un identificador de Usuarios, sin clave foránea entre bases.
+    """
+
+    __tablename__ = "nutrition_routine_template"
+    __table_args__ = (
+        CheckConstraint("status IN ('PUBLISHED', 'RETIRED')", name="status"),
+        CheckConstraint(
+            "goal IN ('HEALTH', 'PERFORMANCE', 'WEIGHT_MANAGEMENT', 'RECREATION', 'COMPETITION')",
+            name="goal",
+        ),
+        CheckConstraint(
+            "sport IS NULL OR sport IN ('running', 'cycling', 'swimming', 'strength', 'other')",
+            name="sport",
+        ),
+        CheckConstraint(
+            "dietary_pattern IN ('OMNIVORE', 'VEGETARIAN', 'VEGAN', 'PESCATARIAN', 'FLEXITARIAN')",
+            name="dietary_pattern",
+        ),
+        CheckConstraint("duration_days BETWEEN 1 AND 90", name="duration_days"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'RETIRED') = (retired_at IS NOT NULL)", name="retired_at"),
+    )
+
+    template_id: Mapped[UUID] = mapped_column(primary_key=True)
+    professional_id: Mapped[UUID] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(2000))
+    goal: Mapped[str] = mapped_column(String(32))
+    sport: Mapped[str | None] = mapped_column(String(16))
+    dietary_pattern: Mapped[str] = mapped_column(String(16))
+    # Alérgenos del catálogo de HU009 en su orden (declarados más los de los alimentos).
+    contains_allergens: Mapped[list[str]] = mapped_column(JSONB)
+    duration_days: Mapped[int] = mapped_column(SmallInteger)
+    # De 1 a 8 comidas `{meal, items[{food_code, portions}]}` en el orden del profesional.
+    daily_meals: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AthleteDeviceRow(WriteBase):
     """Monitor de frecuencia cardiaca vinculado por el deportista (HU037, ADR-044).
 

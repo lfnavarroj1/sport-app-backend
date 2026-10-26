@@ -5,7 +5,8 @@ Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 (HU011), `entrenamiento.iniciado.v1` (HU032), `indicador.calculado.v1` (HU034) y
 `plan.alimentacion_creado.v1` (HU014), `consumo_alimento.registrado.v1` (HU043),
 `ruta.publicada.v1` y `ruta.retirada.v1` (HU026), `plantilla_entrenamiento.publicada.v1` /
-`.retirada.v1` (HU028) y `medicion.recibida.v1` / `riesgo.detectado.v1` (HU036). Cada
+`.retirada.v1` (HU028), `plantilla_rutina.publicada.v1` / `.retirada.v1` (HU030) y
+`medicion.recibida.v1` / `riesgo.detectado.v1` (HU036). Cada
 uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
 no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
 tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
@@ -38,6 +39,10 @@ from training_management.application.ports import (
 from training_management.application.route_documents import (
     InvalidRouteDocument,
     route_from_document,
+)
+from training_management.application.routine_documents import (
+    InvalidRoutineDocument,
+    routine_from_document,
 )
 from training_management.application.template_documents import (
     InvalidTemplateDocument,
@@ -135,6 +140,17 @@ from training_management.domain.routes.events import (
 )
 from training_management.domain.routes.events import SCHEMA_VERSION as ROUTE_SCHEMA
 from training_management.domain.routes.model import Route
+from training_management.domain.routines.events import (
+    EVENT_TYPE_BY_STATUS as ROUTINE_EVENT_BY_STATUS,
+)
+from training_management.domain.routines.events import (
+    PUBLISHED_EVENT_TYPE as ROUTINE_PUBLISHED,
+)
+from training_management.domain.routines.events import (
+    RETIRED_EVENT_TYPE as ROUTINE_RETIRED,
+)
+from training_management.domain.routines.events import SCHEMA_VERSION as ROUTINE_SCHEMA
+from training_management.domain.routines.model import NutritionRoutineTemplate
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
 from training_management.domain.sessions.events import SCHEMA_VERSION as SESSION_SCHEMA
 from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
@@ -241,6 +257,14 @@ class TemplateChangedEvent:
 
 
 @dataclass(frozen=True)
+class RoutineChangedEvent:
+    event_id: UUID
+    event_type: str
+    correlation_id: UUID | None
+    routine: NutritionRoutineTemplate
+
+
+@dataclass(frozen=True)
 class MeasurementReceivedEvent:
     event_id: UUID
     correlation_id: UUID | None
@@ -283,6 +307,7 @@ TrainingEvent = (
     | FoodIntakeRegisteredEvent
     | RouteChangedEvent
     | TemplateChangedEvent
+    | RoutineChangedEvent
     | MeasurementReceivedEvent
     | RiskDetectedEvent
     | HealthReportRegisteredEvent
@@ -726,6 +751,27 @@ def _template_changed(envelope: dict[str, Any], event_type: str) -> TemplateChan
     )
 
 
+def _routine_changed(envelope: dict[str, Any], event_type: str) -> RoutineChangedEvent:
+    payload = _payload(envelope, ROUTINE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        routine = routine_from_document(payload)
+    except InvalidRoutineDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != routine.template_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if routine.version != version:
+        raise InvalidEvent("routine_version_mismatch")
+    if ROUTINE_EVENT_BY_STATUS[routine.status] != event_type:
+        raise InvalidEvent("status_mismatch")
+    return RoutineChangedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        event_type=event_type,
+        correlation_id=_correlation(envelope),
+        routine=routine,
+    )
+
+
 def _health_report_registered(envelope: dict[str, Any]) -> HealthReportRegisteredEvent:
     """HU042 (ADR-037): `reporte_salud.registrado.v1` con el estado completo del reporte."""
     payload = _payload(envelope, HEALTH_REPORT_SCHEMA)
@@ -844,20 +890,38 @@ def parse_training_event(envelope: object) -> TrainingEvent:
 
 
 def _parse_snapshot(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
-    """Eventos de estado completo de HU034, HU014 y HU026."""
+    """Eventos de estado completo de HU034, HU014, HU026, HU028, HU030, HU036 y HU042."""
     if event_type == METRIC_CALCULATED:
         return _metric_calculated(envelope)
     if event_type == NUTRITION_PLAN_CREATED:
         return _nutrition_plan_created(envelope)
-    if event_type in (ROUTE_PUBLISHED, ROUTE_RETIRED):
-        return _route_changed(envelope, event_type)
-    if event_type in (TEMPLATE_PUBLISHED, TEMPLATE_RETIRED):
-        return _template_changed(envelope, event_type)
+    if event_type in _PUBLISHABLE_EVENT_TYPES:
+        return _parse_publishable(envelope, event_type)
     if event_type in (MEASUREMENT_EVENT_TYPE, RISK_EVENT_TYPE):
         return _parse_monitoring(envelope, event_type)
     if event_type == HEALTH_REPORT_REGISTERED:
         return _health_report_registered(envelope)
     raise UnsupportedEvent(event_type)
+
+
+_PUBLISHABLE_EVENT_TYPES = (
+    ROUTE_PUBLISHED,
+    ROUTE_RETIRED,
+    TEMPLATE_PUBLISHED,
+    TEMPLATE_RETIRED,
+    ROUTINE_PUBLISHED,
+    ROUTINE_RETIRED,
+)
+
+
+def _parse_publishable(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
+    """Contenido sugerible de ADR-041: rutas (HU026), plantillas de plan (HU028) y rutinas
+    alimenticias (HU030)."""
+    if event_type in (ROUTE_PUBLISHED, ROUTE_RETIRED):
+        return _route_changed(envelope, event_type)
+    if event_type in (TEMPLATE_PUBLISHED, TEMPLATE_RETIRED):
+        return _template_changed(envelope, event_type)
+    return _routine_changed(envelope, event_type)
 
 
 def _parse_monitoring(envelope: dict[str, Any], event_type: str) -> TrainingEvent:

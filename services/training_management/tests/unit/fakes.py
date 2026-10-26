@@ -31,6 +31,7 @@ from training_management.domain.nutrition.intake import FoodIntake
 from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import TrainingPlan
 from training_management.domain.routes.model import Route
+from training_management.domain.routines.model import NutritionRoutineTemplate
 from training_management.domain.templates.model import TrainingPlanTemplate
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
@@ -199,6 +200,7 @@ class InMemoryReadStore:
     food_intakes: dict[UUID, FoodIntake] = field(default_factory=dict)
     routes: dict[UUID, Route] = field(default_factory=dict)
     templates: dict[UUID, TrainingPlanTemplate] = field(default_factory=dict)
+    routines: dict[UUID, NutritionRoutineTemplate] = field(default_factory=dict)
     monitoring: dict[UUID, MonitoringView] = field(default_factory=dict)
     risk_alerts: dict[UUID, RiskAlertView] = field(default_factory=dict)
     health_reports: dict[UUID, HealthReport] = field(default_factory=dict)
@@ -260,6 +262,7 @@ class InMemoryProjectionUnitOfWork:
         self._intakes: list[FoodIntake] = []
         self._routes: list[Route] = []
         self._templates: list[TrainingPlanTemplate] = []
+        self._routines: list[NutritionRoutineTemplate] = []
         self._monitoring: list[MonitoringView] = []
         self._risk_alerts: list[RiskAlertView] = []
         self._health_reports: list[HealthReport] = []
@@ -277,7 +280,7 @@ class InMemoryProjectionUnitOfWork:
         self._active, self._removed, self._planned, self._metrics = [], [], [], []
         self._nutrition, self._intakes, self._routes, self._templates = [], [], [], []
         self._monitoring, self._risk_alerts = [], []
-        self._health_reports = []
+        self._health_reports, self._routines = [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -352,6 +355,13 @@ class InMemoryProjectionUnitOfWork:
     def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
         self._templates.append(template)
 
+    def routine_version(self, template_id: UUID) -> int | None:
+        routine = self.store.routines.get(template_id)
+        return routine.version if routine is not None else None
+
+    def save_routine_view(self, routine: NutritionRoutineTemplate, projected_at: datetime) -> None:
+        self._routines.append(routine)
+
     def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
         return self.store.monitoring.get(session_id)
 
@@ -395,12 +405,13 @@ class InMemoryProjectionUnitOfWork:
             self.store.planned[planned.plan_id] = planned
         for session_id in self._removed:
             self.store.active.pop(session_id, None)
-        # Vistas de estado completo (HU034, HU014, HU043, HU026 y HU028).
+        # Vistas de estado completo (HU034, HU014, HU043, HU026, HU028 y HU030).
         self.store.metric_results.update((c.calculation_id, c) for c in self._metrics)
         self.store.nutrition_plans.update((p.plan_id, p) for p in self._nutrition)
         self.store.food_intakes.update((i.intake_id, i) for i in self._intakes)
         self.store.routes.update((r.route_id, r) for r in self._routes)
         self.store.templates.update((t.template_id, t) for t in self._templates)
+        self.store.routines.update((r.template_id, r) for r in self._routines)
         # HU036: resumen acumulado y alertas de inserción única.
         self.store.monitoring.update((m.session_id, m) for m in self._monitoring)
         self.store.risk_alerts.update((a.alert_id, a) for a in self._risk_alerts)

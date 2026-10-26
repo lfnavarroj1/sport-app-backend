@@ -25,6 +25,8 @@ from training_management.domain.plans.model import Sport, TrainingPlan
 from training_management.domain.reminders.model import ReminderPreferences
 from training_management.domain.routes.model import Route
 from training_management.domain.routes.suggestions import SuggestionContext
+from training_management.domain.routines.model import NutritionRoutineTemplate
+from training_management.domain.routines.suggestions import RoutineSuggestionContext
 from training_management.domain.sessions.model import TrainingSession
 from training_management.domain.templates.model import TrainingPlanTemplate
 from training_management.domain.templates.suggestions import TemplateSuggestionContext
@@ -655,6 +657,14 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         """HU028: inserta o reemplaza el estado completo en `training_plan_template_view`."""
         ...
 
+    def routine_version(self, template_id: UUID) -> int | None:
+        """HU030: versión proyectada de la rutina; bloquea la fila."""
+        ...
+
+    def save_routine_view(self, routine: NutritionRoutineTemplate, projected_at: datetime) -> None:
+        """HU030: inserta o reemplaza el estado completo en `nutrition_routine_template_view`."""
+        ...
+
     def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
         """HU036: resumen proyectado de la sesión; bloquea la fila."""
         ...
@@ -904,6 +914,65 @@ class TemplateReader(Protocol):
         """Plantillas `PUBLISHED`. Con deportes: las de esos deportes, objetivo coincidente
         primero, luego `published_at` y `template_id` desc. Sin deportes: las últimas
         publicadas. Como mucho `limit`."""
+        ...
+
+
+class RoutineUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU030: rutina, outbox e idempotencia (`command_idempotency`)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_routine_for_update(self, template_id: UUID) -> NutritionRoutineTemplate | None:
+        """Bloquea la fila hasta el fin de la transacción (retiro)."""
+        ...
+
+    def add_routine(self, routine: NutritionRoutineTemplate) -> None: ...
+
+    def update_routine(self, routine: NutritionRoutineTemplate) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class RoutinePosition:
+    """Última rutina entregada en el orden `created_at` desc, `template_id` desc."""
+
+    created_at: datetime
+    template_id: UUID
+
+
+@dataclass(frozen=True)
+class MyRoutinesQuery:
+    professional_id: UUID
+    limit: int
+    after: RoutinePosition | None
+
+
+@dataclass(frozen=True)
+class RoutineSuggestionQuery:
+    context: RoutineSuggestionContext
+    limit: int
+
+
+class RoutineReader(Protocol):
+    """Proyección `nutrition_routine_template_view` (HU030, lectura CQRS)."""
+
+    def list_by_professional(self, query: MyRoutinesQuery) -> list[NutritionRoutineTemplate]:
+        """Rutinas del profesional en cualquier estado, orden `created_at` desc, `template_id`
+        desc, estrictamente después de `after`."""
+        ...
+
+    def suggest(self, query: RoutineSuggestionQuery) -> list[NutritionRoutineTemplate]:
+        """Rutinas `PUBLISHED` compatibles con el contexto en el orden de
+        `domain.routines.suggestions.suggestion_order`. Como mucho `limit`."""
         ...
 
 

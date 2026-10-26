@@ -9,7 +9,7 @@ mensajería (`ensure_resources`); en GCP los crea la infraestructura como códig
 - Escribe `training_session_history` (`source = STRAVA`) y `processed_event` en una sola
   transacción de la base de lectura y confirma (ACK) el mensaje solo después del COMMIT.
 - Un mensaje inválido o un fallo de procesamiento no se confirma: Pub/Sub lo reintenta con
-  el backoff de la suscripción (10–600 s) y, tras 10 intentos, lo envía a
+  el backoff de la suscripción (10 a 600 s) y, tras 10 intentos, lo envía a
   `sportapp.terceros.actividades.dlq`.
 - Otro tipo de evento del tópico se confirma sin efectos.
 - Nunca crea una sesión activa ni publica eventos. Los registros llevan identificadores y
@@ -152,9 +152,7 @@ def await_subscription(streaming: StreamingPull, stop_requested: threading.Event
         return 1
     if stop_requested.is_set():
         return 0
-    _logger.error(
-        "external_activity.subscription_failed", extra={"fields": {"error_type": None}}
-    )
+    _logger.error("external_activity.subscription_failed", extra={"fields": {"error_type": None}})
     return 1
 
 

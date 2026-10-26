@@ -69,7 +69,7 @@ class MeasurementRetentionSettings(ServiceSettings, DatabasePoolSettings):
 
 # HU031 (ADR-042 §4): actividades importadas de Strava. Terceros publica en su tópico; este
 # servicio las consume por una suscripción ordenada propia con DLQ. Reintentos y DLQ iguales a
-# los del proyector (10 intentos, 10–600 s), fijados por ADR-042.
+# los del proyector (10 intentos, 10 a 600 s), fijados por ADR-042.
 THIRD_PARTY_TOPIC = "sportapp.terceros.v1"
 EXTERNAL_ACTIVITY_SUBSCRIPTION = "entrenamientos-actividades-externas-v1"
 EXTERNAL_ACTIVITY_DLQ_TOPIC = "sportapp.terceros.actividades.dlq"

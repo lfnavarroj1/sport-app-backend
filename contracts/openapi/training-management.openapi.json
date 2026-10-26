@@ -361,7 +361,7 @@
           },
           "STRAVA": {
             "$ref": "#/components/schemas/SourceBreakdown",
-            "description": "Sesiones importadas de Strava (HU031); hoy en cero."
+            "description": "Sesiones importadas de Strava (HU031)."
           }
         },
         "required": [
@@ -3132,6 +3132,10 @@
             "title": "Session Id",
             "type": "string"
           },
+          "source": {
+            "$ref": "#/components/schemas/Source",
+            "description": "Origen: `SPORTAPP` (registrada en SportApp) o `STRAVA` (importada, HU031)."
+          },
           "sport": {
             "$ref": "#/components/schemas/Sport"
           },
@@ -3147,7 +3151,8 @@
           "sport",
           "started_at",
           "ended_at",
-          "duration_seconds"
+          "duration_seconds",
+          "source"
         ],
         "title": "SessionHistoryItem",
         "type": "object"
@@ -3159,6 +3164,15 @@
           "HIGH"
         ],
         "title": "Severity",
+        "type": "string"
+      },
+      "Source": {
+        "description": "Origen de una sesión (ADR-043): `SPORTAPP` (HU032) o `STRAVA` (importada, HU031).",
+        "enum": [
+          "SPORTAPP",
+          "STRAVA"
+        ],
+        "title": "Source",
         "type": "string"
       },
       "SourceBreakdown": {
@@ -4026,7 +4040,7 @@
   },
   "info": {
     "title": "SportApp - Entrenamientos",
-    "version": "0.20.0"
+    "version": "0.21.0"
   },
   "openapi": "3.1.0",
   "paths": {

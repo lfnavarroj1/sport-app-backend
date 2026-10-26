@@ -9,7 +9,7 @@ ese servicio. Se validan el sobre y el payload **exactos**: falta o sobra un cam
   `producer = third-party-management`, `aggregate_type = external_activity`,
   `aggregate_id == activity_id`, `aggregate_version == version`.
 - Instantes en UTC con sufijo `Z`; `ended_at ≥ started_at`; `sport` del catálogo `Sport`.
-- Enteros sin booleanos; los que van a columnas `INTEGER` no superan 2³¹−1 (decisión de la
+- Enteros sin booleanos; los que van a columnas `INTEGER` no superan 2**31 - 1 (decisión de la
   tarea: un valor mayor fallaría en PostgreSQL y reintentaría hasta la DLQ; se rechaza antes).
 - El nombre de la actividad se valida pero **no se conserva**: la proyección no lo usa, y así
   nunca llega a registros, errores ni a la base de lectura. Los motivos de `InvalidEvent` son
@@ -170,9 +170,7 @@ def _exact_fields(document: Mapping[str, Any], expected: frozenset[str], label: 
         raise InvalidEvent(f"{label}_unexpected_fields")
 
 
-def _constants(
-    document: Mapping[str, Any], constants: tuple[tuple[str, object, str], ...]
-) -> None:
+def _constants(document: Mapping[str, Any], constants: tuple[tuple[str, object, str], ...]) -> None:
     for field, expected, reason in constants:
         value = document[field]
         if type(value) is not type(expected) or value != expected:
@@ -239,9 +237,7 @@ def parse_external_activity_event(envelope: object) -> ExternalActivityImported:
     activity = _activity(payload)
     if _uuid(envelope["aggregate_id"], "aggregate_id") != activity.activity_id:
         raise InvalidEvent("aggregate_id_mismatch")
-    aggregate_version = _integer(
-        envelope["aggregate_version"], "aggregate_version", 1, _BIGINT_MAX
-    )
+    aggregate_version = _integer(envelope["aggregate_version"], "aggregate_version", 1, _BIGINT_MAX)
     if aggregate_version != activity.version:
         raise InvalidEvent("aggregate_version_mismatch")
     correlation = envelope["correlation_id"]

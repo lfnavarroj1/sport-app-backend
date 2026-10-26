@@ -75,7 +75,7 @@ class SqlAlchemyDashboardReader:
                 source=Source(str(source)),
                 sessions_count=int(count),
                 duration_seconds=int(seconds),
-                distance_meters=int(distance),
+                distance_meters=int(distance or 0),
                 sessions_with_distance=int(with_distance),
             )
             for sport, week, source, count, seconds, distance, with_distance in rows

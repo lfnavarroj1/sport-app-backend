@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import create_engine, inspect, insert, pool, select, text
+from sqlalchemy import create_engine, insert, inspect, pool, select, text
 from support import READ_HISTORY, TrainingDatabases, training_databases
 
 from sportapp_platform.migrations import current_revision, downgrade, upgrade
@@ -176,11 +176,14 @@ class ExternalActivityConsumerPersistenceTest(unittest.TestCase):
             (row.source, row.external_ref, row.distance_meters, row.plan_id, row.version),
             ("STRAVA", self.activity_id, 10234, None, 1),
         )
-        self.assertEqual((row.athlete_id, row.sport, row.duration_seconds), (
-            self.athlete_id,
-            "running",
-            3725,
-        ))
+        self.assertEqual(
+            (row.athlete_id, row.sport, row.duration_seconds),
+            (
+                self.athlete_id,
+                "running",
+                3725,
+            ),
+        )
         self.assertEqual(self.db.count(ProcessedEventRow, read=True), 1)
 
     def test_duplicate_event_id_has_no_effect(self) -> None:
@@ -192,7 +195,8 @@ class ExternalActivityConsumerPersistenceTest(unittest.TestCase):
 
         self.assertTrue(message.acked)
         after = self.row()
-        assert before is not None and after is not None
+        assert before is not None
+        assert after is not None
         self.assertEqual(after.projected_at, before.projected_at)
         self.assertEqual(self.db.count(ProcessedEventRow, read=True), 1)
 
@@ -273,7 +277,9 @@ class ExternalActivityConsumerPersistenceTest(unittest.TestCase):
         row = self.row()
         assert row is not None
         self.assertTrue(message.acked)
-        self.assertEqual((row.source, row.sport, row.distance_meters), ("SPORTAPP", "cycling", None))
+        self.assertEqual(
+            (row.source, row.sport, row.distance_meters), ("SPORTAPP", "cycling", None)
+        )
 
     def test_invalid_event_is_nacked_without_writes(self) -> None:
         body = envelope(self.activity_id, self.athlete_id)

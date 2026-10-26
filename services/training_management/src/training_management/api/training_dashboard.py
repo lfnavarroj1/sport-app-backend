@@ -78,9 +78,7 @@ class SourceBreakdown(BaseModel):
 
 class DashboardBySource(BaseModel):
     SPORTAPP: SourceBreakdown
-    STRAVA: Annotated[
-        SourceBreakdown, Field(description="Sesiones importadas de Strava (HU031).")
-    ]
+    STRAVA: Annotated[SourceBreakdown, Field(description="Sesiones importadas de Strava (HU031).")]
 
 
 class DashboardMetric(BaseModel):

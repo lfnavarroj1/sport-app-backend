@@ -196,7 +196,9 @@ class StravaIntegrationRoutesTest(StravaIntegrationCase):
         self.assertEqual((response.status_code, response.json()), (201, created))
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         sent = self.requests[0]
-        self.assertEqual((sent.method, sent.url.path, sent.content), ("POST", AUTHORIZATION_PATH, b""))
+        self.assertEqual(
+            (sent.method, sent.url.path, sent.content), ("POST", AUTHORIZATION_PATH, b"")
+        )
         self.assertTrue(sent.headers["Authorization"].startswith("Bearer "))
         self.assertEqual(sent.headers["X-Correlation-ID"], correlation)
         self.assertNotIn("Idempotency-Key", sent.headers)
@@ -253,9 +255,7 @@ class StravaIntegrationRoutesTest(StravaIntegrationCase):
 
     def test_sync_key_is_decided_by_the_service(self) -> None:
         """Sin clave no se inventa una; una clave inválida llega tal cual y la rechaza Terceros."""
-        rejection = error(
-            "validation_error", [{"field": "Idempotency-Key", "issue": "required"}]
-        )
+        rejection = error("validation_error", [{"field": "Idempotency-Key", "issue": "required"}])
         self.reply = httpx.Response(422, json=rejection)
         missing = self.client.post(SYNCS_PATH, headers=self.auth())
         invalid = self.client.post(SYNCS_PATH, headers=self.auth(**{"Idempotency-Key": "no-uuid"}))

@@ -166,12 +166,21 @@ class DashboardPersistenceTest(unittest.TestCase):
         athlete = self.athlete.user_id
         ended = datetime(2026, 10, 7, 12, tzinfo=UTC)
         strava = [
-            {**history_row(athlete, ended, minutes=60), "source": "STRAVA",
-             "distance_meters": 10234},
-            {**history_row(athlete, ended, sport="cycling", minutes=90), "source": "STRAVA",
-             "distance_meters": 40500},
-            {**history_row(athlete, ended, minutes=20), "source": "STRAVA",
-             "distance_meters": None},
+            {
+                **history_row(athlete, ended, minutes=60),
+                "source": "STRAVA",
+                "distance_meters": 10234,
+            },
+            {
+                **history_row(athlete, ended, sport="cycling", minutes=90),
+                "source": "STRAVA",
+                "distance_meters": 40500,
+            },
+            {
+                **history_row(athlete, ended, minutes=20),
+                "source": "STRAVA",
+                "distance_meters": None,
+            },
         ]
         self.seed([history_row(athlete, ended, minutes=30)])  # SportApp, sin distancia
         self.seed(strava)
@@ -180,9 +189,7 @@ class DashboardPersistenceTest(unittest.TestCase):
         )
 
         buckets = self.reader.session_buckets(athlete, period)
-        dashboard = self.dashboard()(
-            self.athlete, "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"
-        )
+        dashboard = self.dashboard()(self.athlete, "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z")
 
         by_key = {
             (item.sport, item.source.value): (

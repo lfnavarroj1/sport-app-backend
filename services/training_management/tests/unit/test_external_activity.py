@@ -74,9 +74,7 @@ def activity_payload(activity_id: UUID | None = None, **overrides: Any) -> dict[
     return values
 
 
-def activity_envelope(
-    payload: dict[str, Any] | None = None, **overrides: Any
-) -> dict[str, Any]:
+def activity_envelope(payload: dict[str, Any] | None = None, **overrides: Any) -> dict[str, Any]:
     payload = payload if payload is not None else activity_payload()
     values: dict[str, Any] = {
         "event_id": str(uuid.uuid4()),

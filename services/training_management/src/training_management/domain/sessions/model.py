@@ -6,6 +6,10 @@
   al reloj del backend o anteriores en más de 30 días.
 - `ended_at` es igual o posterior a `started_at`; `duration_seconds` la calcula el
   backend como diferencia entera.
+- HU036 (ADR-044 §10): la finalización acepta el motivo opcional `reason = RISK_STOP`
+  («Detener la práctica» tras una alerta); se conserva en `end_reason` (`null` sin motivo). La
+  transición sigue siendo única: repetirla con el mismo `ended_at` y el mismo motivo devuelve
+  la sesión vigente.
 """
 
 import re
@@ -32,6 +36,10 @@ _UTC_SECONDS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 class TrainingSessionStatus(StrEnum):
     ACTIVE = "ACTIVE"
     FINISHED = "FINISHED"
+
+
+class SessionEndReason(StrEnum):
+    RISK_STOP = "RISK_STOP"
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,7 @@ class TrainingSession:
     version: int
     created_at: datetime
     updated_at: datetime
+    end_reason: SessionEndReason | None = None
 
     @classmethod
     def start(cls, *, athlete_id: UUID, data: StartData, now: datetime) -> "TrainingSession":
@@ -93,7 +102,9 @@ class TrainingSession:
             and self.started_at == data.started_at
         )
 
-    def finish(self, *, ended_at: datetime, now: datetime) -> "TrainingSession":
+    def finish(
+        self, *, ended_at: datetime, now: datetime, reason: SessionEndReason | None = None
+    ) -> "TrainingSession":
         if self.status is not TrainingSessionStatus.ACTIVE:
             raise ValueError("Solo se finaliza una sesión activa.")
         if ended_at < self.started_at:
@@ -105,7 +116,12 @@ class TrainingSession:
             status=TrainingSessionStatus.FINISHED,
             version=FINISHED_VERSION,
             updated_at=now.astimezone(UTC),
+            end_reason=reason,
         )
+
+    def matches_finish(self, ended_at: datetime, reason: SessionEndReason | None) -> bool:
+        """La misma finalización (instante y motivo) que ya se registró."""
+        return self.ended_at == ended_at and self.end_reason is reason
 
 
 def parse_instant(
@@ -164,13 +180,30 @@ def validate_start(raw: StartInput, now: datetime) -> StartData:
     return StartData(session_id=session_id, plan_id=plan_id, sport=sport, started_at=started_at)
 
 
+@dataclass(frozen=True)
+class FinishData:
+    session_id: UUID
+    ended_at: datetime
+    reason: SessionEndReason | None
+
+
 def validate_finish(
-    raw_session_id: str, ended_at: str | None, transport: tuple[Violation, ...], now: datetime
-) -> tuple[UUID, datetime]:
-    """Identificador de la ruta e instante final validados (sin conocer la sesión)."""
+    raw_session_id: str,
+    ended_at: str | None,
+    transport: tuple[Violation, ...],
+    now: datetime,
+    reason: str | None = None,
+) -> FinishData:
+    """Identificador de la ruta, instante final y motivo validados (sin conocer la sesión)."""
     violations = list(transport)
     session_id = parse_uuid(raw_session_id, "session_id", violations)
     instant = parse_instant(ended_at, "ended_at", now, violations)
+    end_reason = None
+    if reason is not None:
+        if reason in {item.value for item in SessionEndReason}:
+            end_reason = SessionEndReason(reason)
+        else:
+            violations.append(Violation("reason", Issue.UNKNOWN_VALUE))
     if violations or session_id is None or instant is None:
         raise InvalidTrainingSession(violations)
-    return session_id, instant
+    return FinishData(session_id=session_id, ended_at=instant, reason=end_reason)

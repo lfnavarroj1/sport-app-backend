@@ -69,6 +69,7 @@ class CapabilitiesFlowTest(unittest.TestCase):
                         app_env="test",  # type: ignore[arg-type]
                         database_url=affiliation_url,  # type: ignore[arg-type]
                         affiliation_expected_catalog_version=CATALOG,
+                        users_management_base_url="http://users-management",  # type: ignore[arg-type]
                     )
                 ),
                 base_url="http://affiliation-management",
@@ -158,6 +159,7 @@ class CapabilitiesFlowTest(unittest.TestCase):
 
         self.assertEqual(organizer_view["subscription_status"], "NOT_APPLICABLE")
         self.assertIn("events.create", organizer_view["permissions"])
+        self.assertIn("training.routes.author", organizer_view["permissions"])
         self.assertNotIn("services.create", organizer_view["permissions"])
         self.assertIn("services.create", provider_view["permissions"])
         self.assertIn("services.publish", provider_view["permissions"])

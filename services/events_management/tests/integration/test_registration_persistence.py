@@ -16,7 +16,6 @@ from events_management.application.messages import parse_sport_event_message
 from events_management.application.ports import Caller
 from events_management.application.projections.event_projection import ProjectionConflict
 from events_management.application.queries.registrations import (
-    GetPublishedEvent,
     ListMyRegistrations,
     RegistrationsFilters,
 )
@@ -161,14 +160,10 @@ class RegistrationPersistenceTest(unittest.TestCase):
             self.athlete, RegistrationsFilters()
         )
         self.assertEqual([item.registration.event_id for item in page.items], [sooner, later])
-        detail = GetPublishedEvent(reader=self.db.detail_reader())(self.athlete, sooner)
+        detail = self.db.get_event()(self.athlete, sooner)
         assert detail.my_registration is not None
         self.assertEqual(detail.my_registration.athlete_id, self.athlete.user_id)
-        self.assertIsNone(
-            GetPublishedEvent(reader=self.db.detail_reader())(
-                Caller(uuid4(), "athlete"), later
-            ).my_registration
-        )
+        self.assertIsNone(self.db.get_event()(Caller(uuid4(), "athlete"), later).my_registration)
 
     def test_keyset_does_not_lose_or_repeat(self) -> None:
         events = [self.db.publish_event(starts_in=timedelta(days=5)) for _ in range(3)] + [
@@ -196,7 +191,7 @@ class RegistrationPersistenceTest(unittest.TestCase):
         draft = self.db.publish_event(status="DRAFT")
 
         with self.assertRaises(EventNotAvailable):
-            GetPublishedEvent(reader=self.db.detail_reader())(self.athlete, draft)
+            self.db.get_event()(self.athlete, draft)
 
 
 if __name__ == "__main__":

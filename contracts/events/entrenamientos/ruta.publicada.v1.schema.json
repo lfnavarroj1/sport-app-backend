@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/entrenamientos/ruta.publicada.v1.schema.json",
+  "title": "ruta.publicada.v1",
+  "description": "Publicado en sportapp.entrenamientos.v1 con ordering_key = route_id (= aggregate_id) cuando un organizador publica una ruta (HU026, ADR-041). Estado completo de la ruta en su versión 1 para entrenamientos-read-projector (route_view). Sin datos personales salvo organizer_id; instantes en UTC con sufijo Z.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "const": "ruta.publicada.v1"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "training-management"
+    },
+    "aggregate_type": {
+      "const": "route"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "route_id de la ruta; también es la ordering_key."
+    },
+    "aggregate_version": {
+      "const": 1,
+      "description": "Igual a payload.version."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Idempotency-Key de la publicación"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_id",
+        "organizer_id",
+        "name",
+        "description",
+        "sport",
+        "distance_km",
+        "difficulty",
+        "city",
+        "country_code",
+        "start_point",
+        "waypoints",
+        "source",
+        "status",
+        "version",
+        "created_at",
+        "updated_at",
+        "published_at",
+        "retired_at"
+      ],
+      "properties": {
+        "route_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "organizer_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Organizador autor (único dato personal: un identificador)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "sport": {
+          "enum": [
+            "running",
+            "cycling",
+            "swimming",
+            "strength",
+            "other"
+          ]
+        },
+        "distance_km": {
+          "type": "string",
+          "pattern": "^[0-9]{1,3}\\.[0-9]$",
+          "description": "Kilómetros con exactamente un decimal, entre 0.1 y 500.0."
+        },
+        "difficulty": {
+          "enum": [
+            "LOW",
+            "MODERATE",
+            "HIGH"
+          ]
+        },
+        "city": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "country_code": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        },
+        "start_point": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lat",
+            "lng"
+          ],
+          "properties": {
+            "lat": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "lng": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          }
+        },
+        "waypoints": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lat",
+              "lng"
+            ],
+            "properties": {
+              "lat": {
+                "type": "number",
+                "minimum": -90,
+                "maximum": 90
+              },
+              "lng": {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
+              }
+            }
+          }
+        },
+        "source": {
+          "const": "ORGANIZER"
+        },
+        "status": {
+          "const": "PUBLISHED"
+        },
+        "version": {
+          "const": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "retired_at": {
+          "type": "null"
+        }
+      }
+    }
+  }
+}

@@ -1,12 +1,15 @@
 """Lectura validada de los eventos de `sportapp.usuarios.v1` para `usuarios-read-projector`.
 
-Se proyectan `usuario.registrado.v1` (HU001, directorio de identidad) y
-`perfil.demografico_actualizado.v1` / `perfil.fisiologico_actualizado.v1` (HU005,
-ADR-034). Cada evento se valida contra su esquema versionado en `contracts/events/usuarios/`
-campo a campo y el payload no admite campos fuera del contrato (minimización): un mensaje
-que no lo cumple es un `InvalidEvent`, no se confirma y, agotadas las entregas, termina en
-la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este proyector todavía no lo
-proyecta y se confirma sin efectos.
+Se proyectan `usuario.registrado.v1` (HU001, directorio de identidad),
+`usuario.actualizado.v1` (HU002, ADR-035: nombre y correo en el directorio),
+`perfil.demografico_actualizado.v1` / `perfil.fisiologico_actualizado.v1` (HU005),
+`habitos.deportivos_actualizados.v1` (HU006), según ADR-034, y
+`habitos.alimenticios_actualizados.v1` (HU009, ADR-035). Cada evento
+se valida campo a campo contra su esquema versionado en `contracts/events/usuarios/` y el
+payload no admite campos fuera del contrato (minimización): un mensaje que no lo cumple es
+un `InvalidEvent`, no se confirma y, agotadas las entregas, termina en la DLQ. Otro tipo de
+evento del tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma
+sin efectos.
 
 Los motivos de rechazo nombran el campo, nunca su valor: el payload contiene datos
 demográficos y de salud.
@@ -16,10 +19,12 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from users_management.domain.account.events import UserRegistered
+from users_management.domain.account.events import UserRegistered, UserUpdated
 from users_management.domain.account.model import AccountStatus, ActorType
 from users_management.domain.profile.events import (
     SCHEMA_VERSION as PROFILE_SCHEMA_VERSION,
@@ -27,6 +32,32 @@ from users_management.domain.profile.events import (
 from users_management.domain.profile.events import (
     SECTION_BY_EVENT_TYPE,
     ProfileSection,
+)
+from users_management.domain.profile.nutrition_habits import (
+    HYDRATION_MAX_LITERS,
+    HYDRATION_MIN_LITERS,
+    MEALS_PER_DAY_MAX,
+    MEALS_PER_DAY_MIN,
+    Allergy,
+    DietPattern,
+    Restriction,
+)
+from users_management.domain.profile.sport_habits import (
+    DAYS_MAX,
+    DURATION_MAX,
+    DURATION_MIN,
+    FREQUENCY_MAX,
+    FREQUENCY_MIN,
+    SPORTS_MAX,
+    TIME_SLOTS_MAX,
+    YEARS_MAX,
+    YEARS_MIN,
+    Day,
+    Intensity,
+    Level,
+    PrimaryGoal,
+    Sport,
+    TimeSlot,
 )
 
 PRODUCER = "gestion-usuarios"
@@ -51,6 +82,9 @@ _COUNTRY = re.compile(r"^[A-Z]{2}$")
 
 _REGISTERED_FIELDS = frozenset(
     {"user_id", "full_name", "email", "actor_type", "status", "registered_at"}
+)
+_UPDATED_FIELDS = frozenset(
+    {"user_id", "full_name", "email", "actor_type", "status", "version", "updated_at"}
 )
 DEMOGRAPHIC_FIELDS = frozenset(
     {
@@ -83,6 +117,34 @@ PHYSIOLOGICAL_FIELDS = frozenset(
         "updated_at",
     }
 )
+SPORT_HABITS_FIELDS = frozenset(
+    {"user_id", "version", "sports", "availability", "primary_goal", "created_at", "updated_at"}
+)
+NUTRITION_HABITS_FIELDS = frozenset(
+    {
+        "user_id",
+        "version",
+        "consent",
+        "diet_pattern",
+        "restrictions",
+        "allergies",
+        "meals_per_day",
+        "hydration_liters_per_day",
+        "created_at",
+        "updated_at",
+    }
+)
+_SPORT_FIELDS = frozenset(
+    {
+        "sport",
+        "frequency_per_week",
+        "session_duration_minutes",
+        "intensity",
+        "level",
+        "years_practicing",
+    }
+)
+_AVAILABILITY_FIELDS = frozenset({"days", "time_slots"})
 _CONSENT_FIELDS = frozenset({"version", "accepted_at"})
 _BLOOD_PRESSURE_FIELDS = frozenset({"systolic_mmhg", "diastolic_mmhg"})
 
@@ -130,6 +192,31 @@ class UserRegisteredEvent:
 
 
 @dataclass(frozen=True)
+class UserUpdatedEvent:
+    """`usuario.actualizado.v1` (HU002): estado completo de la cuenta editable, sin hash."""
+
+    event_id: UUID
+    user_id: UUID
+    aggregate_version: int
+    correlation_id: UUID | None
+    full_name: str
+    email: str
+    actor_type: str
+    status: str
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.user_id
+
+    def __repr__(self) -> str:
+        # Nombre y correo son datos personales: nunca en trazas.
+        return (
+            f"UserUpdatedEvent(event_id={self.event_id}, user_id={self.user_id}, "
+            f"version={self.aggregate_version})"
+        )
+
+
+@dataclass(frozen=True)
 class ProfileSectionUpdatedEvent:
     """`perfil.*_actualizado.v1`: `document` es el payload sin `user_id` (ADR-034)."""
 
@@ -153,7 +240,7 @@ class ProfileSectionUpdatedEvent:
         )
 
 
-UsersEvent = UserRegisteredEvent | ProfileSectionUpdatedEvent
+UsersEvent = UserRegisteredEvent | UserUpdatedEvent | ProfileSectionUpdatedEvent
 
 
 def _uuid(value: object, field: str) -> UUID:
@@ -286,6 +373,35 @@ def _user_registered(envelope: dict[str, Any]) -> UserRegisteredEvent:
     )
 
 
+def _user_updated(envelope: dict[str, Any]) -> UserUpdatedEvent:
+    event_id, aggregate_id, version = _envelope(envelope, UserUpdated.SCHEMA_VERSION)
+    # La versión 1 la crea el registro; una edición siempre produce la 2 o posterior.
+    if version <= REGISTERED_VERSION:
+        raise InvalidEvent("aggregate_version_invalid")
+    payload = _object(envelope.get("payload"), "payload", _UPDATED_FIELDS)
+    if _uuid(payload["user_id"], "user_id") != aggregate_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if _int(payload["version"], "version", 1) != version:
+        raise InvalidEvent("version_mismatch")
+    full_name = _text(payload["full_name"], "full_name", 1, 120)
+    email = _text(payload["email"], "email", 3, 254)
+    actor_type = _choice(
+        payload["actor_type"], "actor_type", frozenset(value.value for value in ActorType)
+    )
+    status = _choice(payload["status"], "status", frozenset(value.value for value in AccountStatus))
+    _instant(payload["updated_at"], "updated_at")
+    return UserUpdatedEvent(
+        event_id=event_id,
+        user_id=aggregate_id,
+        aggregate_version=version,
+        correlation_id=_correlation(envelope),
+        full_name=full_name,
+        email=email,
+        actor_type=actor_type,
+        status=status,
+    )
+
+
 def _validate_demographic(payload: dict[str, Any]) -> None:
     _date(payload["birth_date"], "birth_date")
     _choice(payload["gender"], "gender", GENDERS)
@@ -303,9 +419,7 @@ def _validate_blood_pressure(value: object) -> None:
 
 
 def _validate_physiological(payload: dict[str, Any]) -> None:
-    consent = _object(payload["consent"], "consent", _CONSENT_FIELDS)
-    _text(consent["version"], "consent_version", 1, 64)
-    _instant(consent["accepted_at"], "consent_accepted_at")
+    _validate_consent(payload["consent"])
     _instant(payload["measured_at"], "measured_at", _UTC_SECONDS)
     _matches(payload["weight_kg"], "weight_kg", _ONE_DECIMAL)
     _int(payload["height_cm"], "height_cm", 100, 250)
@@ -319,9 +433,82 @@ def _validate_physiological(payload: dict[str, Any]) -> None:
     )
 
 
+def _catalog_list(value: object, field: str, catalog: type[StrEnum], maximum: int) -> list[str]:
+    """Lista de 1 a `maximum` valores únicos del catálogo en su orden canónico."""
+    order = [member.value for member in catalog]
+    if (
+        not isinstance(value, list)
+        or not 1 <= len(value) <= maximum
+        or any(not isinstance(item, str) or item not in order for item in value)
+        or value != sorted(set(value), key=order.index)
+    ):
+        raise InvalidEvent(f"{field}_invalid")
+    return value
+
+
+def _validate_sport(value: object) -> str:
+    sport = _object(value, "sport", _SPORT_FIELDS)
+    _int(sport["frequency_per_week"], "frequency_per_week", FREQUENCY_MIN, FREQUENCY_MAX)
+    _int(sport["session_duration_minutes"], "session_duration_minutes", DURATION_MIN, DURATION_MAX)
+    _choice(sport["intensity"], "intensity", frozenset(Intensity))
+    _choice(sport["level"], "level", frozenset(Level))
+    _optional(
+        sport["years_practicing"], lambda v: _int(v, "years_practicing", YEARS_MIN, YEARS_MAX)
+    )
+    return _choice(sport["sport"], "sport", frozenset(Sport))
+
+
+def _validate_sport_habits(payload: dict[str, Any]) -> None:
+    sports = payload["sports"]
+    if not isinstance(sports, list) or not 1 <= len(sports) <= SPORTS_MAX:
+        raise InvalidEvent("sports_invalid")
+    names = [_validate_sport(item) for item in sports]
+    order = [member.value for member in Sport]
+    if names != sorted(set(names), key=order.index):
+        raise InvalidEvent("sports_not_canonical")
+    availability = _object(payload["availability"], "availability", _AVAILABILITY_FIELDS)
+    _catalog_list(availability["days"], "days", Day, DAYS_MAX)
+    _catalog_list(availability["time_slots"], "time_slots", TimeSlot, TIME_SLOTS_MAX)
+    _optional(payload["primary_goal"], lambda v: _choice(v, "primary_goal", frozenset(PrimaryGoal)))
+
+
+def _validate_consent(value: object) -> None:
+    consent = _object(value, "consent", _CONSENT_FIELDS)
+    _text(consent["version"], "consent_version", 1, 64)
+    _instant(consent["accepted_at"], "consent_accepted_at")
+
+
+def _optional_catalog_list(value: object, field: str, catalog: type[StrEnum]) -> None:
+    """Lista de 0 a `len(catalog)` valores únicos del catálogo en su orden canónico."""
+    order = [member.value for member in catalog]
+    if (
+        not isinstance(value, list)
+        or any(not isinstance(item, str) or item not in order for item in value)
+        or value != sorted(set(value), key=order.index)
+    ):
+        raise InvalidEvent(f"{field}_invalid")
+
+
+def _hydration(value: object) -> None:
+    text = _matches(value, "hydration_liters_per_day", _ONE_DECIMAL)
+    if not HYDRATION_MIN_LITERS <= Decimal(text) <= HYDRATION_MAX_LITERS:
+        raise InvalidEvent("hydration_liters_per_day_out_of_range")
+
+
+def _validate_nutrition_habits(payload: dict[str, Any]) -> None:
+    _validate_consent(payload["consent"])
+    _choice(payload["diet_pattern"], "diet_pattern", frozenset(DietPattern))
+    _optional_catalog_list(payload["restrictions"], "restrictions", Restriction)
+    _optional_catalog_list(payload["allergies"], "allergies", Allergy)
+    _int(payload["meals_per_day"], "meals_per_day", MEALS_PER_DAY_MIN, MEALS_PER_DAY_MAX)
+    _optional(payload["hydration_liters_per_day"], _hydration)
+
+
 _SECTION_RULES: dict[ProfileSection, tuple[frozenset[str], Callable[[dict[str, Any]], None]]] = {
     ProfileSection.DEMOGRAPHIC: (DEMOGRAPHIC_FIELDS, _validate_demographic),
     ProfileSection.PHYSIOLOGICAL: (PHYSIOLOGICAL_FIELDS, _validate_physiological),
+    ProfileSection.SPORT_HABITS: (SPORT_HABITS_FIELDS, _validate_sport_habits),
+    ProfileSection.NUTRITION_HABITS: (NUTRITION_HABITS_FIELDS, _validate_nutrition_habits),
 }
 
 
@@ -359,6 +546,8 @@ def parse_users_event(envelope: object) -> UsersEvent:
         raise InvalidEvent("event_type_missing")
     if event_type == UserRegistered.EVENT_TYPE:
         return _user_registered(envelope)
+    if event_type == UserUpdated.EVENT_TYPE:
+        return _user_updated(envelope)
     if event_type in SECTION_BY_EVENT_TYPE:
         return _profile_section_updated(envelope, event_type)
     raise UnsupportedEvent(event_type)

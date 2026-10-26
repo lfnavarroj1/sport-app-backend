@@ -77,9 +77,61 @@ class UsersManagementClient:
             idempotency_key=idempotency_key,
         )
 
+    def put_sport_habits(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU006 (ADR-034): bytes del cuerpo y clave tal cual; el servicio valida y responde
+        el `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PUT",
+            "/v1/me/sport-habits",
+            access_token,
+            content=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def patch_sport_habits(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU008 (ADR-035): edición parcial; bytes del cuerpo y clave tal cual. El servicio
+        fusiona, valida y responde `404`, `409` o `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PATCH",
+            "/v1/me/sport-habits",
+            access_token,
+            content=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def put_nutrition_habits(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU009 (ADR-035): bytes del cuerpo y clave tal cual; el servicio valida y responde
+        el `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PUT",
+            "/v1/me/nutrition-habits",
+            access_token,
+            content=body,
+            idempotency_key=idempotency_key,
+        )
+
     def get_profile(self, access_token: str) -> httpx.Response:
         """HU005 (ADR-034): perfil proyectado del deportista del token."""
         return self._send_as_user("GET", "/v1/me/profile", access_token)
+
+    def put_account(
+        self, access_token: str, body: bytes, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU002 (ADR-035): bytes del cuerpo y clave tal cual; el servicio valida y responde
+        el `422`, también ante un JSON mal formado."""
+        return self._send_as_user(
+            "PUT", "/v1/me/account", access_token, content=body, idempotency_key=idempotency_key
+        )
+
+    def get_account(self, access_token: str) -> httpx.Response:
+        """HU002 (ADR-035): cuenta proyectada del titular del token."""
+        return self._send_as_user("GET", "/v1/me/account", access_token)
 
     def lookup_users_batch(self, user_ids: list[UUID]) -> list[dict[str, Any]]:
         """HU011 (CA5): nombre y correo de cuentas activas por identificador (contrato interno).
@@ -89,6 +141,18 @@ class UsersManagementClient:
         """
         response = self._post(
             "/v1/users/lookup-batch", {"user_ids": [str(user_id) for user_id in user_ids]}, {}
+        )
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        items: list[dict[str, Any]] = response.json()["items"]
+        return items
+
+    def directory_lookup(self, user_ids: list[UUID]) -> list[dict[str, Any]]:
+        """HU022 (ADR-039): solo el nombre (`full_name`) de cuentas activas por identificador
+        (contrato interno, ≤ 100). Los identificadores salen siempre de la página de Eventos.
+        Cualquier respuesta distinta de `200` es indisponibilidad."""
+        response = self._post(
+            "/v1/users/directory-lookup", {"user_ids": [str(user_id) for user_id in user_ids]}, {}
         )
         if response.status_code != httpx.codes.OK:
             raise UpstreamUnavailable()

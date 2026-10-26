@@ -12,7 +12,8 @@ from training_management.domain.sessions.model import StartInput
 from training_management.domain.sessions.validation import Issue, Violation
 
 START_FIELDS = ("session_id", "plan_id", "sport", "started_at")
-FINISH_FIELDS = ("ended_at",)
+# HU036 (ADR-044 §10): `reason` opcional (`RISK_STOP`); el catálogo lo valida el dominio.
+FINISH_FIELDS = ("ended_at", "reason")
 
 
 def _unexpected(document: dict[str, Any], allowed: tuple[str, ...]) -> list[Violation]:
@@ -55,11 +56,13 @@ def parse_start(body: object) -> StartInput:
     )
 
 
-def parse_finish(body: object) -> tuple[str | None, tuple[Violation, ...]]:
+def parse_finish(body: object) -> tuple[str | None, str | None, tuple[Violation, ...]]:
+    """`ended_at`, `reason` (opcional) y las violaciones de forma del cuerpo."""
     violations: list[Violation] = []
     document = _document(body, violations)
     if document is None:
-        return None, tuple(violations)
+        return None, None, tuple(violations)
     violations.extend(_unexpected(document, FINISH_FIELDS))
     ended_at = _string(document, "ended_at", violations)
-    return ended_at, tuple(violations)
+    reason = _string(document, "reason", violations, optional=True)
+    return ended_at, reason, tuple(violations)

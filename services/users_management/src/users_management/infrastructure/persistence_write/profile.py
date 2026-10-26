@@ -1,4 +1,4 @@
-"""Unidad de trabajo SQLAlchemy de los comandos de perfil (HU005, ADR-034).
+"""Unidad de trabajo SQLAlchemy de los comandos de perfil (HU005, HU006 y HU009).
 
 La sección, `outbox_event` e `idempotency_key` se confirman en una transacción. El
 documento de la sección (respuesta y payload) se traduce a columnas tipadas y de vuelta
@@ -26,18 +26,30 @@ from users_management.domain.profile.validation import format_decimal, format_in
 from users_management.infrastructure.persistence_write.models import (
     DEMOGRAPHIC_PRIMARY_KEY,
     IDEMPOTENCY_PRIMARY_KEY,
+    NUTRITION_HABITS_PRIMARY_KEY,
     PHYSIOLOGICAL_PRIMARY_KEY,
+    SPORT_HABITS_PRIMARY_KEY,
     DemographicProfileRow,
     IdempotencyKeyRow,
+    NutritionHabitsRow,
     OutboxEventRow,
     PhysiologicalProfileRow,
+    SportHabitsRow,
 )
 
-SectionRow = DemographicProfileRow | PhysiologicalProfileRow
+SectionRow = DemographicProfileRow | PhysiologicalProfileRow | SportHabitsRow | NutritionHabitsRow
 _ROW_BY_SECTION: dict[ProfileSection, type[SectionRow]] = {
     ProfileSection.DEMOGRAPHIC: DemographicProfileRow,
     ProfileSection.PHYSIOLOGICAL: PhysiologicalProfileRow,
+    ProfileSection.SPORT_HABITS: SportHabitsRow,
+    ProfileSection.NUTRITION_HABITS: NutritionHabitsRow,
 }
+_SECTION_PRIMARY_KEYS = (
+    DEMOGRAPHIC_PRIMARY_KEY,
+    PHYSIOLOGICAL_PRIMARY_KEY,
+    SPORT_HABITS_PRIMARY_KEY,
+    NUTRITION_HABITS_PRIMARY_KEY,
+)
 
 
 class ProfileWriteFailed(RuntimeError):
@@ -101,6 +113,36 @@ def physiological_document(row: PhysiologicalProfileRow) -> dict[str, Any]:
     }
 
 
+def sport_habits_document(row: SportHabitsRow) -> dict[str, Any]:
+    return {
+        "user_id": str(row.user_id),
+        "version": row.version,
+        "sports": row.sports,
+        "availability": row.availability,
+        "primary_goal": row.primary_goal,
+        "created_at": format_instant(row.created_at),
+        "updated_at": format_instant(row.updated_at),
+    }
+
+
+def nutrition_habits_document(row: NutritionHabitsRow) -> dict[str, Any]:
+    return {
+        "user_id": str(row.user_id),
+        "version": row.version,
+        "consent": {
+            "version": row.health_consent_version,
+            "accepted_at": format_instant(row.health_consent_at),
+        },
+        "diet_pattern": row.diet_pattern,
+        "restrictions": row.restrictions,
+        "allergies": row.allergies,
+        "meals_per_day": row.meals_per_day,
+        "hydration_liters_per_day": _optional_decimal(row.hydration_liters_per_day),
+        "created_at": format_instant(row.created_at),
+        "updated_at": format_instant(row.updated_at),
+    }
+
+
 def _demographic_columns(document: dict[str, Any]) -> dict[str, Any]:
     return {
         "version": document["version"],
@@ -136,21 +178,56 @@ def _physiological_columns(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _sport_habits_columns(document: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "version": document["version"],
+        "sports": document["sports"],
+        "availability": document["availability"],
+        "primary_goal": document["primary_goal"],
+        "created_at": datetime.fromisoformat(document["created_at"]),
+        "updated_at": datetime.fromisoformat(document["updated_at"]),
+    }
+
+
+def _nutrition_habits_columns(document: dict[str, Any]) -> dict[str, Any]:
+    hydration = document["hydration_liters_per_day"]
+    return {
+        "version": document["version"],
+        "health_consent_version": document["consent"]["version"],
+        "health_consent_at": datetime.fromisoformat(document["consent"]["accepted_at"]),
+        "diet_pattern": document["diet_pattern"],
+        "restrictions": document["restrictions"],
+        "allergies": document["allergies"],
+        "meals_per_day": document["meals_per_day"],
+        "hydration_liters_per_day": Decimal(hydration) if hydration is not None else None,
+        "created_at": datetime.fromisoformat(document["created_at"]),
+        "updated_at": datetime.fromisoformat(document["updated_at"]),
+    }
+
+
 def section_document(row: SectionRow) -> dict[str, Any]:
     if isinstance(row, DemographicProfileRow):
         return demographic_document(row)
+    if isinstance(row, SportHabitsRow):
+        return sport_habits_document(row)
+    if isinstance(row, NutritionHabitsRow):
+        return nutrition_habits_document(row)
     return physiological_document(row)
 
 
 def _section_columns(section: ProfileSection, document: dict[str, Any]) -> dict[str, Any]:
     if section is ProfileSection.DEMOGRAPHIC:
         return _demographic_columns(document)
+    if section is ProfileSection.SPORT_HABITS:
+        return _sport_habits_columns(document)
+    if section is ProfileSection.NUTRITION_HABITS:
+        return _nutrition_habits_columns(document)
     return _physiological_columns(document)
 
 
-def _locked[RowT: (DemographicProfileRow, PhysiologicalProfileRow)](
-    model: type[RowT], user_id: UUID
-) -> Select[RowT]:
+def _locked[
+    RowT: (DemographicProfileRow, PhysiologicalProfileRow, SportHabitsRow, NutritionHabitsRow)
+](model: type[RowT], user_id: UUID) -> Select[RowT]:
     return (
         select(model)
         .where(model.user_id == user_id)
@@ -213,6 +290,10 @@ class SqlAlchemyProfileUnitOfWork:
         row: SectionRow | None
         if section is ProfileSection.DEMOGRAPHIC:
             row = self.session.scalar(_locked(DemographicProfileRow, user_id))
+        elif section is ProfileSection.SPORT_HABITS:
+            row = self.session.scalar(_locked(SportHabitsRow, user_id))
+        elif section is ProfileSection.NUTRITION_HABITS:
+            row = self.session.scalar(_locked(NutritionHabitsRow, user_id))
         else:
             row = self.session.scalar(_locked(PhysiologicalProfileRow, user_id))
         if row is None:
@@ -275,7 +356,7 @@ class SqlAlchemyProfileUnitOfWork:
         except DBAPIError as error:
             self.session.rollback()
             constraint = _violated_constraint(error)
-            if constraint in (DEMOGRAPHIC_PRIMARY_KEY, PHYSIOLOGICAL_PRIMARY_KEY):
+            if constraint in _SECTION_PRIMARY_KEYS:
                 raise SectionAlreadyExists() from None
             if constraint == IDEMPOTENCY_PRIMARY_KEY:
                 raise IdempotencyKeyConflict() from None

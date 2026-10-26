@@ -13,10 +13,28 @@ from sportapp_platform.database import DatabaseReadinessCheck, create_database_e
 from sportapp_platform.tokens import CachedJwksVerifier
 from training_management.api.authorizations import build_authorizations_router
 from training_management.api.authorized_athletes import build_authorized_athletes_router
+from training_management.api.devices import build_devices_router
+from training_management.api.food_catalog import build_food_catalog_router
+from training_management.api.food_intake_history import build_food_intake_history_router
+from training_management.api.food_intakes import build_food_intakes_router
+from training_management.api.health_history import build_health_history_router
+from training_management.api.health_reports import build_health_reports_router
 from training_management.api.history import build_history_router
+from training_management.api.measurements import build_measurements_router
+from training_management.api.monitoring_settings import build_monitoring_settings_router
+from training_management.api.nutrition_plans import build_nutrition_plans_router
+from training_management.api.nutrition_routine_templates import (
+    build_nutrition_routine_templates_router,
+)
 from training_management.api.planned_sessions import build_planned_sessions_router
 from training_management.api.plans import build_plans_router
+from training_management.api.routes import build_routes_router
+from training_management.api.session_reminders import build_session_reminders_router
+from training_management.api.training_dashboard import build_training_dashboard_router
 from training_management.api.training_metrics import build_training_metrics_router
+from training_management.api.training_plan_templates import (
+    build_training_plan_templates_router,
+)
 from training_management.api.training_sessions import build_training_sessions_router
 from training_management.application.commands.authorizations import (
     GrantAuthorization,
@@ -25,25 +43,77 @@ from training_management.application.commands.authorizations import (
 from training_management.application.commands.calculate_training_metric import (
     CalculateTrainingMetric,
 )
+from training_management.application.commands.create_nutrition_plan import CreateNutritionPlan
 from training_management.application.commands.create_training_plan import CreateTrainingPlan
+from training_management.application.commands.devices import RegisterDevice, RevokeDevice
+from training_management.application.commands.measurements import IngestMeasurements
+from training_management.application.commands.monitoring_settings import (
+    UpdateMonitoringSettings,
+)
+from training_management.application.commands.nutrition_routine_templates import (
+    PublishRoutine,
+    RetireRoutine,
+)
+from training_management.application.commands.register_food_intake import RegisterFoodIntake
+from training_management.application.commands.report_health import ReportHealth
+from training_management.application.commands.routes import PublishRoute, RetireRoute
+from training_management.application.commands.session_reminder_preferences import (
+    UpdateSessionReminderPreferences,
+)
+from training_management.application.commands.training_plan_templates import (
+    PublishTemplate,
+    RetireTemplate,
+)
 from training_management.application.commands.training_sessions import (
     FinishTrainingSession,
     StartTrainingSession,
 )
+from training_management.application.monitoring_threshold import ResolveThreshold
 from training_management.application.queries.active_session import GetActiveTrainingSession
 from training_management.application.queries.authorized_athletes import GetAuthorizedAthletes
+from training_management.application.queries.devices import ListMyDevices
+from training_management.application.queries.food_catalog import GetFoodCatalog
+from training_management.application.queries.food_intakes import GetFoodIntakeHistory
 from training_management.application.queries.get_training_plan import GetTrainingPlan
+from training_management.application.queries.health_history import GetHealthHistory
+from training_management.application.queries.monitoring_settings import GetMonitoringSettings
+from training_management.application.queries.nutrition_plans import (
+    GetNutritionPlan,
+    ListMyNutritionPlans,
+)
+from training_management.application.queries.nutrition_routine_templates import (
+    ListMyRoutines,
+    SuggestRoutines,
+)
 from training_management.application.queries.planned_sessions import GetPlannedSessions
+from training_management.application.queries.routes import ListMyRoutes, SuggestRoutes
+from training_management.application.queries.session_reminders import (
+    GetSessionReminderPreferences,
+    GetSessionReminderRules,
+)
+from training_management.application.queries.training_dashboard import GetTrainingDashboard
 from training_management.application.queries.training_history import GetTrainingHistory
 from training_management.application.queries.training_metrics import (
     GetMetricCatalog,
     ListTrainingMetricResults,
+)
+from training_management.application.queries.training_plan_templates import (
+    ListMyTemplates,
+    SuggestTemplates,
 )
 from training_management.domain.metrics.catalog import TRAINING_METRICS_CATALOG
 from training_management.infrastructure.authorization import ContractPermissionPolicy
 from training_management.infrastructure.clock import SystemClock
 from training_management.infrastructure.integrations.affiliation import (
     AffiliationCapabilityChecker,
+)
+from training_management.infrastructure.integrations.users import (
+    UsersAthleteBirthDates,
+    UsersNutritionRestrictions,
+)
+from training_management.infrastructure.persistence_read.dashboard import SqlAlchemyDashboardReader
+from training_management.infrastructure.persistence_read.health_history import (
+    SqlAlchemyHealthReportHistoryReader,
 )
 from training_management.infrastructure.persistence_read.history import (
     SqlAlchemyActiveSessionReader,
@@ -55,17 +125,39 @@ from training_management.infrastructure.persistence_read.history import (
 from training_management.infrastructure.persistence_read.metrics import (
     SqlAlchemyMetricResultReader,
 )
+from training_management.infrastructure.persistence_read.nutrition import (
+    SqlAlchemyFoodIntakeReader,
+    SqlAlchemyNutritionPlanReader,
+)
 from training_management.infrastructure.persistence_read.plans import SqlAlchemyPlanReader
+from training_management.infrastructure.persistence_read.routes import SqlAlchemyRouteReader
+from training_management.infrastructure.persistence_read.routines import SqlAlchemyRoutineReader
+from training_management.infrastructure.persistence_read.templates import SqlAlchemyTemplateReader
+from training_management.infrastructure.persistence_write.food_catalog import (
+    FoodCatalogReadinessCheck,
+    SqlAlchemyFoodCatalogReader,
+)
 from training_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyAuthorizationUnitOfWork,
+    SqlAlchemyDeviceReader,
+    SqlAlchemyDeviceUnitOfWork,
+    SqlAlchemyFoodIntakeUnitOfWork,
+    SqlAlchemyHealthReportUnitOfWork,
+    SqlAlchemyMeasurementUnitOfWork,
     SqlAlchemyMetricUnitOfWork,
+    SqlAlchemyMonitoringSettingsUnitOfWork,
+    SqlAlchemyNutritionUnitOfWork,
     SqlAlchemyPlanningUnitOfWork,
+    SqlAlchemyRouteUnitOfWork,
+    SqlAlchemyRoutineUnitOfWork,
+    SqlAlchemySessionReminderPreferencesUnitOfWork,
     SqlAlchemySessionUnitOfWork,
+    SqlAlchemyTemplateUnitOfWork,
 )
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.8.0"
+API_VERSION = "0.20.0"
 
 
 def create_app(
@@ -102,14 +194,28 @@ def create_app(
     )
     clock = SystemClock()
     capabilities = AffiliationCapabilityChecker(affiliation_http)
+    food_catalog = SqlAlchemyFoodCatalogReader(writes)
+    authorization_views = SqlAlchemyAuthorizationReader(reads)
+    route_views = SqlAlchemyRouteReader(reads)
+    template_views = SqlAlchemyTemplateReader(reads)
+    routine_views = SqlAlchemyRoutineReader(reads)
+    thresholds = ResolveThreshold(
+        unit_of_work=lambda: SqlAlchemyMonitoringSettingsUnitOfWork(writes),
+        birth_dates=UsersAthleteBirthDates(users_http),
+        clock=clock,
+    )
     return create_service_app(
         service_name=SERVICE_NAME,
         title="SportApp - Entrenamientos",
         api_version=API_VERSION,
         settings=settings,
         # Solo la base de escritura condiciona readiness: si la lectura cae,
-        # los comandos continúan y las consultas se degradan de forma controlada.
-        readiness_checks=[DatabaseReadinessCheck("database_write", engine)],
+        # los comandos continúan y las consultas se degradan de forma controlada. HU014: el
+        # catálogo de alimentos de la base de escritura debe estar completo en su versión.
+        readiness_checks=[
+            DatabaseReadinessCheck("database_write", engine),
+            FoodCatalogReadinessCheck(engine),
+        ],
         routers=[
             build_authorizations_router(
                 verify_token=verifier.verify,
@@ -139,7 +245,7 @@ def create_app(
                 verify_token=verifier.verify,
                 get_history=GetTrainingHistory(
                     reader=SqlAlchemyHistoryReader(reads),
-                    authorizations=SqlAlchemyAuthorizationReader(reads),
+                    authorizations=authorization_views,
                     permissions=permissions,
                 ),
             ),
@@ -180,6 +286,156 @@ def create_app(
                     reader=SqlAlchemyMetricResultReader(reads),
                     capabilities=capabilities,
                     catalog=TRAINING_METRICS_CATALOG,
+                ),
+            ),
+            build_health_reports_router(
+                verify_token=verifier.verify,
+                report_health=ReportHealth(
+                    unit_of_work=lambda: SqlAlchemyHealthReportUnitOfWork(writes),
+                    clock=clock,
+                    consent_version=settings.health_data_consent_version,
+                ),
+            ),
+            build_health_history_router(
+                verify_token=verifier.verify,
+                get_health_history=GetHealthHistory(
+                    reader=SqlAlchemyHealthReportHistoryReader(reads),
+                    authorizations=authorization_views,
+                    permissions=permissions,
+                ),
+            ),
+            build_training_dashboard_router(
+                verify_token=verifier.verify,
+                get_dashboard=GetTrainingDashboard(
+                    reader=SqlAlchemyDashboardReader(reads), capabilities=capabilities, clock=clock
+                ),
+            ),
+            build_nutrition_plans_router(
+                verify_token=verifier.verify,
+                create_plan=CreateNutritionPlan(
+                    unit_of_work=lambda: SqlAlchemyNutritionUnitOfWork(writes),
+                    permissions=permissions,
+                    catalog=food_catalog,
+                    restrictions=UsersNutritionRestrictions(users_http),
+                    clock=clock,
+                ),
+                get_plan=GetNutritionPlan(
+                    reader=SqlAlchemyNutritionPlanReader(reads),
+                    authorizations=authorization_views,
+                    permissions=permissions,
+                ),
+                list_plans=ListMyNutritionPlans(reader=SqlAlchemyNutritionPlanReader(reads)),
+            ),
+            build_food_catalog_router(
+                verify_token=verifier.verify, get_catalog=GetFoodCatalog(catalog=food_catalog)
+            ),
+            build_food_intakes_router(
+                verify_token=verifier.verify,
+                register=RegisterFoodIntake(
+                    unit_of_work=lambda: SqlAlchemyFoodIntakeUnitOfWork(writes),
+                    catalog=food_catalog,
+                    clock=clock,
+                ),
+            ),
+            build_food_intake_history_router(
+                verify_token=verifier.verify,
+                get_intakes=GetFoodIntakeHistory(
+                    reader=SqlAlchemyFoodIntakeReader(reads),
+                    authorizations=authorization_views,
+                    permissions=permissions,
+                ),
+            ),
+            build_routes_router(
+                verify_token=verifier.verify,
+                publish=PublishRoute(
+                    unit_of_work=lambda: SqlAlchemyRouteUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                retire=RetireRoute(
+                    unit_of_work=lambda: SqlAlchemyRouteUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                list_routes=ListMyRoutes(reader=route_views, permissions=permissions),
+                suggest=SuggestRoutes(reader=route_views, capabilities=capabilities),
+            ),
+            build_training_plan_templates_router(
+                verify_token=verifier.verify,
+                publish=PublishTemplate(
+                    unit_of_work=lambda: SqlAlchemyTemplateUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                retire=RetireTemplate(
+                    unit_of_work=lambda: SqlAlchemyTemplateUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                list_templates=ListMyTemplates(reader=template_views, permissions=permissions),
+                suggest=SuggestTemplates(reader=template_views, capabilities=capabilities),
+            ),
+            build_nutrition_routine_templates_router(
+                verify_token=verifier.verify,
+                publish=PublishRoutine(
+                    unit_of_work=lambda: SqlAlchemyRoutineUnitOfWork(writes),
+                    permissions=permissions,
+                    catalog=food_catalog,
+                    clock=clock,
+                ),
+                retire=RetireRoutine(
+                    unit_of_work=lambda: SqlAlchemyRoutineUnitOfWork(writes),
+                    permissions=permissions,
+                    clock=clock,
+                ),
+                list_routines=ListMyRoutines(reader=routine_views, permissions=permissions),
+                suggest=SuggestRoutines(reader=routine_views, capabilities=capabilities),
+            ),
+            build_devices_router(
+                verify_token=verifier.verify,
+                register=RegisterDevice(
+                    unit_of_work=lambda: SqlAlchemyDeviceUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
+                revoke=RevokeDevice(
+                    unit_of_work=lambda: SqlAlchemyDeviceUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
+                list_devices=ListMyDevices(
+                    reader=SqlAlchemyDeviceReader(writes), capabilities=capabilities
+                ),
+            ),
+            build_measurements_router(
+                verify_token=verifier.verify,
+                ingest=IngestMeasurements(
+                    unit_of_work=lambda: SqlAlchemyMeasurementUnitOfWork(writes),
+                    capabilities=capabilities,
+                    thresholds=thresholds,
+                    clock=clock,
+                ),
+            ),
+            build_monitoring_settings_router(
+                verify_token=verifier.verify,
+                get_settings=GetMonitoringSettings(resolve=thresholds, capabilities=capabilities),
+                update_settings=UpdateMonitoringSettings(
+                    unit_of_work=lambda: SqlAlchemyMonitoringSettingsUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
+                ),
+            ),
+            build_session_reminders_router(
+                verify_token=verifier.verify,
+                get_rules=GetSessionReminderRules(capabilities=capabilities),
+                get_preferences=GetSessionReminderPreferences(
+                    unit_of_work=lambda: SqlAlchemySessionReminderPreferencesUnitOfWork(writes),
+                    capabilities=capabilities,
+                ),
+                update_preferences=UpdateSessionReminderPreferences(
+                    unit_of_work=lambda: SqlAlchemySessionReminderPreferencesUnitOfWork(writes),
+                    capabilities=capabilities,
+                    clock=clock,
                 ),
             ),
         ],

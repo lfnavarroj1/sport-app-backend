@@ -2,14 +2,34 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
 from training_management.domain.authorizations.model import TrainingAuthorization
+from training_management.domain.dashboard.model import (
+    DashboardPeriod,
+    LatestMetric,
+    SessionBucket,
+)
+from training_management.domain.devices.model import AthleteDevice
+from training_management.domain.health.model import HealthReport
+from training_management.domain.measurements.model import Measurement
 from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.monitoring.model import MonitoringSettings, RiskAlert
+from training_management.domain.nutrition.catalog import FoodCatalog
+from training_management.domain.nutrition.intake import FoodIntake
+from training_management.domain.nutrition.model import NutritionPlan, NutritionRestrictions
 from training_management.domain.plans.model import Sport, TrainingPlan
+from training_management.domain.reminders.model import ReminderPreferences
+from training_management.domain.routes.model import Route
+from training_management.domain.routes.suggestions import SuggestionContext
+from training_management.domain.routines.model import NutritionRoutineTemplate
+from training_management.domain.routines.suggestions import RoutineSuggestionContext
 from training_management.domain.sessions.model import TrainingSession
+from training_management.domain.templates.model import TrainingPlanTemplate
+from training_management.domain.templates.suggestions import TemplateSuggestionContext
 
 
 class Clock(Protocol):
@@ -25,7 +45,7 @@ class Caller:
 
 
 class PermissionPolicy(Protocol):
-    """Contrato versionado `actor-permissions.v1` (ADR-025)."""
+    """Contrato versionado `actor-permissions` (ADR-025; v2 desde HU026)."""
 
     def allows(self, actor_type: str, permission: str) -> bool: ...
 
@@ -459,6 +479,102 @@ class MetricResultReader(Protocol):
         ...
 
 
+class HealthReportUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU042: reporte de salud, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_session(self, session_id: UUID) -> TrainingSession | None: ...
+
+    def get_health_report(self, report_id: UUID) -> HealthReport | None: ...
+
+    def add_health_report(self, report: HealthReport) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el `report_id` duplicado a
+        `ReportIdConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class HealthReportHistoryEntry:
+    """Reporte de salud del historial (HU012): solo los campos que ADR-037 permite exponer."""
+
+    report_id: UUID
+    athlete_id: UUID
+    type: str
+    body_area: str
+    severity: str
+    occurred_at: datetime
+    expected_recovery_days: int | None
+    status: str
+    session_id: UUID | None
+
+
+@dataclass(frozen=True)
+class HealthReportPosition:
+    """Posición del cursor: último reporte entregado en el orden `occurred_at`, `report_id`."""
+
+    occurred_at: datetime
+    report_id: UUID
+
+
+@dataclass(frozen=True)
+class HealthReportHistoryQuery:
+    athlete_id: UUID
+    occurred_from: datetime | None
+    occurred_before: datetime | None
+    type: str | None
+    severity: str | None
+    after: HealthReportPosition | None
+    limit: int
+
+
+class HealthReportHistoryReader(Protocol):
+    def list(self, query: HealthReportHistoryQuery) -> list[HealthReportHistoryEntry]:
+        """Hasta `limit` reportes de `health_report_view`, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`occurred_at` desc, `report_id` desc)."""
+        ...
+
+
+@dataclass(frozen=True)
+class MonitoringView:
+    """HU036: `session_monitoring_view`, acumulado de los resúmenes `medicion.recibida.v1`.
+
+    `value_sum` (suma de `avg_value x samples_accepted` de cada lote) es interno: permite
+    recalcular el promedio de la sesión sin acumular redondeos.
+    """
+
+    session_id: UUID
+    device_id: str
+    last_measured_at: datetime
+    last_value: int
+    samples_count: int
+    max_value: int
+    avg_value: Decimal
+    value_sum: Decimal
+    version: int
+
+
+@dataclass(frozen=True)
+class RiskAlertView:
+    """HU036: alerta confirmada (`riesgo.detectado.v1`) en `session_risk_alert_view`."""
+
+    alert_id: UUID
+    session_id: UUID
+    device_id: str
+    rule: str
+    severity: str
+    detected_at: datetime
+    sequence: int
+
+
 class DuplicateDelivery(Exception):
     """Otra entrega del mismo evento confirmó primero su registro en `processed_event`."""
 
@@ -506,10 +622,519 @@ class ProjectionUnitOfWork(Transaction, Protocol):
         self, calculation: TrainingMetricCalculation, projected_at: datetime
     ) -> None: ...
 
+    def nutrition_plan_version(self, plan_id: UUID) -> int | None:
+        """HU014: versión proyectada del plan de alimentación; bloquea la fila."""
+        ...
+
+    def save_nutrition_plan_view(self, plan: NutritionPlan, projected_at: datetime) -> None:
+        """HU014: inserta o reemplaza el estado completo del plan en `nutrition_plan_view`."""
+        ...
+
+    def food_intake_version(self, intake_id: UUID) -> int | None:
+        """HU043: versión proyectada del consumo; bloquea la fila."""
+        ...
+
+    def save_food_intake_view(self, intake: FoodIntake, projected_at: datetime) -> None:
+        """HU043: inserta o reemplaza el estado completo del consumo en `food_intake_view`."""
+        ...
+
+    def route_version(self, route_id: UUID) -> int | None:
+        """HU026: versión proyectada de la ruta; bloquea la fila."""
+        ...
+
+    def save_route_view(self, route: Route, projected_at: datetime) -> None:
+        """HU026: inserta o reemplaza el estado completo de la ruta en `route_view`."""
+        ...
+
+    def template_version(self, template_id: UUID) -> int | None:
+        """HU028: versión proyectada de la plantilla; bloquea la fila."""
+        ...
+
+    def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
+        """HU028: inserta o reemplaza el estado completo en `training_plan_template_view`."""
+        ...
+
+    def routine_version(self, template_id: UUID) -> int | None:
+        """HU030: versión proyectada de la rutina; bloquea la fila."""
+        ...
+
+    def save_routine_view(self, routine: NutritionRoutineTemplate, projected_at: datetime) -> None:
+        """HU030: inserta o reemplaza el estado completo en `nutrition_routine_template_view`."""
+        ...
+
+    def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
+        """HU036: resumen proyectado de la sesión; bloquea la fila."""
+        ...
+
+    def save_monitoring_view(self, view: MonitoringView, projected_at: datetime) -> None:
+        """HU036: inserta o reemplaza el resumen de la sesión."""
+        ...
+
+    def has_risk_alert(self, alert_id: UUID) -> bool: ...
+
+    def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None: ...
+
+    def health_report_version(self, report_id: UUID) -> int | None:
+        """HU042: versión proyectada del reporte de salud; bloquea la fila."""
+        ...
+
+    def save_health_report_view(self, report: HealthReport, projected_at: datetime) -> None:
+        """HU042: inserta o reemplaza el estado completo en `health_report_view`."""
+        ...
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None: ...
 
     def commit(self) -> None:
         """Traduce un `event_id` ya registrado por otra entrega a `DuplicateDelivery`."""
+        ...
+
+
+class FoodCatalogReader(Protocol):
+    """HU014: catálogo de alimentos vigente (`food_catalog_item`, dato de referencia de la
+    base de escritura). Se lee fuera de cualquier transacción del comando."""
+
+    def load(self) -> FoodCatalog: ...
+
+
+class NutritionRestrictionsReader(Protocol):
+    """HU014: restricciones del deportista en Usuarios (ADR-035), fuera de la transacción.
+
+    Lanza `NutritionRestrictionsUnavailable` ante caída, timeout o respuesta inesperada.
+    """
+
+    def get(self, athlete_id: UUID) -> NutritionRestrictions: ...
+
+
+class FoodIntakeUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU043: consumo, ítems, outbox e idempotencia juntas."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_food_intake(self, intake_id: UUID) -> FoodIntake | None: ...
+
+    def add_food_intake(self, intake: FoodIntake) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el `intake_id` duplicado a
+        `IntakeIdConflict`."""
+        ...
+
+
+class NutritionUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU014: plan de alimentación, outbox e idempotencia juntas."""
+
+    def find_idempotency(self, key: UUID) -> IdempotencyRecord | None: ...
+
+    def delete_idempotency(self, key: UUID) -> None: ...
+
+    def has_active_authorization(self, athlete_id: UUID, professional_id: UUID) -> bool:
+        """Bloquea la autorización en modo compartido hasta el fin de la transacción (como en
+        HU010): una revocación concurrente espera al plan o se confirma antes y lo rechaza."""
+        ...
+
+    def add_nutrition_plan(self, plan: NutritionPlan) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Confirma todo o nada; traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class NutritionPlanPosition:
+    """Posición del cursor: último plan entregado en el orden `created_at`, `plan_id` desc."""
+
+    created_at: datetime
+    plan_id: UUID
+
+
+@dataclass(frozen=True)
+class NutritionPlanQuery:
+    athlete_id: UUID
+    after: NutritionPlanPosition | None
+    limit: int
+
+
+class NutritionPlanReader(Protocol):
+    """Proyección `nutrition_plan_view` (HU014, lectura CQRS)."""
+
+    def get(self, plan_id: UUID) -> NutritionPlan | None: ...
+
+    def list(self, query: NutritionPlanQuery) -> list[NutritionPlan]:
+        """Hasta `limit` planes del deportista, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`created_at`, `plan_id`) desc."""
+        ...
+
+
+class DashboardReader(Protocol):
+    """HU033 (ADR-043): agregados del tablero desde la base de lectura.
+
+    Cada consulta lanza `DashboardSourceUnavailable` si la base de lectura no responde; el
+    tablero informa esa fuente como `UNAVAILABLE` y conserva la otra.
+    """
+
+    def session_buckets(self, athlete_id: UUID, period: DashboardPeriod) -> list[SessionBucket]:
+        """Sesiones terminadas en `[from, to)` agrupadas por deporte, semana ISO en la zona
+        del `from` y fuente."""
+        ...
+
+    def latest_metrics(self, athlete_id: UUID, period: DashboardPeriod) -> list[LatestMetric]:
+        """Último resultado por indicador con `measured_at` en `[from, to)`."""
+        ...
+
+
+class RouteUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU026: ruta, outbox e idempotencia (`command_idempotency`)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_route_for_update(self, route_id: UUID) -> Route | None:
+        """Bloquea la fila hasta el fin de la transacción (retiro)."""
+        ...
+
+    def add_route(self, route: Route) -> None: ...
+
+    def update_route(self, route: Route) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class RoutePosition:
+    """Última ruta entregada en el orden `created_at` desc, `route_id` desc."""
+
+    created_at: datetime
+    route_id: UUID
+
+
+@dataclass(frozen=True)
+class MyRoutesQuery:
+    organizer_id: UUID
+    limit: int
+    after: RoutePosition | None
+
+
+@dataclass(frozen=True)
+class RouteSuggestionQuery:
+    context: SuggestionContext
+    limit: int
+
+
+class RouteReader(Protocol):
+    """Proyección `route_view` (HU026, lectura CQRS)."""
+
+    def list_by_organizer(self, query: MyRoutesQuery) -> list[Route]:
+        """Rutas del organizador en cualquier estado, en orden `created_at` desc, `route_id`
+        desc, estrictamente después de `after`."""
+        ...
+
+    def suggest(self, query: RouteSuggestionQuery) -> list[Route]:
+        """Rutas `PUBLISHED`. Con deportes: las de esos deportes, ciudad coincidente primero,
+        luego `distance_km` y `route_id` ascendentes. Sin deportes: las últimas publicadas
+        (`published_at` desc, `route_id` desc). Como mucho `limit`."""
+        ...
+
+
+class TemplateUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU028: plantilla, outbox e idempotencia (`command_idempotency`)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_template_for_update(self, template_id: UUID) -> TrainingPlanTemplate | None:
+        """Bloquea la fila hasta el fin de la transacción (retiro)."""
+        ...
+
+    def add_template(self, template: TrainingPlanTemplate) -> None: ...
+
+    def update_template(self, template: TrainingPlanTemplate) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class TemplatePosition:
+    """Última plantilla entregada en el orden `created_at` desc, `template_id` desc."""
+
+    created_at: datetime
+    template_id: UUID
+
+
+@dataclass(frozen=True)
+class MyTemplatesQuery:
+    professional_id: UUID
+    limit: int
+    after: TemplatePosition | None
+
+
+@dataclass(frozen=True)
+class TemplateSuggestionQuery:
+    context: TemplateSuggestionContext
+    limit: int
+
+
+class TemplateReader(Protocol):
+    """Proyección `training_plan_template_view` (HU028, lectura CQRS)."""
+
+    def list_by_professional(self, query: MyTemplatesQuery) -> list[TrainingPlanTemplate]:
+        """Plantillas del profesional en cualquier estado, orden `created_at` desc,
+        `template_id` desc, estrictamente después de `after`."""
+        ...
+
+    def suggest(self, query: TemplateSuggestionQuery) -> list[TrainingPlanTemplate]:
+        """Plantillas `PUBLISHED`. Con deportes: las de esos deportes, objetivo coincidente
+        primero, luego `published_at` y `template_id` desc. Sin deportes: las últimas
+        publicadas. Como mucho `limit`."""
+        ...
+
+
+class RoutineUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU030: rutina, outbox e idempotencia (`command_idempotency`)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_routine_for_update(self, template_id: UUID) -> NutritionRoutineTemplate | None:
+        """Bloquea la fila hasta el fin de la transacción (retiro)."""
+        ...
+
+    def add_routine(self, routine: NutritionRoutineTemplate) -> None: ...
+
+    def update_routine(self, routine: NutritionRoutineTemplate) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class RoutinePosition:
+    """Última rutina entregada en el orden `created_at` desc, `template_id` desc."""
+
+    created_at: datetime
+    template_id: UUID
+
+
+@dataclass(frozen=True)
+class MyRoutinesQuery:
+    professional_id: UUID
+    limit: int
+    after: RoutinePosition | None
+
+
+@dataclass(frozen=True)
+class RoutineSuggestionQuery:
+    context: RoutineSuggestionContext
+    limit: int
+
+
+class RoutineReader(Protocol):
+    """Proyección `nutrition_routine_template_view` (HU030, lectura CQRS)."""
+
+    def list_by_professional(self, query: MyRoutinesQuery) -> list[NutritionRoutineTemplate]:
+        """Rutinas del profesional en cualquier estado, orden `created_at` desc, `template_id`
+        desc, estrictamente después de `after`."""
+        ...
+
+    def suggest(self, query: RoutineSuggestionQuery) -> list[NutritionRoutineTemplate]:
+        """Rutinas `PUBLISHED` compatibles con el contexto en el orden de
+        `domain.routines.suggestions.suggestion_order`. Como mucho `limit`."""
+        ...
+
+
+class DeviceUnitOfWork(Transaction, Protocol):
+    """Transacción local de HU037: vinculación e idempotencia juntas (sin outbox, ADR-044)."""
+
+    def find_command(self, actor_id: UUID, operation: str, key: UUID) -> CommandRecord | None: ...
+
+    def delete_command(self, actor_id: UUID, operation: str, key: UUID) -> None: ...
+
+    def add_command(self, record: CommandRecord) -> None: ...
+
+    def get_device(
+        self, athlete_id: UUID, device_id: str, *, for_update: bool = False
+    ) -> AthleteDevice | None:
+        """Con `for_update`, bloquea la fila hasta el fin de la transacción."""
+        ...
+
+    def add_device(self, device: AthleteDevice) -> None: ...
+
+    def update_device(self, device: AthleteDevice) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la clave duplicada a `IdempotencyKeyConflict` y el dispositivo duplicado a
+        `DeviceConflict`."""
+        ...
+
+
+class DeviceReader(Protocol):
+    """`athlete_device` de la base de escritura: la vinculación no emite eventos (ADR-044)."""
+
+    def list(self, athlete_id: UUID) -> list[AthleteDevice]:
+        """Dispositivos del deportista en cualquier estado, `created_at` y `device_id` desc."""
+        ...
+
+
+@dataclass(frozen=True)
+class MonitoringState:
+    """HU036: secuencias del monitoreo de una sesión (`session_monitoring_state`)."""
+
+    session_id: UUID
+    summary_version: int
+    alert_count: int
+
+
+class MeasurementUnitOfWork(Transaction, Protocol):
+    """Transacción local de la ingestión de HU037/HU036: sesión y dispositivo bloqueados en
+    modo compartido (una finalización o una revocación esperan al lote, y viceversa) y el
+    estado del monitoreo de la sesión bloqueado en exclusiva (los lotes de una misma sesión se
+    evalúan en serie). Muestras, alertas, estado y outbox se confirman juntos."""
+
+    def get_session_for_ingestion(self, session_id: UUID) -> TrainingSession | None: ...
+
+    def get_device_for_ingestion(
+        self, athlete_id: UUID, device_id: str
+    ) -> AthleteDevice | None: ...
+
+    def lock_monitoring_state(self, session_id: UUID, now: datetime) -> MonitoringState:
+        """Crea el estado (versiones en 0) si falta y lo bloquea hasta el fin de la transacción."""
+        ...
+
+    def add_measurements(
+        self, session_id: UUID, device_id: str, measurements: tuple[Measurement, ...]
+    ) -> tuple[Measurement, ...]:
+        """Inserta las muestras que no existan (`session_id`, `device_id`, `measured_at`) y
+        devuelve las insertadas; las existentes se ignoran."""
+        ...
+
+    def latest_measured_at(self, session_id: UUID, device_id: str) -> datetime | None:
+        """Instante de la muestra más reciente del dispositivo en la sesión."""
+        ...
+
+    def window_samples(
+        self, session_id: UUID, device_id: str, since: datetime
+    ) -> list[tuple[datetime, int]]:
+        """(`measured_at`, `value`) del dispositivo en la sesión desde `since`, en orden."""
+        ...
+
+    def alert_instants(self, session_id: UUID, since: datetime, until: datetime) -> list[datetime]:
+        """`detected_at` de las alertas de la sesión entre `since` y `until` (inclusive)."""
+        ...
+
+    def add_alerts(
+        self, alerts: tuple[RiskAlert, ...], first_sequence: int, created_at: datetime
+    ) -> None: ...
+
+    def save_monitoring_state(self, state: MonitoringState, now: datetime) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def commit(self) -> None: ...
+
+
+class MonitoringSettingsUnitOfWork(Transaction, Protocol):
+    """HU036: umbral configurado por el deportista (`monitoring_settings`)."""
+
+    def get_settings(
+        self, athlete_id: UUID, *, for_update: bool = False
+    ) -> MonitoringSettings | None: ...
+
+    def add_settings(self, settings: MonitoringSettings) -> None: ...
+
+    def update_settings(self, settings: MonitoringSettings) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la fila duplicada a `MonitoringSettingsConflict`."""
+        ...
+
+
+class SessionReminderPreferencesUnitOfWork(Transaction, Protocol):
+    """HU038: preferencias de recordatorios del deportista (`session_reminder_preference`)."""
+
+    def get_preferences(
+        self, athlete_id: UUID, *, for_update: bool = False
+    ) -> ReminderPreferences | None: ...
+
+    def add_preferences(self, preferences: ReminderPreferences) -> None: ...
+
+    def update_preferences(self, preferences: ReminderPreferences) -> None: ...
+
+    def commit(self) -> None:
+        """Traduce la fila duplicada a `SessionReminderPreferencesConflict`."""
+        ...
+
+
+class AthleteBirthDates(Protocol):
+    """HU036: `birth_date` del contexto interno de Usuarios (ADR-041) para el umbral por
+    defecto. Lanza `AthleteContextUnavailable` si no puede obtenerla. Se llama fuera de
+    cualquier transacción local."""
+
+    def birth_date(self, athlete_id: UUID) -> date | None: ...
+
+
+class MeasurementRetentionStore(Protocol):
+    """HU036: retención de 90 días de `training_measurement` (ADR-044 §7)."""
+
+    def purge_measurements(self, older_than: datetime, batch_size: int) -> int:
+        """Elimina como máximo `batch_size` muestras con `measured_at` anterior a `older_than`
+        en una transacción corta y devuelve cuántas eliminó."""
+        ...
+
+
+@dataclass(frozen=True)
+class FoodIntakePosition:
+    """HU013: posición del cursor, último consumo entregado en el orden `consumed_at`,
+    `intake_id` desc."""
+
+    consumed_at: datetime
+    intake_id: UUID
+
+
+@dataclass(frozen=True)
+class FoodIntakeQuery:
+    athlete_id: UUID
+    consumed_from: datetime | None
+    consumed_before: datetime | None
+    meal_type: str | None
+    after: FoodIntakePosition | None
+    limit: int
+
+
+class FoodIntakeReader(Protocol):
+    """Proyección `food_intake_view` (HU043) para el historial de alimentación de HU013."""
+
+    def list(self, query: FoodIntakeQuery) -> list[FoodIntake]:
+        """Hasta `limit` consumos del deportista, del más reciente al más antiguo,
+        estrictamente después de `after` en el orden (`consumed_at`, `intake_id`) desc."""
         ...

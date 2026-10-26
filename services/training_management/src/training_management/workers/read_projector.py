@@ -4,11 +4,13 @@ Ejecución: `python -m training_management.workers.read_projector`.
 
 - Consume `sportapp.entrenamientos.v1` por la suscripción ordenada `proyector-entrenamientos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de la vista y `processed_event`.
-- Un mensaje inválido, un hueco de versión, un cálculo ya proyectado con otros datos
-  (HU034) o un fallo de procesamiento no se confirma: Pub/Sub lo reintenta con el
+- Un mensaje inválido, un hueco de versión (incluido el del resumen de mediciones de
+  HU036), un cálculo ya proyectado con otros datos (HU034) o un fallo de procesamiento no se
+  confirma: Pub/Sub lo reintenta con el
   backoff de la suscripción y, tras 10 intentos, lo envía a
   `sportapp.entrenamientos.proyeccion.dlq`.
 - Un tipo de evento que este proyector aún no proyecta se confirma sin efectos.
+- HU042: `reporte_salud.registrado.v1` alimenta `health_report_view` (clave `report_id`).
 """
 
 import json
@@ -18,6 +20,7 @@ import sys
 import threading
 from collections.abc import Callable
 from typing import Protocol
+from uuid import UUID
 
 from google.cloud import pubsub_v1
 from sqlalchemy.orm import sessionmaker
@@ -27,9 +30,17 @@ from sportapp_platform.database import create_database_engine
 from sportapp_platform.logging import configure_logging
 from training_management.application.messages import (
     AuthorizationChangedEvent,
+    FoodIntakeRegisteredEvent,
+    HealthReportRegisteredEvent,
     InvalidEvent,
+    MeasurementReceivedEvent,
     MetricCalculatedEvent,
+    NutritionPlanCreatedEvent,
     PlanCreatedEvent,
+    RiskDetectedEvent,
+    RouteChangedEvent,
+    RoutineChangedEvent,
+    TemplateChangedEvent,
     TrainingEvent,
     UnsupportedEvent,
     parse_training_event,
@@ -61,13 +72,31 @@ class InboundMessage(Protocol):
 
 
 def _aggregate_id(event: TrainingEvent) -> object:
-    if isinstance(event, PlanCreatedEvent):
+    if isinstance(event, PlanCreatedEvent | NutritionPlanCreatedEvent):
         return event.plan.plan_id
-    if isinstance(event, AuthorizationChangedEvent):
+    if isinstance(
+        event,
+        AuthorizationChangedEvent
+        | MeasurementReceivedEvent
+        | RiskDetectedEvent
+        | FoodIntakeRegisteredEvent
+        | HealthReportRegisteredEvent,
+    ):
         return event.aggregate_id
     if isinstance(event, MetricCalculatedEvent):
         return event.calculation.calculation_id
+    if isinstance(event, RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent):
+        return _publishable_id(event)
     return event.session.session_id
+
+
+def _publishable_id(event: RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent) -> UUID:
+    """Contenido sugerible de ADR-041 (HU026, HU028 y HU030)."""
+    if isinstance(event, RouteChangedEvent):
+        return event.route.route_id
+    if isinstance(event, TemplateChangedEvent):
+        return event.template.template_id
+    return event.routine.template_id
 
 
 class ProjectionMessageHandler:

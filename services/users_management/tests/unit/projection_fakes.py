@@ -8,7 +8,10 @@ from types import TracebackType
 from typing import Any, Self
 from uuid import UUID, uuid4
 
-from users_management.application.projections.users_projection import DirectoryEntry
+from users_management.application.projections.users_projection import (
+    DirectoryEmailInUse,
+    DirectoryEntry,
+)
 from users_management.domain.profile.events import EVENT_TYPE_BY_SECTION, ProfileSection
 
 NOW = datetime(2026, 10, 16, 12, 0, tzinfo=UTC)
@@ -55,9 +58,51 @@ def physiological_payload(user_id: UUID, version: int = 1, **overrides: Any) -> 
     return values
 
 
+def sport_habits_payload(user_id: UUID, version: int = 1, **overrides: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "user_id": str(user_id),
+        "version": version,
+        "sports": [
+            {
+                "sport": "running",
+                "frequency_per_week": 3,
+                "session_duration_minutes": 45,
+                "intensity": "MODERATE",
+                "level": "INTERMEDIATE",
+                "years_practicing": 4,
+            }
+        ],
+        "availability": {"days": ["MON", "WED", "SAT"], "time_slots": ["MORNING"]},
+        "primary_goal": "HEALTH",
+        "created_at": "2026-10-16T12:00:00Z",
+        "updated_at": "2026-10-16T12:00:00Z",
+    }
+    values.update(overrides)
+    return values
+
+
+def nutrition_habits_payload(user_id: UUID, version: int = 1, **overrides: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "user_id": str(user_id),
+        "version": version,
+        "consent": {"version": "health-test.v1", "accepted_at": "2026-10-24T12:00:00Z"},
+        "diet_pattern": "VEGETARIAN",
+        "restrictions": ["GLUTEN_FREE", "LOW_SUGAR"],
+        "allergies": ["PEANUTS", "SESAME"],
+        "meals_per_day": 4,
+        "hydration_liters_per_day": "2.5",
+        "created_at": "2026-10-24T12:00:00Z",
+        "updated_at": "2026-10-24T12:00:00Z",
+    }
+    values.update(overrides)
+    return values
+
+
 PAYLOAD_BY_SECTION = {
     ProfileSection.DEMOGRAPHIC: demographic_payload,
     ProfileSection.PHYSIOLOGICAL: physiological_payload,
+    ProfileSection.SPORT_HABITS: sport_habits_payload,
+    ProfileSection.NUTRITION_HABITS: nutrition_habits_payload,
 }
 
 
@@ -115,6 +160,27 @@ def registered_envelope(
         "registered_at": "2026-10-16T12:00:00+00:00",
     }
     return envelope("usuario.registrado.v1", user_id, 1, body, **overrides)
+
+
+def updated_envelope(
+    user_id: UUID,
+    version: int = 2,
+    *,
+    payload: dict[str, Any] | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """`usuario.actualizado.v1` (HU002): `fields` reemplaza valores del payload."""
+    body = payload or {
+        "user_id": str(user_id),
+        "full_name": "Ana María Pérez",
+        "email": f"ana-{uuid4().hex[:8]}@example.com",
+        "actor_type": "athlete",
+        "status": "active",
+        "version": version,
+        "updated_at": "2026-10-24T12:00:00Z",
+        **fields,
+    }
+    return envelope("usuario.actualizado.v1", user_id, version, body)
 
 
 class FixedClock:
@@ -177,6 +243,14 @@ class InMemoryProjectionUnitOfWork:
             return False
         self.draft.directory[entry.user_id] = entry
         return True
+
+    def update_directory_entry(self, entry: DirectoryEntry, projected_at: datetime) -> None:
+        if any(
+            other.email == entry.email and other.user_id != entry.user_id
+            for other in self.draft.directory.values()
+        ):
+            raise DirectoryEmailInUse()
+        self.draft.directory[entry.user_id] = entry
 
     def profile_section_version(self, user_id: UUID, section: ProfileSection) -> int | None:
         row = self.draft.profiles.get(user_id)

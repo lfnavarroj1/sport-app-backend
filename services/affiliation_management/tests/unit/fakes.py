@@ -18,6 +18,7 @@ from affiliation_management.application.ports import (
     OutboxMessage,
 )
 from affiliation_management.domain.catalog import CAPABILITIES_BY_PLAN
+from affiliation_management.domain.subscriptions.change import Movement
 from affiliation_management.domain.subscriptions.model import PlanVersionRef, Subscription
 
 FREE_V1 = PlanVersionRef(plan_code="FREE", version=1, catalog_version="plans-2026-10-11.v1")
@@ -28,7 +29,10 @@ class InMemoryAffiliationStore:
     subscriptions: dict[UUID, Subscription] = field(default_factory=dict)
     inbox: dict[UUID, InboxRecord] = field(default_factory=dict)
     outbox: list[OutboxMessage] = field(default_factory=list)
+    movements: list[Movement] = field(default_factory=list)
     default_plan: PlanVersionRef | None = FREE_V1
+    # HU016: oferta `NONE` del plan predeterminado (`FREE` v1 no tiene ofertas).
+    none_offer: UUID | None = None
 
     def active_for(self, user_id: UUID) -> list[Subscription]:
         return [s for s in self.subscriptions.values() if s.user_id == user_id]
@@ -45,6 +49,7 @@ class InMemoryProvisioningUnitOfWork:
         self._subscriptions: list[Subscription] = []
         self._outbox: list[OutboxMessage] = []
         self._inbox: list[InboxRecord] = []
+        self._movements: list[Movement] = []
 
     def __enter__(self) -> Self:
         return self
@@ -56,6 +61,7 @@ class InMemoryProvisioningUnitOfWork:
         traceback: TracebackType | None,
     ) -> None:
         self._subscriptions, self._outbox, self._inbox = [], [], []
+        self._movements = []
 
     def inbox_contains(self, event_id: UUID) -> bool:
         return event_id in self.store.inbox
@@ -66,8 +72,14 @@ class InMemoryProvisioningUnitOfWork:
     def default_athlete_plan(self, now: datetime) -> PlanVersionRef | None:
         return self.store.default_plan
 
+    def none_offer_id(self, plan: PlanVersionRef) -> UUID | None:
+        return self.store.none_offer
+
     def add_subscription(self, subscription: Subscription) -> None:
         self._subscriptions.append(subscription)
+
+    def add_movement(self, movement: Movement) -> None:
+        self._movements.append(movement)
 
     def add_outbox(self, message: OutboxMessage) -> None:
         self._outbox.append(message)
@@ -86,6 +98,7 @@ class InMemoryProvisioningUnitOfWork:
         for subscription in self._subscriptions:
             self.store.subscriptions[subscription.subscription_id] = subscription
         self.store.outbox.extend(self._outbox)
+        self.store.movements.extend(self._movements)
         for record in self._inbox:
             self.store.inbox[record.event_id] = record
 

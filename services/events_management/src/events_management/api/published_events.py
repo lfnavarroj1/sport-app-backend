@@ -1,8 +1,10 @@
-"""HU035: `GET /v1/events?from&to&limit&cursor` (contrato interno de ADR-031).
+"""`GET /v1/events?from&to&discipline&city&limit&cursor` (ADR-031, ampliado por ADR-040 y
+ADR-039).
 
-Lo consume `bff-mobile` para componer el calendario del deportista. Solo eventos
-`PUBLISHED`; nunca borradores ni `organizer_id`. Instantes en UTC (`Z`) con la zona del
-evento.
+Lo consumen `bff-mobile` (calendario del deportista, HU035) y `bff-web` (calendario del
+organizador y coincidencias, HU023; fuente `EVENT_PUBLISHED` del calendario integrado del
+profesional, HU018). Solo eventos `PUBLISHED`; nunca borradores ni
+`organizer_id`. Instantes en UTC (`Z`) con la zona del evento.
 """
 
 from datetime import datetime
@@ -19,6 +21,7 @@ from events_management.api.identity import (
     authenticate,
     forbidden,
 )
+from events_management.api.registrations import EventFee
 from events_management.application.errors import (
     CapabilitiesUnavailable,
     CapabilityRequired,
@@ -32,9 +35,14 @@ from events_management.application.queries.published_events import (
     InvalidEventsQuery,
     ListPublishedEvents,
 )
+from events_management.domain.sport_events.fee import fee_document
 from sportapp_platform.errors import ErrorDetail, ErrorResponse, error_response
 
 INSTANT = "Instante ISO 8601 con desfase UTC explícito."
+TERM = (
+    "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado "
+    "(2 a 80 caracteres)."
+)
 
 
 class PublishedEventLocation(BaseModel):
@@ -53,6 +61,7 @@ class PublishedEventItem(BaseModel):
     time_zone: str
     status: Literal["PUBLISHED"]
     version: int
+    fee: Annotated[EventFee | None, Field(description="Informativa; `null` sin tarifa (HU025).")]
 
 
 class PublishedEventsResponse(BaseModel):
@@ -79,6 +88,7 @@ class PublishedEventsResponse(BaseModel):
                     time_zone=item.time_zone,
                     status="PUBLISHED",
                     version=item.version,
+                    fee=EventFee.model_validate(fee_document(item.fee)) if item.fee else None,
                 )
                 for item in page.items
             ],
@@ -103,17 +113,25 @@ def build_published_events_router(
     @router.get(
         "",
         response_model=PublishedEventsResponse,
-        summary="Eventos publicados por periodo (HU035, interno)",
+        summary="Eventos publicados por periodo (HU035 deportista, HU023 organizador, HU018 "
+        "profesional)",
+        description="`athlete` con `calendar.sport.view` (Afiliación), `organizer` con "
+        "`events.calendar.view` o `service_provider` con `calendar.integrated.view`. Periodo de "
+        "hasta 92 días; para el organizador `from` debe ser anterior a `to`. Orden `starts_at`, "
+        "`event_id` ascendente; el cursor se reenvía con los mismos filtros.",
         responses={
             **AUTH_RESPONSES,
             HTTPStatus.FORBIDDEN.value: {
                 "model": ErrorResponse,
-                "description": "`permission_required` (no es deportista) o `capability_required` "
-                "(`calendar.sport.view`).",
+                "description": "`permission_required` (otro actor, organizador sin "
+                "`events.calendar.view` o profesional sin `calendar.integrated.view`) o "
+                "`capability_required` (`calendar.sport.view`).",
             },
             HTTPStatus.UNPROCESSABLE_ENTITY.value: {
                 "model": ErrorResponse,
-                "description": "`validation_error`: periodo, límite o cursor inválidos.",
+                "description": "`validation_error` en `query.<parámetro>`: `invalid_datetime`, "
+                "`ends_before_starts`, `out_of_range` (más de 92 días o límite), "
+                "`invalid_length` (filtro) o `invalid_cursor`.",
             },
         },
     )
@@ -122,6 +140,8 @@ def build_published_events_router(
         response: Response,
         period_from: Annotated[datetime, Query(alias="from", description=INSTANT)],
         period_to: Annotated[datetime, Query(alias="to", description=INSTANT)],
+        discipline: Annotated[str | None, Query(description=TERM)] = None,
+        city: Annotated[str | None, Query(description=TERM)] = None,
         limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
         cursor: Annotated[str | None, Query(max_length=512)] = None,
         authorization: Annotated[str | None, Header()] = None,
@@ -133,7 +153,12 @@ def build_published_events_router(
             page = list_events(
                 caller,
                 EventsFilters(
-                    period_from=period_from, period_to=period_to, limit=limit, cursor=cursor
+                    period_from=period_from,
+                    period_to=period_to,
+                    limit=limit,
+                    cursor=cursor,
+                    discipline=discipline,
+                    city=city,
                 ),
             )
         except (PermissionRequired, CapabilityRequired) as error:

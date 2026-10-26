@@ -32,7 +32,8 @@ _CLAIM_BATCH = text(
     WHERE event.event_id = candidates.event_id
     RETURNING event.event_id, event.event_type, event.schema_version, event.aggregate_type,
               event.aggregate_id, event.aggregate_version, event.occurred_at,
-              event.correlation_id, event.causation_id, event.payload, event.attempts
+              event.correlation_id, event.causation_id, event.payload, event.attempts,
+              event.ordering_key
     """
 )
 
@@ -70,6 +71,8 @@ class ClaimedEvent:
     causation_id: str | None
     payload: dict[str, Any]
     attempts: int
+    # HU039: `None` = se ordena por `aggregate_id`.
+    ordering_key: str | None = None
 
 
 class SqlAlchemyOutboxStore:

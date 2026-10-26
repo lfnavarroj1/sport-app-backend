@@ -1,6 +1,6 @@
 """Contrato versionado de permisos por actor (ADR-025): carga y consulta.
 
-Capacidad técnica compartida: lee `contracts/authorization/actor-permissions.v1.json`,
+Capacidad técnica compartida: lee `contracts/authorization/actor-permissions.v2.json`,
 que es código revisado. No contiene reglas de un dominio: cada servicio sigue
 validando propiedad, relación y estado de sus recursos.
 
@@ -17,7 +17,7 @@ from typing import Any
 from sportapp_platform.config import ConfigurationError
 
 ACTOR_PERMISSIONS_ENV = "ACTOR_PERMISSIONS_PATH"
-CONTRACT_RELATIVE_PATH = Path("contracts") / "authorization" / "actor-permissions.v1.json"
+CONTRACT_RELATIVE_PATH = Path("contracts") / "authorization" / "actor-permissions.v2.json"
 CHANNELS = frozenset({"web", "mobile"})
 
 

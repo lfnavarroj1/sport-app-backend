@@ -25,6 +25,9 @@ class TrainingManagementSettings(ServiceSettings, DatabasePoolSettings):
     # HU010: identidad (JWKS de users-management) y capacidades del deportista (Afiliación).
     users_management_base_url: AnyHttpUrl
     affiliation_management_base_url: AnyHttpUrl
+    # HU042 (ADR-037): versión vigente del consentimiento de datos de salud (ADR-034); sin ella
+    # el servicio no arranca.
+    health_data_consent_version: Annotated[str, Field(min_length=1, max_length=64)]
     upstream_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
@@ -55,3 +58,10 @@ class ReadProjectorSettings(ServiceSettings, DatabasePoolSettings):
     projector_subscription: str = PROJECTOR_SUBSCRIPTION
     # Mensajes en proceso simultáneo por réplica; acota conexiones a PostgreSQL.
     consumer_max_messages: int = Field(default=10, ge=1, le=100)
+
+
+class MeasurementRetentionSettings(ServiceSettings, DatabasePoolSettings):
+    """HU036: tarea de retención de `training_measurement` (90 días, ADR-044 §7)."""
+
+    database_write_url: PostgresUrl
+    retention_batch_size: int = Field(default=5000, ge=100, le=50000)

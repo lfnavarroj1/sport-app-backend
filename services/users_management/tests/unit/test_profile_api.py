@@ -14,11 +14,15 @@ from fakes import (
     InMemoryProfileReader,
     InMemoryProfileStore,
     demographic_body,
+    patch_sport_habits_with,
     physiological_body,
     update_demographic_with,
+    update_nutrition_habits_with,
     update_physiological_with,
+    update_sport_habits_with,
 )
 from fastapi.testclient import TestClient
+from leak_checks import leaks
 
 from sportapp_platform.app import create_service_app
 from sportapp_platform.config import ServiceSettings
@@ -37,7 +41,7 @@ VERIFIER = AccessTokenVerifier(TOKENS.jwks(), issuer=ISSUER, audience=AUDIENCE)
 DEMOGRAPHIC = "/v1/me/demographic-profile"
 PHYSIOLOGICAL = "/v1/me/physiological-profile"
 PROFILE = "/v1/me/profile"
-# Valores sintéticos que no pueden aparecer dentro de un UUID ni de un instante.
+# Valores sintéticos del perfil; `leak_checks` explica qué campos técnicos se omiten.
 SENSITIVE_VALUES = ("68.5", "36.6", "23.2", "Bogotá", "Ingeniera", "1992-04-18")
 
 
@@ -61,6 +65,9 @@ class ProfileApiTest(unittest.TestCase):
                     verify_token=VERIFIER.verify,
                     update_demographic=update_demographic_with(self.store, clock),
                     update_physiological=update_physiological_with(self.store, clock),
+                    update_sport_habits=update_sport_habits_with(self.store, clock),
+                    patch_sport_habits=patch_sport_habits_with(self.store, clock),
+                    update_nutrition_habits=update_nutrition_habits_with(self.store, clock),
                     get_profile=GetAthleteProfile(self.reader),
                 )
             ],
@@ -344,7 +351,13 @@ class ProfileApiTest(unittest.TestCase):
                 "demographic": None,
                 "physiological": None,
                 "sport_habits": None,
-                "versions": {"demographic": None, "physiological": None, "sport_habits": None},
+                "nutrition_habits": None,
+                "versions": {
+                    "demographic": None,
+                    "physiological": None,
+                    "sport_habits": None,
+                    "nutrition_habits": None,
+                },
                 "projected_at": None,
             },
         )
@@ -362,9 +375,11 @@ class ProfileApiTest(unittest.TestCase):
             demographic=sections["demographic"],
             physiological=sections["physiological"],
             sport_habits=None,
+            nutrition_habits=None,
             demographic_version=1,
             physiological_version=1,
             sport_habits_version=None,
+            nutrition_habits_version=None,
             projected_at=datetime(2026, 10, 7, 7, 0, 1, tzinfo=UTC).astimezone(
                 timezone(timedelta(hours=-5))
             ),
@@ -378,7 +393,8 @@ class ProfileApiTest(unittest.TestCase):
         self.assertEqual(body["demographic"], sections["demographic"])
         self.assertEqual(body["physiological"], sections["physiological"])
         self.assertEqual(
-            body["versions"], {"demographic": 1, "physiological": 1, "sport_habits": None}
+            body["versions"],
+            {"demographic": 1, "physiological": 1, "sport_habits": None, "nutrition_habits": None},
         )
         self.assertEqual(body["projected_at"], "2026-10-07T07:00:01Z")
         self.assertIsNone(other.json()["demographic"])
@@ -404,17 +420,57 @@ class ProfileApiTest(unittest.TestCase):
             self.put(DEMOGRAPHIC, demographic_body())  # 409
             self.client.get(PROFILE, headers=self.auth)
 
-        rendered = " ".join(logs.output) + " ".join(
-            str(getattr(record, "fields", "")) for record in logs.records
-        )
-        for value in (*SENSITIVE_VALUES, "301.5"):
+        sensitive = (*SENSITIVE_VALUES, "301.5")
+        # Líneas formateadas (mensaje y trazas) completas; los campos, con `leak_checks`.
+        rendered = " ".join(logs.output)
+        for value in sensitive:
             self.assertNotIn(value, rendered)
+        self.assertEqual(leaks(logs.records, sensitive), [])
         audit = [
             record.fields["result"]  # type: ignore[attr-defined]
             for record in logs.records
             if record.name == "sportapp.audit"
         ]
         self.assertEqual(audit, ["created", "created", "rejected", "rejected"])
+
+    def test_leak_check_ignores_timings_and_uuids_but_detects_real_leaks(self) -> None:
+        """Regresión: `'duration_ms': 68.56` contiene `68.5` y hacía fallar CA4 al azar."""
+        user_id = "00000000-0000-4000-8000-000000000685"
+
+        def record(message: str, **fields: object) -> logging.LogRecord:
+            return logging.makeLogRecord(
+                {"name": "sportapp.audit", "msg": message, "fields": fields}
+            )
+
+        technical = [
+            record("request.completed", route=PROFILE, status_code=200, duration_ms=68.56),
+            record("request.completed", duration_ms=23.21),
+            record("request.completed", duration_ms=36.6),
+            record("audit.profile_section_updated", user_id=user_id, correlation_id=user_id),
+        ]
+        self.assertEqual(leaks(technical, SENSITIVE_VALUES), [])
+
+        real = [
+            # Un dato del perfil en un campo no excluido.
+            record("audit.profile_section_updated", user_id=user_id, reason="weight 68.5"),
+            # `duration_ms` como texto ya no es una medición: se revisa.
+            record("request.completed", duration_ms="36.6"),
+            # Un UUID seguido del valor no es un UUID canónico.
+            record("audit.profile_section_updated", correlation_id=f"{user_id} 23.2"),
+            # El mensaje se revisa siempre, también si lleva la duración como texto.
+            record("request.completed duration_ms=68.56"),
+            record("audit.profile_section_updated city=Bogotá"),
+        ]
+        self.assertEqual(
+            leaks(real, SENSITIVE_VALUES),
+            [
+                "sportapp.audit.reason: 68.5",
+                "sportapp.audit.duration_ms: 36.6",
+                "sportapp.audit.correlation_id: 23.2",
+                "sportapp.audit.message: 68.5",
+                "sportapp.audit.message: Bogotá",
+            ],
+        )
 
 
 if __name__ == "__main__":

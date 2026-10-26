@@ -1,6 +1,103 @@
 {
   "components": {
     "schemas": {
+      "AttendeeItem": {
+        "properties": {
+          "applied_fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Fee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Informativa: no es un cobro."
+          },
+          "athlete_id": {
+            "format": "uuid",
+            "title": "Athlete Id",
+            "type": "string"
+          },
+          "registered_at": {
+            "description": "Instante en UTC con sufijo `Z`.",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "registration_id": {
+            "format": "uuid",
+            "title": "Registration Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "REGISTERED",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registration_id",
+          "athlete_id",
+          "status",
+          "registered_at",
+          "applied_fee"
+        ],
+        "title": "AttendeeItem",
+        "type": "object"
+      },
+      "AttendeesByStatus": {
+        "properties": {
+          "REGISTERED": {
+            "title": "Registered",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "REGISTERED"
+        ],
+        "title": "AttendeesByStatus",
+        "type": "object"
+      },
+      "AttendeesResponse": {
+        "properties": {
+          "by_status": {
+            "$ref": "#/components/schemas/AttendeesByStatus",
+            "description": "Todas las inscripciones del evento por estado."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AttendeeItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cursor opaco de la página siguiente; `null` si no hay más.",
+            "title": "Next Cursor"
+          },
+          "total": {
+            "description": "Inscripciones del evento que cumplen el filtro de `status`.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "by_status",
+          "next_cursor"
+        ],
+        "title": "AttendeesResponse",
+        "type": "object"
+      },
       "ErrorDetail": {
         "properties": {
           "field": {
@@ -97,6 +194,30 @@
             "title": "Event Id",
             "type": "string"
           },
+          "fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventFee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tarifa informativa (HU025); `null` sin tarifa. No es un cobro."
+          },
+          "fee_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Último cambio de la tarifa; `null` si nunca se definió.",
+            "title": "Fee Updated At"
+          },
           "location": {
             "$ref": "#/components/schemas/EventLocation"
           },
@@ -165,7 +286,9 @@
           "version",
           "created_at",
           "updated_at",
-          "published_at"
+          "published_at",
+          "fee",
+          "fee_updated_at"
         ],
         "title": "EventAggregateResponse",
         "type": "object"
@@ -203,7 +326,7 @@
                 "type": "null"
               }
             ],
-            "description": "`null` hasta HU025."
+            "description": "Informativa; `null` sin tarifa (HU025)."
           },
           "location": {
             "$ref": "#/components/schemas/RegistrationLocation"
@@ -221,6 +344,18 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "registration_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inscripciones vigentes; solo para el organizador propietario (HU025), `null` para los demás actores.",
+            "title": "Registration Count"
           },
           "starts_at": {
             "format": "date-time",
@@ -258,20 +393,18 @@
           "status",
           "version",
           "fee",
-          "my_registration"
+          "my_registration",
+          "registration_count"
         ],
         "title": "EventDetailResponse",
         "type": "object"
       },
       "EventFee": {
+        "description": "Tarifa informativa del evento (ADR-040): `{amount, currency}`; `0.00` es gratuito.",
         "properties": {
           "amount": {
             "description": "Cadena decimal con dos decimales.",
             "title": "Amount",
-            "type": "string"
-          },
-          "billing_unit": {
-            "title": "Billing Unit",
             "type": "string"
           },
           "currency": {
@@ -281,8 +414,7 @@
         },
         "required": [
           "amount",
-          "currency",
-          "billing_unit"
+          "currency"
         ],
         "title": "EventFee",
         "type": "object"
@@ -485,7 +617,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/EventAggregateResponse"
+              "$ref": "#/components/schemas/OwnEventResponse"
             },
             "title": "Items",
             "type": "array"
@@ -536,6 +668,274 @@
         "title": "MyRegistration",
         "type": "object"
       },
+      "NotificationPreferencesResponse": {
+        "properties": {
+          "event_matches": {
+            "description": "Eventos publicados que coinciden.",
+            "title": "Event Matches",
+            "type": "boolean"
+          },
+          "event_reminders": {
+            "description": "Recordatorio 24 h antes.",
+            "title": "Event Reminders",
+            "type": "boolean"
+          },
+          "push_enabled": {
+            "description": "*Push* (solo con FCM habilitado).",
+            "title": "Push Enabled",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "`0` mientras rigen los valores por defecto.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_matches",
+          "event_reminders",
+          "push_enabled",
+          "version"
+        ],
+        "title": "NotificationPreferencesResponse",
+        "type": "object"
+      },
+      "NotificationResponse": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Instante UTC (`Z`).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "description": "Al tocarla, la app abre el detalle (HU041).",
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "notification_id": {
+            "format": "uuid",
+            "title": "Notification Id",
+            "type": "string"
+          },
+          "priority": {
+            "enum": [
+              "NORMAL",
+              "HIGH"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Instante UTC (`Z`); `null` sin leer.",
+            "title": "Read At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "EVENT_PUBLISHED_MATCH",
+              "EVENT_REMINDER_24H"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "notification_id",
+          "type",
+          "priority",
+          "event_id",
+          "title",
+          "body",
+          "created_at",
+          "read_at"
+        ],
+        "title": "NotificationResponse",
+        "type": "object"
+      },
+      "NotificationsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "NotificationsResponse",
+        "type": "object"
+      },
+      "OwnEventResponse": {
+        "description": "El agregado como lo ve su organizador (HU025).",
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "discipline": {
+            "title": "Discipline",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "ends_at": {
+            "description": "`starts_at` + `duration_minutes`.",
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventFee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tarifa informativa (HU025); `null` sin tarifa. No es un cobro."
+          },
+          "fee_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Último cambio de la tarifa; `null` si nunca se definió.",
+            "title": "Fee Updated At"
+          },
+          "location": {
+            "$ref": "#/components/schemas/EventLocation"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "organizer_id": {
+            "format": "uuid",
+            "title": "Organizer Id",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Instante de la publicación; `null` en borrador.",
+            "title": "Published At"
+          },
+          "registration_count": {
+            "description": "Inscripciones vigentes; cambiar la tarifa no las modifica (cada una conserva su `applied_fee`).",
+            "title": "Registration Count",
+            "type": "integer"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "organizer_id",
+          "name",
+          "description",
+          "discipline",
+          "location",
+          "starts_at",
+          "ends_at",
+          "time_zone",
+          "duration_minutes",
+          "capacity",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "published_at",
+          "fee",
+          "fee_updated_at",
+          "registration_count"
+        ],
+        "title": "OwnEventResponse",
+        "type": "object"
+      },
       "PublishedEventItem": {
         "properties": {
           "discipline": {
@@ -551,6 +951,17 @@
             "format": "uuid",
             "title": "Event Id",
             "type": "string"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventFee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Informativa; `null` sin tarifa (HU025)."
           },
           "location": {
             "$ref": "#/components/schemas/PublishedEventLocation"
@@ -587,7 +998,8 @@
           "ends_at",
           "time_zone",
           "status",
-          "version"
+          "version",
+          "fee"
         ],
         "title": "PublishedEventItem",
         "type": "object"
@@ -826,7 +1238,7 @@
   },
   "info": {
     "title": "SportApp - Eventos",
-    "version": "0.5.0"
+    "version": "0.10.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -884,6 +1296,7 @@
     },
     "/v1/events": {
       "get": {
+        "description": "`athlete` con `calendar.sport.view` (Afiliación), `organizer` con `events.calendar.view` o `service_provider` con `calendar.integrated.view`. Periodo de hasta 92 días; para el organizador `from` debe ser anterior a `to`. Orden `starts_at`, `event_id` ascendente; el cursor se reenvía con los mismos filtros.",
         "operationId": "published_events_v1_events_get",
         "parameters": [
           {
@@ -908,6 +1321,42 @@
               "format": "date-time",
               "title": "To",
               "type": "string"
+            }
+          },
+          {
+            "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+            "in": "query",
+            "name": "discipline",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+              "title": "Discipline"
+            }
+          },
+          {
+            "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+            "in": "query",
+            "name": "city",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opcional. Igualdad sin distinguir mayúsculas ni acentos sobre el texto recortado (2 a 80 caracteres).",
+              "title": "City"
             }
           },
           {
@@ -985,7 +1434,7 @@
                 }
               }
             },
-            "description": "`permission_required` (no es deportista) o `capability_required` (`calendar.sport.view`)."
+            "description": "`permission_required` (otro actor, organizador sin `events.calendar.view` o profesional sin `calendar.integrated.view`) o `capability_required` (`calendar.sport.view`)."
           },
           "422": {
             "content": {
@@ -995,7 +1444,7 @@
                 }
               }
             },
-            "description": "`validation_error`: periodo, límite o cursor inválidos."
+            "description": "`validation_error` en `query.<parámetro>`: `invalid_datetime`, `ends_before_starts`, `out_of_range` (más de 92 días o límite), `invalid_length` (filtro) o `invalid_cursor`."
           },
           "503": {
             "content": {
@@ -1008,7 +1457,7 @@
             "description": "`upstream_unavailable`: no se pudo verificar la identidad."
           }
         },
-        "summary": "Eventos publicados por periodo (HU035, interno)",
+        "summary": "Eventos publicados por periodo (HU035 deportista, HU023 organizador, HU018 profesional)",
         "tags": [
           "events"
         ]
@@ -1295,6 +1744,333 @@
         "summary": "Detalle de un evento (ADR-033) con mi inscripción (HU041)",
         "tags": [
           "event-registrations"
+        ]
+      }
+    },
+    "/v1/events/{event_id}/fee": {
+      "delete": {
+        "description": "Deja `fee = null` con las mismas reglas de estado, inicio y versión que la asignación.",
+        "operationId": "delete_fee_v1_events__event_id__fee_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versión vigente del evento que vio el organizador (entero ≥ 1).",
+            "in": "query",
+            "name": "expected_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Versión vigente del evento que vio el organizador (entero ≥ 1).",
+              "title": "Expected Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: no es `organizer` con `events.pricing.manage`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: inexistente o de otro organizador."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` (`details[0]` = `{field: expected_version, issue: <versión vigente>}`) o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `query.expected_version` (`required`, `unknown_value`, `out_of_range`), `starts_at` (`event_already_started`) o `Idempotency-Key` ausente o inválida."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Retirar la tarifa de un evento propio (HU025)",
+        "tags": [
+          "events"
+        ]
+      },
+      "put": {
+        "description": "`DRAFT` o `PUBLISHED` antes de `starts_at`. Incrementa la versión y devuelve `registration_count`; las inscripciones existentes conservan su `applied_fee`. No genera cobro, estado de pago ni reembolso.",
+        "operationId": "put_fee_v1_events__event_id__fee_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hacen el transporte y el dominio.",
+                "properties": {
+                  "amount": {
+                    "description": "Cadena decimal con exactamente dos decimales, de `0.00` (gratuito) a `99999999.99`.",
+                    "examples": [
+                      "85000.00"
+                    ],
+                    "pattern": "^[0-9]+\\.[0-9]{2}$",
+                    "title": "Amount",
+                    "type": "string"
+                  },
+                  "currency": {
+                    "description": "Solo `COP`.",
+                    "examples": [
+                      "COP"
+                    ],
+                    "title": "Currency",
+                    "type": "string"
+                  },
+                  "expected_version": {
+                    "description": "Versión vigente del evento que vio el organizador.",
+                    "minimum": 1,
+                    "title": "Expected Version",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "amount",
+                  "currency",
+                  "expected_version"
+                ],
+                "title": "EventFeeRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response",
+            "headers": {
+              "Idempotent-Replayed": {
+                "description": "`true` cuando se devuelve el resultado de un reintento.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: no es `organizer` con `events.pricing.manage`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: inexistente o de otro organizador."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` (`details[0]` = `{field: expected_version, issue: <versión vigente>}`) o `idempotency_key_reused`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `amount` (`required`, `unknown_value` sin dos decimales, `too_many_decimals`, `out_of_range`), `currency` (`unsupported_currency`), `expected_version`, campos no permitidos (`field_not_allowed`), `starts_at` (`event_already_started`) o `Idempotency-Key` ausente o inválida."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Asignar la tarifa de un evento propio (HU025)",
+        "tags": [
+          "events"
         ]
       }
     },
@@ -1820,6 +2596,696 @@
         "summary": "Mis eventos como organizador (HU024)",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/me/events/{event_id}/registrations": {
+      "get": {
+        "description": "Orden `registered_at`, `registration_id` ascendente con cursor keyset. Sin inscritos: `items` vacío y `total` 0. Identidad mínima: sin correo ni perfil.",
+        "operationId": "event_attendees_v1_me_events__event_id__registrations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "`REGISTERED` (por defecto) o `ALL`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`REGISTERED` (por defecto) o `ALL`.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "1 a 100; por defecto 20.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 a 100; por defecto 20.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendeesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: no es `organizer` con `events.attendees.view`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`event_not_found`: el evento no existe o es de otro organizador."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error`: `query.status` `unknown_value`, `query.limit` `out_of_range` o `query.cursor` `invalid_cursor`."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad."
+          }
+        },
+        "summary": "Inscritos de un evento propio (HU022)",
+        "tags": [
+          "event-attendees"
+        ]
+      }
+    },
+    "/v1/me/notification-preferences": {
+      "get": {
+        "description": "Sin preferencias registradas rigen los valores por defecto (todo habilitado) con `version: 0`.",
+        "operationId": "my_preferences_v1_me_notification_preferences_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
+          }
+        },
+        "summary": "Mis preferencias de notificación (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "put": {
+        "description": "Reemplaza las tres preferencias con control optimista por `expected_version`; la respuesta trae la versión nueva. Un tipo deshabilitado deja de generarse (CA2).",
+        "operationId": "put_preferences_v1_me_notification_preferences_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el transporte.",
+                "properties": {
+                  "event_matches": {
+                    "title": "Event Matches",
+                    "type": "boolean"
+                  },
+                  "event_reminders": {
+                    "title": "Event Reminders",
+                    "type": "boolean"
+                  },
+                  "expected_version": {
+                    "description": "Versión vigente que vio el deportista (`0` la primera).",
+                    "minimum": 0,
+                    "title": "Expected Version",
+                    "type": "integer"
+                  },
+                  "push_enabled": {
+                    "title": "Push Enabled",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "event_matches",
+                  "event_reminders",
+                  "push_enabled",
+                  "expected_version"
+                ],
+                "title": "NotificationPreferencesRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`version_conflict` (`details[0]` = `{field: expected_version, issue: <versión vigente>}`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `event_matches`, `event_reminders`, `push_enabled` (`required`, `unknown_value`), `expected_version` (`required`, `unknown_value`, `out_of_range`) o campos no permitidos (`field_not_allowed`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
+          }
+        },
+        "summary": "Cambiar mis preferencias de notificación (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/me/notifications": {
+      "get": {
+        "description": "`EVENT_PUBLISHED_MATCH` (`NORMAL`) y `EVENT_REMINDER_24H` (`HIGH`) en orden `created_at DESC, notification_id DESC`; `limit` de 1 a 50. La bandeja es eventualmente consistente con la generación.",
+        "operationId": "my_notifications_v1_me_notifications_get",
+        "parameters": [
+          {
+            "description": "Entero de 1 a 50 (por defecto 20).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entero de 1 a 50 (por defecto 20).",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "`next_cursor` de la página anterior.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` de la página anterior.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `query.limit` (`out_of_range`, también si no es entero) o `query.cursor` (`invalid_cursor`, también si supera 512 caracteres)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
+          }
+        },
+        "summary": "Mi bandeja de notificaciones (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/me/notifications/{notification_id}/read": {
+      "post": {
+        "description": "Idempotente: repetirla conserva el primer `read_at`.",
+        "operationId": "read_notification_v1_me_notifications__notification_id__read_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "title": "Notification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`notification_not_found`: inexistente, ajena o aún no disponible en la bandeja."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `path.notification_id` (`unknown_value`) no es un UUID."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
+          }
+        },
+        "summary": "Marcar una notificación como leída (HU039)",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/v1/me/push-tokens": {
+      "put": {
+        "description": "El token se guarda cifrado; si pertenecía a otro deportista se le reasigna. La bandeja no depende del *push*.",
+        "operationId": "put_push_token_v1_me_push_tokens_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Esquema documentado del cuerpo; la validación la hace el transporte.",
+                "properties": {
+                  "platform": {
+                    "const": "android",
+                    "title": "Platform",
+                    "type": "string"
+                  },
+                  "token": {
+                    "description": "Token FCM.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token",
+                  "platform"
+                ],
+                "title": "PushTokenRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`invalid_access_token`: falta el token o no es válido."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`permission_required`: solo el deportista."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`push_not_enabled`: FCM no está habilitado en este ambiente."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`validation_error` con `details[{field, issue}]`: `token` (`required`, `unknown_value`, `invalid_length`), `platform` (`required`, `unknown_value`) o campos no permitidos (`field_not_allowed`)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`upstream_unavailable`: no se pudo verificar la identidad o la base del servicio no responde."
+          }
+        },
+        "summary": "Registrar el token push del dispositivo (HU039, solo con FCM)",
+        "tags": [
+          "notifications"
         ]
       }
     }

@@ -21,9 +21,11 @@ class GetAthleteProfile:
                 demographic=None,
                 physiological=None,
                 sport_habits=None,
+                nutrition_habits=None,
                 demographic_version=None,
                 physiological_version=None,
                 sport_habits_version=None,
+                nutrition_habits_version=None,
                 projected_at=None,
             )
         return view

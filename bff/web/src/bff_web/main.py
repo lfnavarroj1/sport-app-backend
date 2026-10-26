@@ -4,23 +4,37 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from bff_web.api.account import build_account_router
+from bff_web.api.account_statement import build_account_statement_router
+from bff_web.api.appointments import build_appointments_router
 from bff_web.api.capabilities import build_capabilities_router
+from bff_web.api.event_attendees import build_event_attendees_router
+from bff_web.api.event_calendar import build_event_calendar_router
+from bff_web.api.event_fee import build_event_fee_router
 from bff_web.api.event_publication import build_event_publication_router
 from bff_web.api.events import build_events_router
+from bff_web.api.health_history import build_health_history_router
+from bff_web.api.integrated_calendar import build_integrated_calendar_router
+from bff_web.api.nutrition import build_nutrition_router
+from bff_web.api.nutrition_routine_templates import build_nutrition_routine_templates_router
 from bff_web.api.profile import build_profile_router
 from bff_web.api.registration import (
     IDEMPOTENCY_HEADER,
     REPLAYED_HEADER,
     build_registration_router,
 )
+from bff_web.api.service_associations import build_service_associations_router
 from bff_web.api.services import build_service_availability_router, build_services_router
 from bff_web.api.sessions import RETRY_AFTER_HEADER, RefreshCookie, build_sessions_router
+from bff_web.api.subscriptions import build_subscriptions_router
 from bff_web.api.training import build_training_router
 from bff_web.api.training_history import build_training_history_router
+from bff_web.api.training_plan_templates import build_training_plan_templates_router
+from bff_web.api.training_routes import build_training_routes_router
 from bff_web.clients.affiliation_management import AffiliationManagementClient
 from bff_web.clients.complementary_services import ComplementaryServicesClient
 from bff_web.clients.events_management import EventsManagementClient
-from bff_web.clients.training_management import TrainingManagementClient
+from bff_web.clients.training_management import IF_NONE_MATCH_HEADER, TrainingManagementClient
 from bff_web.clients.users_management import UsersManagementClient
 from bff_web.settings import BffWebSettings
 from sportapp_platform.app import create_service_app
@@ -30,18 +44,26 @@ from sportapp_platform.correlation import CORRELATION_HEADER
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-web"
-API_VERSION = "0.16.0"
+API_VERSION = "0.34.0"
 CHANNEL = "web"
 
 # Lo que el navegador puede enviar y leer en llamadas de otro origen.
-CORS_ALLOWED_METHODS = ("GET", "POST", "PUT", "DELETE")
+CORS_ALLOWED_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 CORS_ALLOWED_HEADERS = (
     "Authorization",
     "Content-Type",
     IDEMPOTENCY_HEADER,
     CORRELATION_HEADER,
+    IF_NONE_MATCH_HEADER,
 )
-CORS_EXPOSED_HEADERS = ("Location", REPLAYED_HEADER, RETRY_AFTER_HEADER, CORRELATION_HEADER)
+# `ETag` e `If-None-Match`: revalidación del catálogo de alimentos con `304` (HU014).
+CORS_EXPOSED_HEADERS = (
+    "Location",
+    REPLAYED_HEADER,
+    RETRY_AFTER_HEADER,
+    CORRELATION_HEADER,
+    "ETag",
+)
 
 
 def create_app(
@@ -104,10 +126,36 @@ def create_app(
                 channel=CHANNEL,
             ),
             build_profile_router(verify_token=verifier.verify, users=users),
+            build_account_router(verify_token=verifier.verify, users=users),
             build_training_router(
                 verify_token=verifier.verify,
                 permissions=permissions,
                 users=users,
+                training=training,
+                channel=CHANNEL,
+            ),
+            build_nutrition_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                users=users,
+                training=training,
+                channel=CHANNEL,
+            ),
+            build_training_routes_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                training=training,
+                channel=CHANNEL,
+            ),
+            build_training_plan_templates_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                training=training,
+                channel=CHANNEL,
+            ),
+            build_nutrition_routine_templates_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
                 training=training,
                 channel=CHANNEL,
             ),
@@ -118,6 +166,12 @@ def create_app(
                 users=users,
                 channel=CHANNEL,
             ),
+            build_health_history_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                training=training,
+                channel=CHANNEL,
+            ),
             build_services_router(
                 verify_token=verifier.verify,
                 permissions=permissions,
@@ -126,6 +180,11 @@ def create_app(
             ),
             build_service_availability_router(
                 verify_token=verifier.verify,
+                services=ComplementaryServicesClient(services_http),
+            ),
+            build_service_associations_router(
+                verify_token=verifier.verify,
+                affiliation=affiliation,
                 services=ComplementaryServicesClient(services_http),
             ),
             build_events_router(
@@ -139,6 +198,42 @@ def create_app(
                 permissions=permissions,
                 events=events,
                 channel=CHANNEL,
+            ),
+            build_event_attendees_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                events=events,
+                users=users,
+                channel=CHANNEL,
+            ),
+            build_event_calendar_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                events=events,
+                channel=CHANNEL,
+            ),
+            build_event_fee_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                events=events,
+                channel=CHANNEL,
+            ),
+            build_subscriptions_router(verify_token=verifier.verify, affiliation=affiliation),
+            build_account_statement_router(verify_token=verifier.verify, affiliation=affiliation),
+            build_integrated_calendar_router(
+                verify_token=verifier.verify,
+                permissions=permissions,
+                athlete_snapshot=affiliation.user_capabilities,
+                events=events,
+                services=ComplementaryServicesClient(services_http),
+                training=training,
+                channel=CHANNEL,
+                source_timeout=settings.upstream_timeout_seconds,
+            ),
+            build_appointments_router(
+                verify_token=verifier.verify,
+                services=ComplementaryServicesClient(services_http),
+                users=users,
             ),
         ],
         shutdown_hooks=[

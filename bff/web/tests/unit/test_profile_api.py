@@ -24,6 +24,8 @@ from sportapp_platform.tokens import public_jwk
 WEB_ORIGIN = "http://localhost:4200"
 DEMOGRAPHIC = "/v1/me/demographic-profile"
 PHYSIOLOGICAL = "/v1/me/physiological-profile"
+SPORT_HABITS = "/v1/me/sport-habits"
+NUTRITION_HABITS = "/v1/me/nutrition-habits"
 PROFILE = "/v1/me/profile"
 USER_ID = str(uuid.uuid4())
 
@@ -45,6 +47,48 @@ PHYSIOLOGICAL_BODY = {
     "resting_heart_rate_bpm": 58,
     "blood_pressure": {"systolic_mmhg": 118, "diastolic_mmhg": 76},
     "body_temperature_c": "36.6",
+}
+# HU006: el BFF no valida ni reordena; el servicio normaliza.
+SPORT_HABITS_BODY = {
+    "sports": [
+        {
+            "sport": "swimming",
+            "frequency_per_week": 2,
+            "session_duration_minutes": 60,
+            "intensity": "LOW",
+            "level": "BEGINNER",
+        }
+    ],
+    "availability": {"days": ["SAT", "MON"], "time_slots": ["EVENING"]},
+    "primary_goal": "HEALTH",
+}
+SPORT_HABITS_SECTION = {
+    "version": 1,
+    "sports": [{**SPORT_HABITS_BODY["sports"][0], "years_practicing": None}],  # type: ignore[index]
+    "availability": {"days": ["MON", "SAT"], "time_slots": ["EVENING"]},
+    "primary_goal": "HEALTH",
+    "created_at": "2026-10-12T13:00:01Z",
+    "updated_at": "2026-10-12T13:00:01Z",
+}
+# HU009: el BFF no valida ni reordena; el servicio normaliza y exige el consentimiento.
+NUTRITION_HABITS_BODY = {
+    "consent": {"version": "health-2026-10-12.v1"},
+    "diet_pattern": "VEGETARIAN",
+    "restrictions": ["LOW_SUGAR", "GLUTEN_FREE"],
+    "allergies": ["PEANUTS"],
+    "meals_per_day": 4,
+    "hydration_liters_per_day": "2.5",
+}
+NUTRITION_HABITS_SECTION = {
+    "version": 1,
+    "consent": {"version": "health-2026-10-12.v1", "accepted_at": "2026-10-12T13:00:01Z"},
+    "diet_pattern": "VEGETARIAN",
+    "restrictions": ["GLUTEN_FREE", "LOW_SUGAR"],
+    "allergies": ["PEANUTS"],
+    "meals_per_day": 4,
+    "hydration_liters_per_day": "2.5",
+    "created_at": "2026-10-12T13:00:01Z",
+    "updated_at": "2026-10-12T13:00:01Z",
 }
 DEMOGRAPHIC_SECTION = {
     "version": 1,
@@ -70,12 +114,36 @@ PROFILE_VIEW = {
     "demographic": DEMOGRAPHIC_SECTION,
     "physiological": None,
     "sport_habits": None,
-    "versions": {"demographic": 1, "physiological": None, "sport_habits": None},
+    "nutrition_habits": NUTRITION_HABITS_SECTION,
+    "versions": {
+        "demographic": 1,
+        "physiological": None,
+        "sport_habits": None,
+        "nutrition_habits": 1,
+    },
     "projected_at": "2026-10-12T13:00:02Z",
 }
 # Valores sintéticos que nunca deben aparecer en los logs.
-SENSITIVE_VALUES = ("1992-04-18", "Bogotá", "Ingeniera", "68.5", "36.6", "23.2", "SMMLV")
-COMMANDS = ((DEMOGRAPHIC, DEMOGRAPHIC_BODY), (PHYSIOLOGICAL, PHYSIOLOGICAL_BODY))
+SENSITIVE_VALUES = (
+    "1992-04-18",
+    "Bogotá",
+    "Ingeniera",
+    "68.5",
+    "36.6",
+    "23.2",
+    "SMMLV",
+    "swimming",
+    "EVENING",
+    "PEANUTS",
+    "GLUTEN_FREE",
+    "VEGETARIAN",
+)
+COMMANDS = (
+    (DEMOGRAPHIC, DEMOGRAPHIC_BODY),
+    (PHYSIOLOGICAL, PHYSIOLOGICAL_BODY),
+    (SPORT_HABITS, SPORT_HABITS_BODY),
+    (NUTRITION_HABITS, NUTRITION_HABITS_BODY),
+)
 
 
 def error(code: str, details: list[dict[str, str]] | None = None) -> dict[str, Any]:
@@ -161,6 +229,8 @@ class ProfileRoutesTest(unittest.TestCase):
         return [
             (DEMOGRAPHIC, self.put(DEMOGRAPHIC, DEMOGRAPHIC_BODY, actor)),
             (PHYSIOLOGICAL, self.put(PHYSIOLOGICAL, PHYSIOLOGICAL_BODY, actor)),
+            (SPORT_HABITS, self.put(SPORT_HABITS, SPORT_HABITS_BODY, actor)),
+            (NUTRITION_HABITS, self.put(NUTRITION_HABITS, NUTRITION_HABITS_BODY, actor)),
             (PROFILE, self.get(actor)),
         ]
 
@@ -270,7 +340,11 @@ class ProfileRoutesTest(unittest.TestCase):
         """CA1/CA6: `201` al crear, `200` al reemplazar y el reintento marcado."""
         demographic = {"user_id": USER_ID, **DEMOGRAPHIC_SECTION}
         physiological = {"user_id": USER_ID, **PHYSIOLOGICAL_SECTION}
-        for (path, body), payload in zip(COMMANDS, (demographic, physiological), strict=True):
+        habits = {"user_id": USER_ID, **SPORT_HABITS_SECTION}
+        nutrition = {"user_id": USER_ID, **NUTRITION_HABITS_SECTION}
+        for (path, body), payload in zip(
+            COMMANDS, (demographic, physiological, habits, nutrition), strict=True
+        ):
             for status, replayed in ((201, None), (200, None), (201, "true"), (200, "true")):
                 with self.subTest(path=path, status=status, replayed=replayed):
                     headers = {"Cache-Control": "no-store"}
@@ -391,6 +465,18 @@ class ProfileRoutesTest(unittest.TestCase):
             )
             self.put(PHYSIOLOGICAL, PHYSIOLOGICAL_BODY, **{"Idempotency-Key": str(uuid.uuid4())})
             self.put(DEMOGRAPHIC, DEMOGRAPHIC_BODY, **{"Idempotency-Key": str(uuid.uuid4())})
+            self.users.response = httpx.Response(
+                201, json={"user_id": USER_ID, **SPORT_HABITS_SECTION}
+            )
+            self.put(SPORT_HABITS, SPORT_HABITS_BODY, **{"Idempotency-Key": str(uuid.uuid4())})
+            self.users.response = httpx.Response(
+                201, json={"user_id": USER_ID, **NUTRITION_HABITS_SECTION}
+            )
+            self.put(
+                NUTRITION_HABITS,
+                NUTRITION_HABITS_BODY,
+                **{"Idempotency-Key": str(uuid.uuid4())},
+            )
             self.users.response = httpx.Response(200, json=PROFILE_VIEW)
             self.get()
             self.users.response = httpx.Response(500, json=PHYSIOLOGICAL_SECTION)

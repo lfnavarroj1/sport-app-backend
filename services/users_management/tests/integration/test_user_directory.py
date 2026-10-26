@@ -106,6 +106,20 @@ class UserDirectoryIntegrationTest(unittest.TestCase):
         self.assertEqual(disabled.status_code, 404, "una cuenta deshabilitada no se resuelve")
         self.assertEqual(missing.status_code, 404)
 
+    def test_nutrition_restrictions_read_the_directory(self) -> None:
+        """ADR-035 (HU014): una cuenta activa sin hábitos (HU009 aún no los registra) responde
+        listas vacías y `null`; deshabilitada o inexistente → `404 user_not_found`."""
+        found = self.client.get(f"/v1/users/{self.active_id}/nutrition-restrictions")
+        disabled = self.client.get(f"/v1/users/{self.disabled_id}/nutrition-restrictions")
+        missing = self.client.get(f"/v1/users/{uuid.uuid4()}/nutrition-restrictions")
+
+        self.assertEqual(
+            found.json(),
+            {"restrictions": [], "allergies": [], "diet_pattern": None, "version": None},
+        )
+        self.assertEqual((disabled.status_code, disabled.json()["code"]), (404, "user_not_found"))
+        self.assertEqual(missing.status_code, 404)
+
     def test_registration_alone_does_not_fill_the_directory(self) -> None:
         """Sin `usuarios-read-projector` el registro no aparece en la lectura (deuda de HU001)."""
         registered = self.client.post(
@@ -230,6 +244,33 @@ class UserDirectoryIntegrationTest(unittest.TestCase):
             [item["full_name"] for item in after.json()["items"]],
             ["Luis Gómez", "Pro Sintético"],
         )
+
+    def test_directory_lookup_returns_only_projected_names(self) -> None:
+        """HU022 (ADR-039): contra la base de lectura real, solo `full_name` de las cuentas
+        activas; deshabilitadas e inexistentes se omiten; nunca el correo."""
+        athlete_id = self.register_and_project("Marta Ríos", "marta.directorio@example.com")
+
+        response = self.client.post(
+            "/v1/users/directory-lookup",
+            json={
+                "user_ids": [
+                    athlete_id,
+                    str(self.disabled_id),
+                    str(uuid.uuid4()),
+                    str(self.active_id),
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["items"],
+            [
+                {"user_id": athlete_id, "full_name": "Marta Ríos"},
+                {"user_id": str(self.active_id), "full_name": "Pro Sintético"},
+            ],
+        )
+        self.assertNotIn("@example.com", response.text)
 
 
 if __name__ == "__main__":

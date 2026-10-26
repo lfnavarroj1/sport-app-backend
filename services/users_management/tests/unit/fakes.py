@@ -8,15 +8,18 @@ from typing import Any, Self
 from uuid import UUID, uuid4
 
 from users_management.application.commands.login import Login
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
 from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.commands.update_demographic_profile import (
     UpdateDemographicProfile,
 )
+from users_management.application.commands.update_nutrition_habits import UpdateNutritionHabits
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.errors import (
     IdempotencyKeyConflict,
     ReadModelUnavailable,
@@ -414,6 +417,82 @@ def update_physiological_with(
         clock=clock or FixedClock(),
         current_consent_version=CONSENT_VERSION,
     )
+
+
+def update_sport_habits_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> UpdateSportHabits:
+    return UpdateSportHabits(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+    )
+
+
+def patch_sport_habits_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> PatchSportHabits:
+    return PatchSportHabits(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+    )
+
+
+def update_nutrition_habits_with(
+    store: InMemoryProfileStore,
+    clock: FixedClock | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> UpdateNutritionHabits:
+    return UpdateNutritionHabits(
+        unit_of_work=lambda: InMemoryProfileUnitOfWork(store, before_commit),
+        clock=clock or FixedClock(),
+        current_consent_version=CONSENT_VERSION,
+    )
+
+
+def nutrition_habits_body(**overrides: Any) -> dict[str, Any]:
+    """Cuerpo sintético de HU009 (sin `expected_version`: alta), con las listas fuera del
+    orden del catálogo para comprobar la normalización."""
+    values: dict[str, Any] = {
+        "consent": {"version": CONSENT_VERSION},
+        "diet_pattern": "VEGETARIAN",
+        "restrictions": ["LOW_SUGAR", "GLUTEN_FREE"],
+        "allergies": ["SESAME", "PEANUTS"],
+        "meals_per_day": 4,
+        "hydration_liters_per_day": "2.5",
+    }
+    values.update(overrides)
+    return values
+
+
+def sport_habits_body(**overrides: Any) -> dict[str, Any]:
+    """Cuerpo sintético del ejemplo de ADR-034 con dos deportes (sin `expected_version`)."""
+    values: dict[str, Any] = {
+        "sports": [
+            {
+                "sport": "swimming",
+                "frequency_per_week": 2,
+                "session_duration_minutes": 60,
+                "intensity": "LOW",
+                "level": "BEGINNER",
+            },
+            {
+                "sport": "running",
+                "frequency_per_week": 3,
+                "session_duration_minutes": 45,
+                "intensity": "MODERATE",
+                "level": "INTERMEDIATE",
+                "years_practicing": 4,
+            },
+        ],
+        "availability": {"days": ["SAT", "MON", "WED"], "time_slots": ["EVENING", "MORNING"]},
+        "primary_goal": "HEALTH",
+    }
+    values.update(overrides)
+    return values
 
 
 def demographic_body(**overrides: Any) -> dict[str, Any]:

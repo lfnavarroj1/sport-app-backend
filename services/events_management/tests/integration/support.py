@@ -16,6 +16,7 @@ from events_management.application.commands.create_event import (
     CreateEvent,
     CreateEventCommand,
 )
+from events_management.application.commands.event_fee import ChangeEventFee
 from events_management.application.commands.publish_event import (
     PublishEvent,
     PublishEventCommand,
@@ -23,6 +24,7 @@ from events_management.application.commands.publish_event import (
 from events_management.application.commands.register_for_event import RegisterForEvent
 from events_management.application.projections.event_projection import EventsProjector
 from events_management.application.queries.my_events import ListMyEvents
+from events_management.application.queries.registrations import GetPublishedEvent
 from events_management.infrastructure.clock import SystemClock
 from events_management.infrastructure.persistence_read.events import (
     SqlAlchemyEventDetailReader,
@@ -34,8 +36,12 @@ from events_management.infrastructure.persistence_read.events import (
 )
 from events_management.infrastructure.persistence_read.models import EventReadRow
 from events_management.infrastructure.persistence_write.models import EventRow
+from events_management.infrastructure.persistence_write.registration_counts import (
+    SqlAlchemyRegistrationCounter,
+)
 from events_management.infrastructure.persistence_write.unit_of_work import (
     SqlAlchemyEventCreationUnitOfWork,
+    SqlAlchemyFeeUnitOfWork,
     SqlAlchemyPublicationUnitOfWork,
     SqlAlchemyRegistrationUnitOfWork,
 )
@@ -47,10 +53,15 @@ READ_HISTORY = "events_management.infrastructure.persistence_read:migrations"
 
 
 class OrganizerOnly:
-    """`actor-permissions.v1` del organizador web: `events.create` y `events.publish`."""
+    """`actor-permissions.v1` del organizador web: crear, publicar y ver el calendario."""
 
     def allows(self, actor_type: str, permission: str) -> bool:
-        return actor_type == "organizer" and permission in {"events.create", "events.publish"}
+        return actor_type == "organizer" and permission in {
+            "events.create",
+            "events.publish",
+            "events.calendar.view",
+            "events.pricing.manage",
+        }
 
 
 @dataclass
@@ -83,7 +94,7 @@ class EventDatabases:
         )
 
     def my_events(self) -> ListMyEvents:
-        return ListMyEvents(reader=SqlAlchemyOwnEventReader(self.reads))
+        return ListMyEvents(reader=SqlAlchemyOwnEventReader(self.reads), counter=self.counter())
 
     def published_reader(self) -> SqlAlchemyPublishedEventReader:
         return SqlAlchemyPublishedEventReader(self.reads)
@@ -96,6 +107,19 @@ class EventDatabases:
     def register(self) -> RegisterForEvent:
         return RegisterForEvent(
             unit_of_work=lambda: SqlAlchemyRegistrationUnitOfWork(self.writes), clock=SystemClock()
+        )
+
+    def counter(self) -> SqlAlchemyRegistrationCounter:
+        return SqlAlchemyRegistrationCounter(self.writes)
+
+    def get_event(self) -> GetPublishedEvent:
+        return GetPublishedEvent(reader=self.detail_reader(), counter=self.counter())
+
+    def change_fee(self) -> ChangeEventFee:
+        return ChangeEventFee(
+            unit_of_work=lambda: SqlAlchemyFeeUnitOfWork(self.writes),
+            permissions=OrganizerOnly(),
+            clock=SystemClock(),
         )
 
     def detail_reader(self) -> SqlAlchemyEventDetailReader:

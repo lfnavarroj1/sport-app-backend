@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sportapp_platform.migrations import upgrade
 from sportapp_platform.testing.postgres import temporary_database
 from users_management.application.commands.login import Login
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import (
     RegisterUser,
@@ -22,9 +23,11 @@ from users_management.application.commands.revoke_session import RevokeSession
 from users_management.application.commands.update_demographic_profile import (
     UpdateDemographicProfile,
 )
+from users_management.application.commands.update_nutrition_habits import UpdateNutritionHabits
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.ports import Clock, RegistrationUnitOfWork
 from users_management.domain.account.model import AccountStatus, ActorType
 from users_management.domain.authentication.model import LoginThrottlePolicy
@@ -115,6 +118,19 @@ class WriteDatabase:
 
     def update_demographic(self, clock: Clock | None = None) -> UpdateDemographicProfile:
         return UpdateDemographicProfile(unit_of_work=self.profile, clock=clock or SystemClock())
+
+    def update_sport_habits(self, clock: Clock | None = None) -> UpdateSportHabits:
+        return UpdateSportHabits(unit_of_work=self.profile, clock=clock or SystemClock())
+
+    def patch_sport_habits(self, clock: Clock | None = None) -> PatchSportHabits:
+        return PatchSportHabits(unit_of_work=self.profile, clock=clock or SystemClock())
+
+    def update_nutrition_habits(self, clock: Clock | None = None) -> UpdateNutritionHabits:
+        return UpdateNutritionHabits(
+            unit_of_work=self.profile,
+            clock=clock or SystemClock(),
+            current_consent_version=HEALTH_CONSENT,
+        )
 
     def update_physiological(self, clock: Clock | None = None) -> UpdatePhysiologicalProfile:
         return UpdatePhysiologicalProfile(

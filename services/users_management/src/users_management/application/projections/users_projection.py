@@ -10,10 +10,13 @@ Cada evento se aplica en una sola transacción de la base de lectura (secuencia 
 
 Reglas por vista:
 
-- `usuario.registrado.v1` → `user_directory`, que conserva la secuencia de versiones de la
-  cuenta: solo se aplica la versión siguiente (la 1 en una fila ausente); una versión igual
-  o anterior es obsoleta y un hueco revierte la transacción (`ProjectionGap`): el mensaje no
-  se confirma y Pub/Sub lo reintenta hasta que llegue la anterior o termine en la DLQ.
+- `usuario.registrado.v1` y `usuario.actualizado.v1` (HU002) → `user_directory`, que
+  conserva la secuencia de versiones de la cuenta: solo se aplica la versión siguiente (la 1
+  en una fila ausente; una edición, sobre la anterior); una versión igual o anterior es
+  obsoleta y un hueco revierte la transacción (`ProjectionGap`): el mensaje no se confirma y
+  Pub/Sub lo reintenta hasta que llegue la anterior o termine en la DLQ. Si el correo nuevo
+  todavía figura en otra fila (otra cuenta lo liberó y su edición no se ha proyectado), la
+  unicidad del directorio revierte la transacción (`DirectoryEmailInUse`) y se reintenta.
 - `perfil.*_actualizado.v1` → sección de `athlete_profile_view` (ADR-034): el evento trae el
   estado completo, así que se aplica si su versión es mayor que la proyectada (`null`
   cuenta como 0), crea la fila si no existe y deja intactas las otras secciones.
@@ -25,13 +28,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from types import TracebackType
-from typing import Any, Protocol, Self
+from typing import Any, NoReturn, Protocol, Self
 from uuid import UUID
 
 from users_management.application.messages import (
     ProfileSectionUpdatedEvent,
     UserRegisteredEvent,
     UsersEvent,
+    UserUpdatedEvent,
 )
 from users_management.application.ports import Clock
 from users_management.domain.profile.events import ProfileSection
@@ -50,6 +54,10 @@ class ProjectionOutcome(StrEnum):
 
 class ProjectionGap(Exception):
     """Llegó una versión posterior a la siguiente esperada; se reintenta más tarde."""
+
+
+class DirectoryEmailInUse(Exception):
+    """El correo proyectado sigue en otra fila del directorio; se reintenta más tarde."""
 
 
 @dataclass(frozen=True)
@@ -98,6 +106,13 @@ class ProjectionUnitOfWork(Protocol):
         """Inserta la fila; `False` si otra transacción la creó primero."""
         ...
 
+    def update_directory_entry(self, entry: DirectoryEntry, projected_at: datetime) -> None:
+        """Reemplaza nombre, correo, actor, estado y versión de una fila existente (HU002).
+
+        `DirectoryEmailInUse` si el correo está en otra fila del directorio.
+        """
+        ...
+
     def profile_section_version(self, user_id: UUID, section: ProfileSection) -> int | None:
         """Versión proyectada de la sección, bloqueando la fila del usuario si existe."""
         ...
@@ -129,6 +144,8 @@ class UsersProjector:
     def __call__(self, event: UsersEvent) -> ProjectionOutcome:
         if isinstance(event, UserRegisteredEvent):
             return self._project_registration(event)
+        if isinstance(event, UserUpdatedEvent):
+            return self._project_update(event)
         return self._project_profile_section(event)
 
     def _project_registration(self, event: UserRegisteredEvent) -> ProjectionOutcome:
@@ -160,20 +177,42 @@ class UsersProjector:
                 # Si otra entrega de la misma versión creó la fila primero, ya está aplicada.
                 outcome = ProjectionOutcome.APPLIED if inserted else ProjectionOutcome.OBSOLETE
             else:
-                # Hoy el único evento del directorio es el registro (versión 1): cualquier
-                # otra secuencia es un hueco que no se adivina (CMP-001).
-                _logger.warning(
-                    "projector.version_gap",
-                    extra={
-                        "fields": {
-                            "event_id": str(event.event_id),
-                            "aggregate_id": str(event.user_id),
-                            "projected_version": projected,
-                            "aggregate_version": event.aggregate_version,
-                        }
-                    },
+                # El registro siempre es la versión 1 sobre una fila ausente: cualquier otra
+                # secuencia es un hueco que no se adivina (CMP-001).
+                _version_gap(event, projected)
+            unit_of_work.commit()
+        return outcome
+
+    def _project_update(self, event: UserUpdatedEvent) -> ProjectionOutcome:
+        now = self._clock.now()
+        with self._unit_of_work() as unit_of_work:
+            if not unit_of_work.claim_event(
+                event.event_id,
+                DIRECTORY_PROJECTION,
+                event.user_id,
+                event.aggregate_version,
+                now,
+            ):
+                return ProjectionOutcome.DUPLICATE
+            projected = unit_of_work.directory_version(event.user_id)
+            if projected is not None and projected >= event.aggregate_version:
+                outcome = ProjectionOutcome.OBSOLETE
+            elif projected == event.aggregate_version - 1:
+                unit_of_work.update_directory_entry(
+                    DirectoryEntry(
+                        user_id=event.user_id,
+                        full_name=event.full_name,
+                        email=event.email,
+                        actor_type=event.actor_type,
+                        status=event.status,
+                        aggregate_version=event.aggregate_version,
+                    ),
+                    now,
                 )
-                raise ProjectionGap()
+                outcome = ProjectionOutcome.APPLIED
+            else:
+                # Falta el registro o una edición anterior: no se adivina el estado intermedio.
+                _version_gap(event, projected)
             unit_of_work.commit()
         return outcome
 
@@ -198,3 +237,18 @@ class UsersProjector:
                 outcome = ProjectionOutcome.APPLIED if applied else ProjectionOutcome.OBSOLETE
             unit_of_work.commit()
         return outcome
+
+
+def _version_gap(event: UserRegisteredEvent | UserUpdatedEvent, projected: int | None) -> NoReturn:
+    _logger.warning(
+        "projector.version_gap",
+        extra={
+            "fields": {
+                "event_id": str(event.event_id),
+                "aggregate_id": str(event.user_id),
+                "projected_version": projected,
+                "aggregate_version": event.aggregate_version,
+            }
+        },
+    )
+    raise ProjectionGap()

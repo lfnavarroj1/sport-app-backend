@@ -68,6 +68,7 @@ class CapabilitiesFlowTest(unittest.TestCase):
                         app_env="test",  # type: ignore[arg-type]
                         database_url=affiliation_url,  # type: ignore[arg-type]
                         affiliation_expected_catalog_version=CATALOG,
+                        users_management_base_url="http://users-management",  # type: ignore[arg-type]
                     )
                 ),
                 base_url="http://affiliation-management",
@@ -82,6 +83,7 @@ class CapabilitiesFlowTest(unittest.TestCase):
                         affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
                         training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
                         events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
+                        complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
                     ),
                     users_http=users,
                     affiliation_http=affiliation,

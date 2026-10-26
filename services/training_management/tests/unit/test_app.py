@@ -11,6 +11,7 @@ SETTINGS = TrainingManagementSettings(
     database_read_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
     users_management_base_url="http://users.invalid",  # type: ignore[arg-type]
     affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
+    health_data_consent_version="local-dev",
     db_connect_timeout_seconds=1,
 )
 
@@ -29,7 +30,10 @@ class TrainingManagementAppTest(unittest.TestCase):
             response = self.client.get("/health/ready")
 
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["checks"], {"database_write": "failed"})
+        # HU014: el catálogo de alimentos también se comprueba en la base de escritura.
+        self.assertEqual(
+            response.json()["checks"], {"database_write": "failed", "food_catalog": "failed"}
+        )
 
     def test_openapi_declares_contract_version(self) -> None:
         info = self.client.get("/openapi.json").json()["info"]

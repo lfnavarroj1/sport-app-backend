@@ -1,4 +1,5 @@
-"""Cliente HTTP de `users_management` según su OpenAPI 0.3.0 (operaciones del canal móvil)."""
+"""Cliente HTTP de `users_management` (operaciones del canal móvil y contratos internos de
+HU026: contexto del deportista y nombres del directorio; HU030: restricciones alimenticias)."""
 
 from typing import Any
 from uuid import UUID
@@ -37,6 +38,70 @@ class UsersManagementClient:
         headers = {"Idempotency-Key": str(idempotency_key)} if idempotency_key else {}
         return self._post("/v1/sessions/revoke", payload, headers)
 
+    def athlete_context(self, user_id: UUID, *, timeout: float) -> dict[str, Any] | None:
+        """HU026 (ADR-041): contexto interno del deportista, sin token. `None` si no hay una
+        cuenta activa (`404`); cualquier otra respuesta distinta de `200` es indisponibilidad."""
+        headers = {}
+        correlation_id = current_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_HEADER] = correlation_id
+        try:
+            response = self._http.get(
+                f"/v1/users/{user_id}/athlete-context", headers=headers, timeout=timeout
+            )
+        except httpx.TimeoutException:
+            raise UpstreamTimeout() from None
+        except httpx.TransportError:
+            raise UpstreamUnavailable() from None
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return None
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        document: dict[str, Any] = response.json()
+        return document
+
+    def nutrition_restrictions(self, user_id: UUID, *, timeout: float) -> dict[str, Any] | None:
+        """HU030 (ADR-035): restricciones, alergias y patrón alimenticio del deportista (contrato
+        interno, sin token). Datos de salud: solo transitan en la solicitud, sin caché ni logs.
+        `None` si no hay una cuenta activa (`404`); cualquier otra respuesta distinta de `200` es
+        indisponibilidad."""
+        headers = {}
+        correlation_id = current_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_HEADER] = correlation_id
+        try:
+            response = self._http.get(
+                f"/v1/users/{user_id}/nutrition-restrictions", headers=headers, timeout=timeout
+            )
+        except httpx.TimeoutException:
+            raise UpstreamTimeout() from None
+        except httpx.TransportError:
+            raise UpstreamUnavailable() from None
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return None
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        document: dict[str, Any] = response.json()
+        return document
+
+    def directory_lookup(
+        self, user_ids: list[UUID], *, timeout: float | None = None
+    ) -> list[dict[str, Any]]:
+        """ADR-039: solo el nombre (`full_name`) de cuentas activas (contrato interno, ≤ 100).
+        En HU026, los organizadores de las rutas sugeridas; en HU029, los proveedores de los
+        servicios sugeridos (con `timeout` propio). Cualquier respuesta distinta de `200` es
+        indisponibilidad."""
+        response = self._post(
+            "/v1/users/directory-lookup",
+            {"user_ids": [str(user_id) for user_id in user_ids]},
+            {},
+            timeout=timeout,
+        )
+        if response.status_code != httpx.codes.OK:
+            raise UpstreamUnavailable()
+        items: list[dict[str, Any]] = response.json()["items"]
+        return items
+
     def jwks(self) -> dict[str, Any]:
         """Claves públicas de firma; un fallo se propaga para conservar el JWKS anterior."""
         response = self._http.get("/.well-known/jwks.json")
@@ -44,12 +109,24 @@ class UsersManagementClient:
         document: dict[str, Any] = response.json()
         return document
 
-    def _post(self, path: str, payload: dict[str, Any], headers: dict[str, str]) -> httpx.Response:
+    def _post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        *,
+        timeout: float | None = None,
+    ) -> httpx.Response:
         correlation_id = current_correlation_id()
         if correlation_id:
             headers = {**headers, CORRELATION_HEADER: correlation_id}
         try:
-            return self._http.post(path, json=payload, headers=headers)
+            return self._http.post(
+                path,
+                json=payload,
+                headers=headers,
+                timeout=httpx.USE_CLIENT_DEFAULT if timeout is None else timeout,
+            )
         except httpx.TimeoutException:
             raise UpstreamTimeout() from None
         except httpx.TransportError:

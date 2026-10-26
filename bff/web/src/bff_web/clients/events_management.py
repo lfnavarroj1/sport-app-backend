@@ -1,4 +1,5 @@
-"""Cliente HTTP de `events_management` según su OpenAPI 0.5.0 (HU021, HU024).
+"""Cliente HTTP de `events_management` según su OpenAPI 0.8.0 (HU021, HU024, HU023, HU022,
+HU025 y HU018).
 
 Reenvía el access token del usuario: el servicio vuelve a verificar identidad, permiso y
 propiedad.
@@ -38,13 +39,58 @@ class EventsManagementClient:
             idempotency_key=idempotency_key,
         )
 
+    def put_event_fee(
+        self, access_token: str, event_id: UUID, body: Any, idempotency_key: str | None
+    ) -> httpx.Response:
+        """HU025: cuerpo y clave tal cual; el servicio responde los errores de ADR-040."""
+        return self._send(
+            "PUT",
+            f"/v1/events/{event_id}/fee",
+            access_token,
+            json=body,
+            idempotency_key=idempotency_key,
+        )
+
+    def delete_event_fee(
+        self,
+        access_token: str,
+        event_id: UUID,
+        params: dict[str, str],
+        idempotency_key: str | None,
+    ) -> httpx.Response:
+        """HU025: `expected_version` y la clave tal como llegaron."""
+        return self._send(
+            "DELETE",
+            f"/v1/events/{event_id}/fee",
+            access_token,
+            params=params,
+            idempotency_key=idempotency_key,
+        )
+
     def list_my_events(self, access_token: str, params: dict[str, str]) -> httpx.Response:
         """HU024: eventos propios del organizador del token."""
         return self._send("GET", "/v1/me/events", access_token, params=params)
 
+    def list_events(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU023 (ADR-040): eventos publicados por periodo con filtros opcionales."""
+        return self._send("GET", "/v1/events", access_token, params=params)
+
     def get_event(self, access_token: str, event_id: UUID) -> httpx.Response:
         """ADR-033: detalle visible para quien llama (`DRAFT` solo para su organizador)."""
         return self._send("GET", f"/v1/events/{event_id}", access_token)
+
+    def list_attendees(
+        self, access_token: str, event_id: UUID, params: dict[str, str]
+    ) -> httpx.Response:
+        """HU022 (ADR-039): inscritos de un evento propio; parámetros tal como llegaron."""
+        return self._send(
+            "GET", f"/v1/me/events/{event_id}/registrations", access_token, params=params
+        )
+
+    def list_my_registrations(self, access_token: str, params: dict[str, str]) -> httpx.Response:
+        """HU018 (ADR-039): inscripciones propias del deportista (HU041), por inicio del
+        evento."""
+        return self._send("GET", "/v1/me/event-registrations", access_token, params=params)
 
     def _send(
         self,

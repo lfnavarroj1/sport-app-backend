@@ -7,27 +7,55 @@ from sportapp_platform.app import create_service_app
 from sportapp_platform.config import load_settings
 from sportapp_platform.database import DatabaseReadinessCheck, create_database_engine
 from sportapp_platform.tokens import AccessTokenVerifier
+from users_management.api.account import build_account_router
+from users_management.api.athlete_context import build_athlete_context_router
+from users_management.api.athletes_search import build_athletes_search_router
 from users_management.api.lookup import build_lookup_router
+from users_management.api.nutrition_restrictions import build_nutrition_restrictions_router
 from users_management.api.profile import build_profile_router
 from users_management.api.registration import build_registration_router
 from users_management.api.sessions import build_jwks_router, build_sessions_router
 from users_management.application.commands.login import Login
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.refresh_session import RefreshSession
 from users_management.application.commands.register_user import RegisterUser
 from users_management.application.commands.revoke_session import RevokeSession
+from users_management.application.commands.update_account import UpdateAccount
 from users_management.application.commands.update_demographic_profile import (
     UpdateDemographicProfile,
 )
+from users_management.application.commands.update_nutrition_habits import UpdateNutritionHabits
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
+from users_management.application.queries.athlete_context import GetAthleteContext
+from users_management.application.queries.athletes_search import SearchAthletes
+from users_management.application.queries.directory_lookup import LookupDirectoryNames
+from users_management.application.queries.get_account import GetAccount
 from users_management.application.queries.get_profile import GetAthleteProfile
 from users_management.application.queries.lookup_user import LookupUserByEmail
 from users_management.application.queries.lookup_users_batch import LookupUsersByIds
+from users_management.application.queries.nutrition_restrictions import (
+    GetNutritionRestrictions,
+)
 from users_management.domain.authentication.model import LoginThrottlePolicy
 from users_management.infrastructure.clock import SystemClock
-from users_management.infrastructure.persistence_read.directory import SqlAlchemyUserDirectory
+from users_management.infrastructure.persistence_read.athlete_context import (
+    SqlAlchemyAthleteContextReader,
+)
+from users_management.infrastructure.persistence_read.athletes_search import (
+    SqlAlchemyAthleteSearchReader,
+)
+from users_management.infrastructure.persistence_read.directory import (
+    SqlAlchemyAccountReader,
+    SqlAlchemyUserDirectory,
+)
+from users_management.infrastructure.persistence_read.nutrition_restrictions import (
+    SqlAlchemyNutritionRestrictionsReader,
+)
 from users_management.infrastructure.persistence_read.profile import SqlAlchemyAthleteProfileReader
+from users_management.infrastructure.persistence_write.account import SqlAlchemyAccountUnitOfWork
 from users_management.infrastructure.persistence_write.authentication import (
     SqlAlchemyAuthenticationUnitOfWork,
 )
@@ -40,7 +68,7 @@ from users_management.infrastructure.security.password_hashing import Argon2idPa
 from users_management.settings import UsersManagementSettings
 
 SERVICE_NAME = "users-management"
-API_VERSION = "0.7.0"
+API_VERSION = "0.15.0"
 
 
 def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
@@ -97,6 +125,17 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
             clock=clock,
             current_consent_version=settings.health_data_consent_version,
         ),
+        update_sport_habits=UpdateSportHabits(
+            unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions), clock=clock
+        ),
+        patch_sport_habits=PatchSportHabits(
+            unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions), clock=clock
+        ),
+        update_nutrition_habits=UpdateNutritionHabits(
+            unit_of_work=lambda: SqlAlchemyProfileUnitOfWork(sessions),
+            clock=clock,
+            current_consent_version=settings.health_data_consent_version,
+        ),
         get_profile=GetAthleteProfile(SqlAlchemyAthleteProfileReader(read_sessions)),
     )
     return create_service_app(
@@ -117,8 +156,26 @@ def create_app(settings: UsersManagementSettings | None = None) -> FastAPI:
                 ),
             ),
             build_jwks_router(token_issuer.jwks()),
-            build_lookup_router(lookup_user, lookup_batch),
+            build_lookup_router(lookup_user, lookup_batch, LookupDirectoryNames(lookup_batch)),
+            build_nutrition_restrictions_router(
+                GetNutritionRestrictions(SqlAlchemyNutritionRestrictionsReader(read_sessions))
+            ),
+            build_athlete_context_router(
+                GetAthleteContext(SqlAlchemyAthleteContextReader(read_sessions))
+            ),
+            # HU039 (ADR-045): destinatarios de las alertas de eventos.
+            build_athletes_search_router(
+                SearchAthletes(SqlAlchemyAthleteSearchReader(read_sessions))
+            ),
             profile_router,
+            # HU002 (ADR-035): cuenta propia de cualquier actor.
+            build_account_router(
+                verify_token=verifier.verify,
+                update_account=UpdateAccount(
+                    unit_of_work=lambda: SqlAlchemyAccountUnitOfWork(sessions), clock=clock
+                ),
+                get_account=GetAccount(SqlAlchemyAccountReader(read_sessions)),
+            ),
         ],
         shutdown_hooks=[engine.dispose, read_engine.dispose],
     )

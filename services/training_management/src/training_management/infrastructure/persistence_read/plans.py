@@ -1,6 +1,7 @@
 """Base de lectura de entrenamientos: consulta de planes (HU010 CA4) y transacción del
 proyector (CMP-003) para planes, autorizaciones, historial de sesiones (HU011), sesión
-activa (HU032) y resultados de indicadores (HU034)."""
+activa (HU032), resultados de indicadores (HU034), planes de alimentación (HU014), consumos de
+alimentos (HU043), monitoreo de sesiones (HU036) y reportes de salud (HU042)."""
 
 from datetime import date, datetime
 from types import TracebackType
@@ -16,12 +17,21 @@ from training_management.application.ports import (
     ActiveSessionView,
     AuthorizationView,
     DuplicateDelivery,
+    MonitoringView,
     PlanView,
+    RiskAlertView,
     SessionHistoryEntry,
     SessionView,
 )
+from training_management.domain.health.model import HealthReport
 from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.nutrition.intake import FoodIntake
+from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.events import planned_session_id
+from training_management.domain.routes.model import Route
+from training_management.domain.routines.model import NutritionRoutineTemplate
+from training_management.domain.templates.model import TrainingPlanTemplate
+from training_management.infrastructure.persistence_read.health import health_report_values
 from training_management.infrastructure.persistence_read.metrics import (
     metric_result,
     metric_result_values,
@@ -30,12 +40,29 @@ from training_management.infrastructure.persistence_read.models import (
     PLAN_VIEW_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     ActiveTrainingSessionRow,
+    FoodIntakeViewRow,
+    HealthReportViewRow,
+    NutritionPlanViewRow,
+    NutritionRoutineTemplateViewRow,
     ProcessedEventRow,
+    RouteViewRow,
+    SessionMonitoringViewRow,
+    SessionRiskAlertViewRow,
     TrainingAuthorizationViewRow,
     TrainingMetricResultRow,
     TrainingPlanSessionViewRow,
+    TrainingPlanTemplateViewRow,
     TrainingPlanViewRow,
     TrainingSessionHistoryRow,
+)
+from training_management.infrastructure.persistence_read.nutrition import (
+    food_intake_values,
+    nutrition_plan_values,
+)
+from training_management.infrastructure.persistence_read.routes import route_view_values
+from training_management.infrastructure.persistence_read.routines import routine_view_values
+from training_management.infrastructure.persistence_read.templates import (
+    template_view_values,
 )
 
 
@@ -282,6 +309,172 @@ class SqlAlchemyProjectionUnitOfWork:
         self, calculation: TrainingMetricCalculation, projected_at: datetime
     ) -> None:
         self.session.add(TrainingMetricResultRow(**metric_result_values(calculation, projected_at)))
+
+    def health_report_version(self, report_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(HealthReportViewRow.version)
+            .where(HealthReportViewRow.report_id == report_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_health_report_view(self, report: HealthReport, projected_at: datetime) -> None:
+        values = health_report_values(report, projected_at)
+        statement = insert(HealthReportViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["report_id"],
+                set_={key: statement.excluded[key] for key in values if key != "report_id"},
+            )
+        )
+
+    def nutrition_plan_version(self, plan_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(NutritionPlanViewRow.version)
+            .where(NutritionPlanViewRow.plan_id == plan_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_nutrition_plan_view(self, plan: NutritionPlan, projected_at: datetime) -> None:
+        values = nutrition_plan_values(plan, projected_at)
+        statement = insert(NutritionPlanViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["plan_id"],
+                set_={key: statement.excluded[key] for key in values if key != "plan_id"},
+            )
+        )
+
+    def food_intake_version(self, intake_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(FoodIntakeViewRow.version)
+            .where(FoodIntakeViewRow.intake_id == intake_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_food_intake_view(self, intake: FoodIntake, projected_at: datetime) -> None:
+        values = food_intake_values(intake, projected_at)
+        statement = insert(FoodIntakeViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["intake_id"],
+                set_={key: statement.excluded[key] for key in values if key != "intake_id"},
+            )
+        )
+
+    def route_version(self, route_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(RouteViewRow.version).where(RouteViewRow.route_id == route_id).with_for_update()
+        )
+        return version
+
+    def save_route_view(self, route: Route, projected_at: datetime) -> None:
+        values = route_view_values(route, projected_at)
+        statement = insert(RouteViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["route_id"],
+                set_={key: statement.excluded[key] for key in values if key != "route_id"},
+            )
+        )
+
+    def template_version(self, template_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(TrainingPlanTemplateViewRow.version)
+            .where(TrainingPlanTemplateViewRow.template_id == template_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
+        values = template_view_values(template, projected_at)
+        statement = insert(TrainingPlanTemplateViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["template_id"],
+                set_={key: statement.excluded[key] for key in values if key != "template_id"},
+            )
+        )
+
+    def routine_version(self, template_id: UUID) -> int | None:
+        version: int | None = self.session.scalar(
+            select(NutritionRoutineTemplateViewRow.version)
+            .where(NutritionRoutineTemplateViewRow.template_id == template_id)
+            .with_for_update()
+        )
+        return version
+
+    def save_routine_view(self, routine: NutritionRoutineTemplate, projected_at: datetime) -> None:
+        values = routine_view_values(routine, projected_at)
+        statement = insert(NutritionRoutineTemplateViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["template_id"],
+                set_={key: statement.excluded[key] for key in values if key != "template_id"},
+            )
+        )
+
+    def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
+        row = self.session.scalar(
+            select(SessionMonitoringViewRow)
+            .where(SessionMonitoringViewRow.session_id == session_id)
+            .with_for_update()
+        )
+        if row is None:
+            return None
+        return MonitoringView(
+            session_id=row.session_id,
+            device_id=row.device_id,
+            last_measured_at=row.last_measured_at,
+            last_value=row.last_value,
+            samples_count=row.samples_count,
+            max_value=row.max_value,
+            avg_value=row.avg_value,
+            value_sum=row.value_sum,
+            version=row.version,
+        )
+
+    def save_monitoring_view(self, view: MonitoringView, projected_at: datetime) -> None:
+        values = {
+            "session_id": view.session_id,
+            "device_id": view.device_id,
+            "last_measured_at": view.last_measured_at,
+            "last_value": view.last_value,
+            "samples_count": view.samples_count,
+            "max_value": view.max_value,
+            "avg_value": view.avg_value,
+            "value_sum": view.value_sum,
+            "version": view.version,
+            "projected_at": projected_at,
+        }
+        statement = insert(SessionMonitoringViewRow).values(**values)
+        self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["session_id"],
+                set_={key: statement.excluded[key] for key in values if key != "session_id"},
+            )
+        )
+
+    def has_risk_alert(self, alert_id: UUID) -> bool:
+        return self.session.get(SessionRiskAlertViewRow, alert_id) is not None
+
+    def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None:
+        self.session.execute(
+            insert(SessionRiskAlertViewRow)
+            .values(
+                alert_id=alert.alert_id,
+                session_id=alert.session_id,
+                device_id=alert.device_id,
+                rule=alert.rule,
+                severity=alert.severity,
+                detected_at=alert.detected_at,
+                sequence=alert.sequence,
+                projected_at=projected_at,
+            )
+            .on_conflict_do_nothing(index_elements=["alert_id"])
+        )
 
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime

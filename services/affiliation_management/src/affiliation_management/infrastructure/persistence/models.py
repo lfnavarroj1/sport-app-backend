@@ -31,6 +31,8 @@ from sportapp_platform.database import new_metadata
 
 INBOX_PRIMARY_KEY = "pk_inbox_event"
 ACTIVE_SUBSCRIPTION_INDEX = "uq_subscription_active_user"
+# HU016: clave de idempotencia por deportista, operación y clave.
+COMMAND_IDEMPOTENCY_PRIMARY_KEY = "pk_command_idempotency"
 
 
 class Base(DeclarativeBase):
@@ -141,8 +143,15 @@ class SubscriptionRow(Base):
         ForeignKeyConstraint(
             ["plan_code", "plan_version"], ["plan_version.plan_code", "plan_version.version"]
         ),
-        CheckConstraint("status IN ('ACTIVE')", name="status"),
-        CheckConstraint("origin IN ('AUTO_REGISTRATION')", name="origin"),
+        ForeignKeyConstraint(["plan_offer_id"], ["plan_offer.offer_id"]),
+        # HU016 (ADR-036): el cambio termina la suscripción anterior (`ENDED`).
+        CheckConstraint("status IN ('ACTIVE', 'ENDED')", name="status"),
+        CheckConstraint("origin IN ('AUTO_REGISTRATION', 'USER_CHANGE')", name="origin"),
+        CheckConstraint(
+            "periodicity IS NULL OR periodicity IN ('NONE', 'MONTHLY', 'QUARTERLY', 'ANNUAL')",
+            name="periodicity",
+        ),
+        CheckConstraint("(status = 'ENDED') = (ended_at IS NOT NULL)", name="ended"),
         # Nunca dos suscripciones activas para el mismo usuario (ADR-024).
         Index(
             ACTIVE_SUBSCRIPTION_INDEX,
@@ -164,6 +173,87 @@ class SubscriptionRow(Base):
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # HU016 (ADR-036): oferta aceptada y periodo; nulos solo en filas anteriores a `0004`.
+    periodicity: Mapped[str | None] = mapped_column(String(16))
+    plan_offer_id: Mapped[UUID | None]
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BillingCommitmentRow(Base):
+    """Compromiso de pago **informativo** (ADR-036): SportApp no cobra ni concilia."""
+
+    __tablename__ = "billing_commitment"
+    __table_args__ = (
+        ForeignKeyConstraint(["subscription_id"], ["subscription.subscription_id"]),
+        ForeignKeyConstraint(["plan_offer_id"], ["plan_offer.offer_id"]),
+        CheckConstraint("status IN ('PENDING_EXTERNAL', 'WAIVED')", name="status"),
+        CheckConstraint("periodicity IN ('MONTHLY', 'QUARTERLY', 'ANNUAL')", name="periodicity"),
+        CheckConstraint("amount >= 0", name="amount"),
+        CheckConstraint("currency = 'COP'", name="currency"),
+        CheckConstraint("period_end > period_start", name="period"),
+        CheckConstraint("(status = 'WAIVED') = (waived_at IS NOT NULL)", name="waived"),
+        Index("ix_billing_commitment_user_status", "user_id", "status"),
+    )
+
+    commitment_id: Mapped[UUID] = mapped_column(primary_key=True)
+    subscription_id: Mapped[UUID]
+    user_id: Mapped[UUID]
+    plan_code: Mapped[str] = mapped_column(String(32))
+    plan_version: Mapped[int] = mapped_column(Integer)
+    plan_offer_id: Mapped[UUID]
+    periodicity: Mapped[str] = mapped_column(String(16))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(3))
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20))
+    waived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SubscriptionHistoryRow(Base):
+    """Movimientos del estado de cuenta (HU007 los lee), desde el alta `FREE`."""
+
+    __tablename__ = "subscription_history"
+    __table_args__ = (
+        CheckConstraint(
+            "movement_type IN ('FREE_ACTIVATED', 'PLAN_CHANGED', 'RETURNED_TO_FREE', "
+            "'COMMITMENT_CREATED', 'COMMITMENT_WAIVED')",
+            name="movement_type",
+        ),
+        CheckConstraint(
+            "periodicity IN ('NONE', 'MONTHLY', 'QUARTERLY', 'ANNUAL')", name="periodicity"
+        ),
+        Index("ix_subscription_history_user", "user_id", "occurred_at", "movement_id"),
+    )
+
+    movement_id: Mapped[UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[UUID]
+    movement_type: Mapped[str] = mapped_column(String(32))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    subscription_id: Mapped[UUID] = mapped_column(ForeignKey("subscription.subscription_id"))
+    commitment_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("billing_commitment.commitment_id")
+    )
+    plan_code: Mapped[str] = mapped_column(String(32))
+    periodicity: Mapped[str] = mapped_column(String(16))
+
+
+class CommandIdempotencyRow(Base):
+    """Resultado de `POST /v1/me/subscription/changes` por deportista y clave (24 h)."""
+
+    __tablename__ = "command_idempotency"
+
+    actor_id: Mapped[UUID] = mapped_column(primary_key=True)
+    operation: Mapped[str] = mapped_column(String(64), primary_key=True)
+    key: Mapped[UUID] = mapped_column(primary_key=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    resource_id: Mapped[UUID]
+    response: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class InboxEventRow(Base):

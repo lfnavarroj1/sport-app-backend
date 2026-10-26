@@ -9,6 +9,10 @@ Secuencia común a las secciones:
 4. Responder después del `COMMIT`, sin esperar la proyección.
 
 La auditoría registra sección, versión y resultado; nunca valores (CA4).
+
+HU008 reutiliza la secuencia para editar parcialmente una sección existente: con
+`not_found_code` la sección debe existir (si no, `SectionNotFound`) y `section_fields`
+fusiona lo enviado con el documento vigente, ya bloqueado.
 """
 
 import hashlib
@@ -17,7 +21,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from typing import Any
 from uuid import UUID, uuid4
@@ -42,6 +46,7 @@ from users_management.domain.profile.events import (
 )
 from users_management.domain.profile.section import (
     NO_SECTION_VERSION,
+    SectionNotFound,
     ValidSection,
     VersionConflict,
     next_version,
@@ -93,6 +98,10 @@ def request_fingerprint(operation: str, user_id: UUID, normalized: dict[str, Any
 class UpdateProfileSection[InputT](ABC):
     section: ProfileSection
     operation: str
+    # Código del `404` cuando el comando solo edita una sección existente (HU008).
+    not_found_code: str | None = None
+    # Resultado de auditoría de un `200` (reemplazo completo o edición parcial).
+    updated_outcome = "replaced"
 
     def __init__(
         self,
@@ -110,12 +119,23 @@ class UpdateProfileSection[InputT](ABC):
         """Reglas de la sección sin persistir; `InvalidProfileSection` con todas las
         violaciones. También sirve para informarlas junto con una clave inválida."""
 
+    def section_fields(
+        self, valid: ValidSection, current: StoredProfileSection | None, now: datetime
+    ) -> dict[str, Any]:
+        """Campos del documento nuevo; por defecto la sección enviada reemplaza a la vigente."""
+        return valid.fields(now)
+
     def __call__(
         self, user_id: UUID, command: ProfileSectionCommand[InputT]
     ) -> ProfileSectionResult:
         try:
             result = self._execute(user_id, command)
-        except (InvalidProfileSection, IdempotencyKeyReused, VersionConflict) as error:
+        except (
+            InvalidProfileSection,
+            IdempotencyKeyReused,
+            VersionConflict,
+            SectionNotFound,
+        ) as error:
             self._audit(user_id, None, "rejected", command.correlation_id, reason=error.code)
             raise
         if result.replayed:
@@ -123,7 +143,7 @@ class UpdateProfileSection[InputT](ABC):
         elif result.status == HTTPStatus.CREATED:
             outcome = "created"
         else:
-            outcome = "replaced"
+            outcome = self.updated_outcome
         self._audit(user_id, result.version, outcome, command.correlation_id)
         return result
 
@@ -208,6 +228,8 @@ class UpdateProfileSection[InputT](ABC):
                 if existing.expires_at > now:
                     raise IdempotencyKeyConflict()
                 unit_of_work.delete_idempotency(key)
+            if current is None and self.not_found_code is not None:
+                raise SectionNotFound(self.not_found_code)
             version = next_version(
                 valid.expected_version, current.version if current is not None else None
             )
@@ -215,7 +237,7 @@ class UpdateProfileSection[InputT](ABC):
             document = section_document(
                 user_id=user_id,
                 version=version,
-                fields=valid.fields(now),
+                fields=self.section_fields(valid, current, now),
                 created_at=(
                     format_instant(now) if current is None else current.document["created_at"]
                 ),

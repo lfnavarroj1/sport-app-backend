@@ -93,6 +93,7 @@ def client_with(upstream: Upstream) -> TestClient:
         affiliation_management_base_url="http://affiliation.invalid",  # type: ignore[arg-type]
         training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
         events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
+        complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
     )
     app = create_app(
         settings,
@@ -140,7 +141,7 @@ class AthleteCapabilitiesTest(unittest.TestCase):
         )
         self.assertEqual(body["capabilities"], FREE_CAPABILITIES)
         self.assertEqual(body["permissions"], [])
-        self.assertEqual(body["authorization_policy_version"], "actor-permissions.v1")
+        self.assertEqual(body["authorization_policy_version"], "actor-permissions.v2")
         self.assertEqual(
             upstream.affiliation_paths, [f"/v1/subscriptions/by-user/{user_id}/capabilities"]
         )

@@ -3,8 +3,11 @@
 Ejecución: `python -m events_management.workers.pubsub_setup`.
 
 Tópico `sportapp.eventos.v1`, suscripción ordenada del proyector con DLQ y
-la suscripción de operación de la DLQ. En GCP los crea la infraestructura como
-código; por eso este comando se niega a ejecutarse sin `PUBSUB_EMULATOR_HOST`.
+la suscripción de operación de la DLQ. HU039 (ADR-045): suscripción ordenada
+`eventos-notificaciones-v1` (filtrada a `evento.publicado.v1`) con su DLQ
+`sportapp.eventos.notificaciones.dlq` y la suscripción de operación de esa DLQ. En GCP
+los crea la infraestructura como código; por eso este comando se niega a ejecutarse sin
+`PUBSUB_EMULATOR_HOST`.
 """
 
 import contextlib
@@ -17,6 +20,10 @@ from google.cloud import pubsub_v1
 from events_management.settings import (
     EVENTS_TOPIC,
     MAX_DELIVERY_ATTEMPTS,
+    NOTIFICATIONS_DLQ_OPS_SUBSCRIPTION,
+    NOTIFICATIONS_DLQ_TOPIC,
+    NOTIFICATIONS_FILTER,
+    NOTIFICATIONS_SUBSCRIPTION,
     PROJECTOR_DLQ_OPS_SUBSCRIPTION,
     PROJECTOR_DLQ_TOPIC,
     PROJECTOR_SUBSCRIPTION,
@@ -35,7 +42,7 @@ def ensure_resources(project_id: str) -> list[str]:
     try:
         topics = {
             name: str(publisher.topic_path(project_id, name))
-            for name in (EVENTS_TOPIC, PROJECTOR_DLQ_TOPIC)
+            for name in (EVENTS_TOPIC, PROJECTOR_DLQ_TOPIC, NOTIFICATIONS_DLQ_TOPIC)
         }
         for path in topics.values():
             with contextlib.suppress(AlreadyExists):
@@ -59,6 +66,24 @@ def ensure_resources(project_id: str) -> list[str]:
             types.Subscription(
                 name=subscriber.subscription_path(project_id, PROJECTOR_DLQ_OPS_SUBSCRIPTION),
                 topic=topics[PROJECTOR_DLQ_TOPIC],
+            ),
+            types.Subscription(
+                name=subscriber.subscription_path(project_id, NOTIFICATIONS_SUBSCRIPTION),
+                topic=topics[EVENTS_TOPIC],
+                enable_message_ordering=True,
+                filter=NOTIFICATIONS_FILTER,
+                dead_letter_policy=types.DeadLetterPolicy(
+                    dead_letter_topic=topics[NOTIFICATIONS_DLQ_TOPIC],
+                    max_delivery_attempts=MAX_DELIVERY_ATTEMPTS,
+                ),
+                retry_policy=types.RetryPolicy(
+                    minimum_backoff=timedelta(seconds=RETRY_MIN_BACKOFF_SECONDS),
+                    maximum_backoff=timedelta(seconds=RETRY_MAX_BACKOFF_SECONDS),
+                ),
+            ),
+            types.Subscription(
+                name=subscriber.subscription_path(project_id, NOTIFICATIONS_DLQ_OPS_SUBSCRIPTION),
+                topic=topics[NOTIFICATIONS_DLQ_TOPIC],
             ),
         ]
         for subscription in subscriptions:

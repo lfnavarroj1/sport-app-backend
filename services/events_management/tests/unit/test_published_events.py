@@ -24,6 +24,7 @@ from events_management.application.queries.published_events import (
     InvalidEventsQuery,
     ListPublishedEvents,
 )
+from events_management.domain.sport_events.terms import normalize_term
 from sportapp_platform.app import create_service_app
 from sportapp_platform.config import ServiceSettings
 
@@ -44,8 +45,18 @@ class Capabilities:
         return user_id in self.granted
 
 
+class OrganizerCalendar:
+    """`actor-permissions.v1`: el organizador tiene `events.calendar.view` (HU023)."""
+
+    def __init__(self, granted: bool = True) -> None:
+        self.granted = granted
+
+    def allows(self, actor_type: str, permission: str) -> bool:
+        return self.granted and actor_type == "organizer" and permission == "events.calendar.view"
+
+
 class InMemoryPublishedReader:
-    """Mismas reglas que la consulta SQL: superposición, orden y keyset."""
+    """Mismas reglas que la consulta SQL: superposición, filtros normalizados, orden y keyset."""
 
     def __init__(self, events: list[CalendarEventView]) -> None:
         self.events = events
@@ -58,6 +69,10 @@ class InMemoryPublishedReader:
                 if event.status == "PUBLISHED"
                 and event.starts_at <= query.starts_before_or_at
                 and event.ends_at >= query.ends_at_or_after
+                and (
+                    query.discipline is None or normalize_term(event.discipline) == query.discipline
+                )
+                and (query.city is None or normalize_term(event.location_city) == query.city)
                 and (
                     query.after is None
                     or (event.starts_at, event.event_id)
@@ -101,7 +116,9 @@ class ListPublishedEventsTest(unittest.TestCase):
             event(datetime(2026, 11, 20, 12, tzinfo=UTC), status="DRAFT"),
         ]
         self.list = ListPublishedEvents(
-            reader=InMemoryPublishedReader(self.events), capabilities=self.capabilities
+            reader=InMemoryPublishedReader(self.events),
+            capabilities=self.capabilities,
+            permissions=OrganizerCalendar(),
         )
 
     def test_overlapping_published_events_in_order(self) -> None:
@@ -124,9 +141,13 @@ class ListPublishedEventsTest(unittest.TestCase):
         self.assertIsNone(second.next_cursor)
 
     def test_authorization(self) -> None:
-        """CA5: solo deportista con `calendar.sport.view`; Afiliación caída no concede nada."""
-        with self.assertRaises(PermissionRequired):
-            self.list(Caller(uuid4(), "organizer"), EventsFilters(NOV_1, NOV_30))
+        """CA5: deportista con `calendar.sport.view`; Afiliación caída no concede nada. Desde
+        HU023 el organizador también entra (con `events.calendar.view`, ver test_event_calendar)
+        y desde HU018 el profesional (con `calendar.integrated.view`, ver
+        test_provider_calendar); cualquier otro actor sigue rechazado."""
+        for actor in ("administrator", ""):
+            with self.subTest(actor=actor), self.assertRaises(PermissionRequired):
+                self.list(Caller(uuid4(), actor), EventsFilters(NOV_1, NOV_30))
         with self.assertRaises(CapabilityRequired):
             self.list(Caller(uuid4(), "athlete"), EventsFilters(NOV_1, NOV_30))
         self.capabilities.unavailable = True
@@ -162,6 +183,7 @@ class PublishedEventsApiTest(unittest.TestCase):
                     list_events=ListPublishedEvents(
                         reader=InMemoryPublishedReader(self.events),
                         capabilities=self.capabilities,
+                        permissions=OrganizerCalendar(),
                     ),
                 )
             ],
@@ -191,6 +213,7 @@ class PublishedEventsApiTest(unittest.TestCase):
                 "time_zone",
                 "status",
                 "version",
+                "fee",
             },
         )
         self.assertNotIn("organizer_id", response.text)
@@ -204,16 +227,14 @@ class PublishedEventsApiTest(unittest.TestCase):
 
     def test_errors(self) -> None:
         period = "from=2026-11-01T00:00:00-05:00&to=2026-11-30T23:59:59-05:00"
-        provider = self.get(period, "service_provider")
+        other = self.get(period, "administrator")
         no_capability = self.get(period, user=uuid4())
         inverted = self.get("from=2026-11-30T00:00:00Z&to=2026-11-01T00:00:00Z")
         naive = self.get("from=2026-11-01T00:00:00&to=2026-11-30T00:00:00Z")
         self.capabilities.unavailable = True
         down = self.get(period)
 
-        self.assertEqual(
-            (provider.status_code, provider.json()["code"]), (403, "permission_required")
-        )
+        self.assertEqual((other.status_code, other.json()["code"]), (403, "permission_required"))
         self.assertEqual(
             (no_capability.status_code, no_capability.json()["code"]), (403, "capability_required")
         )

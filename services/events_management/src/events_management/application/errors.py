@@ -48,3 +48,15 @@ class EventRegistrationExists(Exception):
 
 class RegistrationConflict(Exception):
     """Otra solicitud concurrente inscribió primero al mismo deportista en el evento."""
+
+
+class NotificationNotFound(Exception):
+    """HU039: la notificación no existe para el deportista (o aún no está en la bandeja)."""
+
+    code = "notification_not_found"
+
+
+class PushNotEnabled(Exception):
+    """HU039: el envío *push* (FCM) no está habilitado en este ambiente (`FCM_ENABLED`)."""
+
+    code = "push_not_enabled"

@@ -2,25 +2,51 @@
 
 Se proyectan `plan.entrenamiento_creado.v1` (HU010),
 `autorizacion_entrenamiento.otorgada.v1` / `.revocada.v1` y `entrenamiento.finalizado.v1`
-(HU011), `entrenamiento.iniciado.v1` (HU032) e `indicador.calculado.v1` (HU034). Cada
+(HU011), `entrenamiento.iniciado.v1` (HU032), `indicador.calculado.v1` (HU034) y
+`plan.alimentacion_creado.v1` (HU014), `consumo_alimento.registrado.v1` (HU043),
+`ruta.publicada.v1` y `ruta.retirada.v1` (HU026), `plantilla_entrenamiento.publicada.v1` /
+`.retirada.v1` (HU028), `plantilla_rutina.publicada.v1` / `.retirada.v1` (HU030) y
+`medicion.recibida.v1` / `riesgo.detectado.v1` (HU036). Cada
 uno se valida campo a campo; un mensaje que no cumple el contrato es un `InvalidEvent`:
 no se confirma y, agotados los reintentos, termina en la DLQ. Otro tipo de evento del
 tópico es `UnsupportedEvent`: este proyector todavía no lo proyecta y se confirma sin
 efectos.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from training_management.application.health_documents import (
+    InvalidHealthReportDocument,
+    health_report_from_document,
+)
+from training_management.application.intake_documents import (
+    InvalidIntakeDocument,
+    intake_from_document,
+)
 from training_management.application.ports import (
     ActiveSessionView,
     AuthorizationView,
     PlanView,
+    RiskAlertView,
     SessionHistoryEntry,
     SessionView,
+)
+from training_management.application.route_documents import (
+    InvalidRouteDocument,
+    route_from_document,
+)
+from training_management.application.routine_documents import (
+    InvalidRoutineDocument,
+    routine_from_document,
+)
+from training_management.application.template_documents import (
+    InvalidTemplateDocument,
+    template_from_document,
 )
 from training_management.domain.authorizations.events import (
     GRANTED,
@@ -31,6 +57,14 @@ from training_management.domain.authorizations.events import (
     SCHEMA_VERSION as AUTHORIZATION_SCHEMA,
 )
 from training_management.domain.authorizations.model import AuthorizationStatus
+from training_management.domain.health.events import EVENT_TYPE as HEALTH_REPORT_REGISTERED
+from training_management.domain.health.events import SCHEMA_VERSION as HEALTH_REPORT_SCHEMA
+from training_management.domain.health.model import HealthReport
+from training_management.domain.measurements.model import (
+    MAX_HEART_RATE,
+    MAX_SAMPLES,
+    MIN_HEART_RATE,
+)
 from training_management.domain.metrics.catalog import MAX_RESULT_SCALE, quantum
 from training_management.domain.metrics.events import EVENT_TYPE as METRIC_CALCULATED
 from training_management.domain.metrics.events import SCHEMA_VERSION as METRIC_SCHEMA
@@ -40,6 +74,50 @@ from training_management.domain.metrics.model import (
     MetricInput,
     MetricResult,
     TrainingMetricCalculation,
+)
+from training_management.domain.monitoring.events import (
+    AGGREGATE_TYPE as MONITORING_AGGREGATE_TYPE,
+)
+from training_management.domain.monitoring.events import (
+    MEASUREMENT_EVENT_TYPE,
+    RISK_EVENT_TYPE,
+)
+from training_management.domain.monitoring.events import (
+    SCHEMA_VERSION as MONITORING_SCHEMA,
+)
+from training_management.domain.monitoring.model import (
+    RULE as RISK_RULE,
+)
+from training_management.domain.monitoring.model import (
+    AlertSeverity,
+    BatchSummary,
+)
+from training_management.domain.nutrition.catalog import FoodUnit
+from training_management.domain.nutrition.events import (
+    EVENT_TYPE as NUTRITION_PLAN_CREATED,
+)
+from training_management.domain.nutrition.events import (
+    SCHEMA_VERSION as NUTRITION_PLAN_SCHEMA,
+)
+from training_management.domain.nutrition.intake import FoodIntake
+from training_management.domain.nutrition.intake_events import (
+    EVENT_TYPE as FOOD_INTAKE_REGISTERED,
+)
+from training_management.domain.nutrition.intake_events import (
+    SCHEMA_VERSION as FOOD_INTAKE_SCHEMA,
+)
+from training_management.domain.nutrition.model import (
+    ITEMS_PER_MEAL_MAX,
+    MEALS_MAX,
+    OBJECTIVE_MAX_LENGTH,
+    OBJECTIVES_MAX,
+    TITLE_MAX_LENGTH,
+    Meal,
+    MealType,
+    NutritionPlan,
+    NutritionPlanStatus,
+    PlanItem,
+    quantity_in_range,
 )
 from training_management.domain.plans.events import EVENT_TYPE as PLAN_CREATED
 from training_management.domain.plans.events import SCHEMA_VERSION as PLAN_CREATED_SCHEMA
@@ -51,10 +129,43 @@ from training_management.domain.plans.model import (
     PlanStatus,
     Sport,
 )
+from training_management.domain.routes.events import (
+    EVENT_TYPE_BY_STATUS as ROUTE_EVENT_BY_STATUS,
+)
+from training_management.domain.routes.events import (
+    PUBLISHED_EVENT_TYPE as ROUTE_PUBLISHED,
+)
+from training_management.domain.routes.events import (
+    RETIRED_EVENT_TYPE as ROUTE_RETIRED,
+)
+from training_management.domain.routes.events import SCHEMA_VERSION as ROUTE_SCHEMA
+from training_management.domain.routes.model import Route
+from training_management.domain.routines.events import (
+    EVENT_TYPE_BY_STATUS as ROUTINE_EVENT_BY_STATUS,
+)
+from training_management.domain.routines.events import (
+    PUBLISHED_EVENT_TYPE as ROUTINE_PUBLISHED,
+)
+from training_management.domain.routines.events import (
+    RETIRED_EVENT_TYPE as ROUTINE_RETIRED,
+)
+from training_management.domain.routines.events import SCHEMA_VERSION as ROUTINE_SCHEMA
+from training_management.domain.routines.model import NutritionRoutineTemplate
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
 from training_management.domain.sessions.events import SCHEMA_VERSION as SESSION_SCHEMA
 from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
 from training_management.domain.sessions.events import SessionStatus
+from training_management.domain.templates.events import (
+    EVENT_TYPE_BY_STATUS as TEMPLATE_EVENT_BY_STATUS,
+)
+from training_management.domain.templates.events import (
+    PUBLISHED_EVENT_TYPE as TEMPLATE_PUBLISHED,
+)
+from training_management.domain.templates.events import (
+    RETIRED_EVENT_TYPE as TEMPLATE_RETIRED,
+)
+from training_management.domain.templates.events import SCHEMA_VERSION as TEMPLATE_SCHEMA
+from training_management.domain.templates.model import TrainingPlanTemplate
 
 
 class InvalidEvent(Exception):
@@ -111,12 +222,95 @@ class MetricCalculatedEvent:
     calculation: TrainingMetricCalculation
 
 
+@dataclass(frozen=True)
+class NutritionPlanCreatedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    plan: NutritionPlan
+
+
+@dataclass(frozen=True)
+class FoodIntakeRegisteredEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    intake: FoodIntake
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.intake.intake_id
+
+
+@dataclass(frozen=True)
+class RouteChangedEvent:
+    event_id: UUID
+    event_type: str
+    correlation_id: UUID | None
+    route: Route
+
+
+@dataclass(frozen=True)
+class TemplateChangedEvent:
+    event_id: UUID
+    event_type: str
+    correlation_id: UUID | None
+    template: TrainingPlanTemplate
+
+
+@dataclass(frozen=True)
+class RoutineChangedEvent:
+    event_id: UUID
+    event_type: str
+    correlation_id: UUID | None
+    routine: NutritionRoutineTemplate
+
+
+@dataclass(frozen=True)
+class MeasurementReceivedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    summary: BatchSummary
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.summary.session_id
+
+
+@dataclass(frozen=True)
+class RiskDetectedEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    alert: RiskAlertView
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.alert.session_id
+
+
+@dataclass(frozen=True)
+class HealthReportRegisteredEvent:
+    event_id: UUID
+    correlation_id: UUID | None
+    report: HealthReport
+
+    @property
+    def aggregate_id(self) -> UUID:
+        return self.report.report_id
+
+
 TrainingEvent = (
     PlanCreatedEvent
     | AuthorizationChangedEvent
     | SessionFinishedEvent
     | SessionStartedEvent
     | MetricCalculatedEvent
+    | NutritionPlanCreatedEvent
+    | FoodIntakeRegisteredEvent
+    | RouteChangedEvent
+    | TemplateChangedEvent
+    | RoutineChangedEvent
+    | MeasurementReceivedEvent
+    | RiskDetectedEvent
+    | HealthReportRegisteredEvent
 )
 
 
@@ -416,6 +610,266 @@ def _metric_calculated(envelope: dict[str, Any]) -> MetricCalculatedEvent:
     )
 
 
+_QUANTITY_PATTERN = re.compile(r"[0-9]{1,4}\.[0-9]")
+_FOOD_CODE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{1,63}")
+
+
+def _bounded_list(value: object, field: str, maximum: int) -> list[Any]:
+    if not isinstance(value, list) or not 1 <= len(value) <= maximum:
+        raise InvalidEvent(f"{field}_invalid")
+    return value
+
+
+def _nutrition_item(raw: object) -> PlanItem:
+    if not isinstance(raw, dict):
+        raise InvalidEvent("items_invalid")
+    food_code, quantity, unit = raw.get("food_code"), raw.get("quantity"), raw.get("unit")
+    if not isinstance(food_code, str) or not _FOOD_CODE_PATTERN.fullmatch(food_code):
+        raise InvalidEvent("food_code_invalid")
+    if not isinstance(quantity, str) or not _QUANTITY_PATTERN.fullmatch(quantity):
+        raise InvalidEvent("quantity_invalid")
+    value = Decimal(quantity)
+    if not quantity_in_range(value):
+        raise InvalidEvent("quantity_invalid")
+    if unit not in {item.value for item in FoodUnit}:
+        raise InvalidEvent("unit_invalid")
+    return PlanItem(food_code=food_code, quantity=value, unit=str(unit))
+
+
+def _nutrition_meal(raw: object) -> Meal:
+    if not isinstance(raw, dict):
+        raise InvalidEvent("meals_invalid")
+    meal_type = raw.get("meal_type")
+    if meal_type not in {item.value for item in MealType}:
+        raise InvalidEvent("meal_type_invalid")
+    items = _bounded_list(raw.get("items"), "items", ITEMS_PER_MEAL_MAX)
+    return Meal(
+        meal_type=MealType(str(meal_type)), items=tuple(_nutrition_item(item) for item in items)
+    )
+
+
+def _nutrition_plan_created(envelope: dict[str, Any]) -> NutritionPlanCreatedEvent:
+    payload = _payload(envelope, NUTRITION_PLAN_SCHEMA)
+    version = _envelope_version(envelope)
+    plan_id = _uuid(payload.get("plan_id"), "plan_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != plan_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if payload.get("version") != version:
+        raise InvalidEvent("plan_version_mismatch")
+    if payload.get("status") not in {item.value for item in NutritionPlanStatus}:
+        raise InvalidEvent("unknown_status")
+    title = payload.get("title")
+    if not isinstance(title, str) or not 1 <= len(title) <= TITLE_MAX_LENGTH:
+        raise InvalidEvent("title_invalid")
+    objectives = _bounded_list(payload.get("objectives"), "objectives", OBJECTIVES_MAX)
+    if not all(
+        isinstance(item, str) and 1 <= len(item) <= OBJECTIVE_MAX_LENGTH for item in objectives
+    ):
+        raise InvalidEvent("objectives_invalid")
+    start_date = _date(payload.get("start_date"), "start_date")
+    end_date = _date(payload.get("end_date"), "end_date")
+    if end_date < start_date:
+        raise InvalidEvent("end_date_before_start_date")
+    meals = _bounded_list(payload.get("meals"), "meals", MEALS_MAX)
+    return NutritionPlanCreatedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        plan=NutritionPlan(
+            plan_id=plan_id,
+            athlete_id=_uuid(payload.get("athlete_id"), "athlete_id"),
+            professional_id=_uuid(payload.get("professional_id"), "professional_id"),
+            title=title,
+            objectives=tuple(objectives),
+            start_date=start_date,
+            end_date=end_date,
+            status=NutritionPlanStatus(str(payload["status"])),
+            version=version,
+            catalog_version=_text(payload.get("catalog_version"), "catalog_version"),
+            meals=tuple(_nutrition_meal(meal) for meal in meals),
+            created_at=_datetime(payload.get("created_at"), "created_at"),
+        ),
+    )
+
+
+def _food_intake_registered(envelope: dict[str, Any]) -> FoodIntakeRegisteredEvent:
+    payload = _payload(envelope, FOOD_INTAKE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        intake = intake_from_document(payload)
+    except InvalidIntakeDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != intake.intake_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if intake.version != version:
+        raise InvalidEvent("intake_version_mismatch")
+    return FoodIntakeRegisteredEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        intake=intake,
+    )
+
+
+def _route_changed(envelope: dict[str, Any], event_type: str) -> RouteChangedEvent:
+    payload = _payload(envelope, ROUTE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        route = route_from_document(payload)
+    except InvalidRouteDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != route.route_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if route.version != version:
+        raise InvalidEvent("route_version_mismatch")
+    if ROUTE_EVENT_BY_STATUS[route.status] != event_type:
+        raise InvalidEvent("status_mismatch")
+    return RouteChangedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        event_type=event_type,
+        correlation_id=_correlation(envelope),
+        route=route,
+    )
+
+
+def _template_changed(envelope: dict[str, Any], event_type: str) -> TemplateChangedEvent:
+    payload = _payload(envelope, TEMPLATE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        template = template_from_document(payload)
+    except InvalidTemplateDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != template.template_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if template.version != version:
+        raise InvalidEvent("template_version_mismatch")
+    if TEMPLATE_EVENT_BY_STATUS[template.status] != event_type:
+        raise InvalidEvent("status_mismatch")
+    return TemplateChangedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        event_type=event_type,
+        correlation_id=_correlation(envelope),
+        template=template,
+    )
+
+
+def _routine_changed(envelope: dict[str, Any], event_type: str) -> RoutineChangedEvent:
+    payload = _payload(envelope, ROUTINE_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        routine = routine_from_document(payload)
+    except InvalidRoutineDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != routine.template_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if routine.version != version:
+        raise InvalidEvent("routine_version_mismatch")
+    if ROUTINE_EVENT_BY_STATUS[routine.status] != event_type:
+        raise InvalidEvent("status_mismatch")
+    return RoutineChangedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        event_type=event_type,
+        correlation_id=_correlation(envelope),
+        routine=routine,
+    )
+
+
+def _health_report_registered(envelope: dict[str, Any]) -> HealthReportRegisteredEvent:
+    """HU042 (ADR-037): `reporte_salud.registrado.v1` con el estado completo del reporte."""
+    payload = _payload(envelope, HEALTH_REPORT_SCHEMA)
+    version = _envelope_version(envelope)
+    try:
+        report = health_report_from_document({**payload, "version": version})
+    except InvalidHealthReportDocument as error:
+        raise InvalidEvent(error.reason) from None
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != report.report_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    return HealthReportRegisteredEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        report=report,
+    )
+
+
+_DEVICE_ID_PATTERN = re.compile(r"[0-9a-f]{64}")
+_AVERAGE_PATTERN = re.compile(r"[0-9]{2,3}\.[0-9]")
+
+
+def _device_id(value: object) -> str:
+    if not isinstance(value, str) or not _DEVICE_ID_PATTERN.fullmatch(value):
+        raise InvalidEvent("device_id_invalid")
+    return value
+
+
+def _session_aggregate(envelope: dict[str, Any], payload: dict[str, Any]) -> UUID:
+    session_id = _uuid(payload.get("session_id"), "session_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != session_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    if envelope.get("aggregate_type") != MONITORING_AGGREGATE_TYPE:
+        raise InvalidEvent("aggregate_type_mismatch")
+    return session_id
+
+
+def _measurement_received(envelope: dict[str, Any]) -> MeasurementReceivedEvent:
+    """HU036: resumen de un lote; `aggregate_version` es la versión del resumen."""
+    payload = _payload(envelope, MONITORING_SCHEMA)
+    version = _envelope_version(envelope)
+    session_id = _session_aggregate(envelope, payload)
+    if payload.get("version") != version:
+        raise InvalidEvent("summary_version_mismatch")
+    window_from = _datetime(payload.get("window_from"), "window_from")
+    window_to = _datetime(payload.get("window_to"), "window_to")
+    if window_to < window_from:
+        raise InvalidEvent("window_to_before_window_from")
+    last_value = _int(payload.get("last_value"), "last_value", MIN_HEART_RATE, MAX_HEART_RATE)
+    max_value = _int(payload.get("max_value"), "max_value", MIN_HEART_RATE, MAX_HEART_RATE)
+    raw_average = payload.get("avg_value")
+    if not isinstance(raw_average, str) or not _AVERAGE_PATTERN.fullmatch(raw_average):
+        raise InvalidEvent("avg_value_invalid")
+    average = Decimal(raw_average)
+    if last_value > max_value or not MIN_HEART_RATE <= average <= max_value:
+        raise InvalidEvent("summary_values_inconsistent")
+    return MeasurementReceivedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        summary=BatchSummary(
+            session_id=session_id,
+            device_id=_device_id(payload.get("device_id")),
+            window_from=window_from,
+            window_to=window_to,
+            samples_accepted=_int(
+                payload.get("samples_accepted"), "samples_accepted", 1, MAX_SAMPLES
+            ),
+            last_value=last_value,
+            max_value=max_value,
+            avg_value=average,
+            version=version,
+        ),
+    )
+
+
+def _risk_detected(envelope: dict[str, Any]) -> RiskDetectedEvent:
+    """HU036: alerta confirmada; `aggregate_version` es su número de orden en la sesión."""
+    payload = _payload(envelope, MONITORING_SCHEMA)
+    version = _envelope_version(envelope)
+    session_id = _session_aggregate(envelope, payload)
+    if payload.get("rule") != RISK_RULE:
+        raise InvalidEvent("unknown_rule")
+    if payload.get("severity") not in {item.value for item in AlertSeverity}:
+        raise InvalidEvent("unknown_severity")
+    return RiskDetectedEvent(
+        event_id=_uuid(envelope.get("event_id"), "event_id"),
+        correlation_id=_correlation(envelope),
+        alert=RiskAlertView(
+            alert_id=_uuid(payload.get("alert_id"), "alert_id"),
+            session_id=session_id,
+            device_id=_device_id(payload.get("device_id")),
+            rule=RISK_RULE,
+            severity=str(payload["severity"]),
+            detected_at=_datetime(payload.get("detected_at"), "detected_at"),
+            sequence=version,
+        ),
+    )
+
+
 def parse_training_event(envelope: object) -> TrainingEvent:
     if not isinstance(envelope, dict):
         raise InvalidEvent("envelope_not_object")
@@ -430,6 +884,48 @@ def parse_training_event(envelope: object) -> TrainingEvent:
         return _session_finished(envelope)
     if event_type == SESSION_STARTED:
         return _session_started(envelope)
+    if event_type == FOOD_INTAKE_REGISTERED:
+        return _food_intake_registered(envelope)
+    return _parse_snapshot(envelope, event_type)
+
+
+def _parse_snapshot(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
+    """Eventos de estado completo de HU034, HU014, HU026, HU028, HU030, HU036 y HU042."""
     if event_type == METRIC_CALCULATED:
         return _metric_calculated(envelope)
+    if event_type == NUTRITION_PLAN_CREATED:
+        return _nutrition_plan_created(envelope)
+    if event_type in _PUBLISHABLE_EVENT_TYPES:
+        return _parse_publishable(envelope, event_type)
+    if event_type in (MEASUREMENT_EVENT_TYPE, RISK_EVENT_TYPE):
+        return _parse_monitoring(envelope, event_type)
+    if event_type == HEALTH_REPORT_REGISTERED:
+        return _health_report_registered(envelope)
     raise UnsupportedEvent(event_type)
+
+
+_PUBLISHABLE_EVENT_TYPES = (
+    ROUTE_PUBLISHED,
+    ROUTE_RETIRED,
+    TEMPLATE_PUBLISHED,
+    TEMPLATE_RETIRED,
+    ROUTINE_PUBLISHED,
+    ROUTINE_RETIRED,
+)
+
+
+def _parse_publishable(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
+    """Contenido sugerible de ADR-041: rutas (HU026), plantillas de plan (HU028) y rutinas
+    alimenticias (HU030)."""
+    if event_type in (ROUTE_PUBLISHED, ROUTE_RETIRED):
+        return _route_changed(envelope, event_type)
+    if event_type in (TEMPLATE_PUBLISHED, TEMPLATE_RETIRED):
+        return _template_changed(envelope, event_type)
+    return _routine_changed(envelope, event_type)
+
+
+def _parse_monitoring(envelope: dict[str, Any], event_type: str) -> TrainingEvent:
+    """Eventos de HU036 (`medicion.recibida.v1` y `riesgo.detectado.v1`)."""
+    if event_type == MEASUREMENT_EVENT_TYPE:
+        return _measurement_received(envelope)
+    return _risk_detected(envelope)

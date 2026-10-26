@@ -13,25 +13,62 @@ salvo que la sesión ya figure en el historial o con una versión igual o mayor;
 transacción, aunque llegue antes que el inicio.
 
 HU034 (ADR-030): `indicador.calculado.v1` se despacha a `ProjectMetricCalculated`.
+
+HU014 (ADR-037): `plan.alimentacion_creado.v1` se despacha a `ProjectNutritionPlanCreated`.
+HU043 (ADR-037): `consumo_alimento.registrado.v1` se despacha a `ProjectFoodIntakeRegistered`.
+HU026 (ADR-041): `ruta.publicada.v1` y `ruta.retirada.v1` se despachan a `ProjectRouteChanged`.
+HU028 (ADR-041): `plantilla_entrenamiento.*.v1` se despachan a `ProjectTemplateChanged`.
+HU030 (ADR-041): `plantilla_rutina.*.v1` se despachan a `ProjectRoutineChanged`.
+HU036 (ADR-044): `medicion.recibida.v1` y `riesgo.detectado.v1` se despachan a
+`ProjectMeasurementReceived` y `ProjectRiskDetected`.
+HU042 (ADR-037): `reporte_salud.registrado.v1` se despacha a `ProjectHealthReportRegistered`.
 """
 
 from collections.abc import Callable
 
 from training_management.application.messages import (
     AuthorizationChangedEvent,
+    FoodIntakeRegisteredEvent,
+    HealthReportRegisteredEvent,
+    MeasurementReceivedEvent,
     MetricCalculatedEvent,
+    NutritionPlanCreatedEvent,
     PlanCreatedEvent,
+    RiskDetectedEvent,
+    RouteChangedEvent,
+    RoutineChangedEvent,
     SessionFinishedEvent,
     SessionStartedEvent,
+    TemplateChangedEvent,
     TrainingEvent,
 )
 from training_management.application.ports import Clock, DuplicateDelivery, ProjectionUnitOfWork
+from training_management.application.projections.food_intake_projection import (
+    ProjectFoodIntakeRegistered,
+)
+from training_management.application.projections.health_projection import (
+    ProjectHealthReportRegistered,
+)
 from training_management.application.projections.metric_projection import (
     ProjectMetricCalculated,
+)
+from training_management.application.projections.monitoring_projection import (
+    ProjectMeasurementReceived,
+    ProjectRiskDetected,
+)
+from training_management.application.projections.nutrition_projection import (
+    ProjectNutritionPlanCreated,
 )
 from training_management.application.projections.plan_projection import (
     ProjectionOutcome,
     ProjectPlanCreated,
+)
+from training_management.application.projections.route_projection import ProjectRouteChanged
+from training_management.application.projections.routine_projection import (
+    ProjectRoutineChanged,
+)
+from training_management.application.projections.template_projection import (
+    ProjectTemplateChanged,
 )
 from training_management.domain.sessions.events import EVENT_TYPE as SESSION_FINISHED
 from training_management.domain.sessions.events import STARTED_EVENT_TYPE as SESSION_STARTED
@@ -129,6 +166,14 @@ class TrainingProjector:
         self._sessions = ProjectSessionFinished(unit_of_work=unit_of_work, clock=clock)
         self._started = ProjectSessionStarted(unit_of_work=unit_of_work, clock=clock)
         self._metrics = ProjectMetricCalculated(unit_of_work=unit_of_work, clock=clock)
+        self._nutrition = ProjectNutritionPlanCreated(unit_of_work=unit_of_work, clock=clock)
+        self._intakes = ProjectFoodIntakeRegistered(unit_of_work=unit_of_work, clock=clock)
+        self._routes = ProjectRouteChanged(unit_of_work=unit_of_work, clock=clock)
+        self._templates = ProjectTemplateChanged(unit_of_work=unit_of_work, clock=clock)
+        self._routines = ProjectRoutineChanged(unit_of_work=unit_of_work, clock=clock)
+        self._measurements = ProjectMeasurementReceived(unit_of_work=unit_of_work, clock=clock)
+        self._risks = ProjectRiskDetected(unit_of_work=unit_of_work, clock=clock)
+        self._health_reports = ProjectHealthReportRegistered(unit_of_work=unit_of_work, clock=clock)
 
     def __call__(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, PlanCreatedEvent):
@@ -137,6 +182,37 @@ class TrainingProjector:
             return self._authorizations(event)
         if isinstance(event, SessionStartedEvent):
             return self._started(event)
+        if isinstance(event, MeasurementReceivedEvent):
+            return self._measurements(event)
+        if isinstance(event, RiskDetectedEvent):
+            return self._risks(event)
+        return self._project_snapshot(event)
+
+    def _project_snapshot(self, event: TrainingEvent) -> ProjectionOutcome:
         if isinstance(event, MetricCalculatedEvent):
             return self._metrics(event)
-        return self._sessions(event)
+        if isinstance(event, NutritionPlanCreatedEvent):
+            return self._nutrition(event)
+        if isinstance(event, FoodIntakeRegisteredEvent):
+            return self._intakes(event)
+        if isinstance(event, RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent):
+            return self._project_publishable(event)
+        return self._project_finished(event)
+
+    def _project_publishable(
+        self, event: RouteChangedEvent | TemplateChangedEvent | RoutineChangedEvent
+    ) -> ProjectionOutcome:
+        """Contenido sugerible de ADR-041: rutas (HU026), plantillas (HU028) y rutinas (HU030)."""
+        if isinstance(event, RouteChangedEvent):
+            return self._routes(event)
+        if isinstance(event, TemplateChangedEvent):
+            return self._templates(event)
+        return self._routines(event)
+
+    def _project_finished(self, event: TrainingEvent) -> ProjectionOutcome:
+        """Fin de sesión (HU032) y reporte de salud (HU042)."""
+        if isinstance(event, SessionFinishedEvent):
+            return self._sessions(event)
+        if isinstance(event, HealthReportRegisteredEvent):
+            return self._health_reports(event)
+        raise TypeError(type(event).__name__)

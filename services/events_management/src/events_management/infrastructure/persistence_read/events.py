@@ -8,14 +8,16 @@ autenticado.
 
 from datetime import datetime
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, or_, select, tuple_, update
+from sqlalchemy import ColumnElement, func, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from events_management.application.ports import (
+    AttendeePage,
+    AttendeesQuery,
     CalendarEventView,
     ConcurrentEventView,
     DuplicateDelivery,
@@ -26,29 +28,49 @@ from events_management.application.ports import (
     RegistrationsQuery,
     RegistrationView,
 )
+from events_management.domain.notifications.model import Notification
 from events_management.domain.registrations.model import (
     AppliedFee,
     EventRegistration,
     RegistrationStatus,
 )
+from events_management.domain.sport_events.fee import EventFee
 from events_management.domain.sport_events.model import (
     EventDetails,
     EventStatus,
     Location,
     SportEvent,
 )
+from events_management.domain.sport_events.terms import ACCENTED, PLAIN
 from events_management.infrastructure.persistence_read.models import (
     EVENT_READ_PRIMARY_KEY,
+    INBOX_PRIMARY_KEY,
     PROCESSED_EVENT_PRIMARY_KEY,
     REGISTRATION_READ_PRIMARY_KEY,
     EventReadRow,
     EventRegistrationReadRow,
+    NotificationInboxViewRow,
     ProcessedEventRow,
 )
 
 # Estados que un catálogo o calendario público puede mostrar; `DRAFT` nunca lo es. HU024
 # lleva los eventos a `PUBLISHED`.
 PUBLIC_STATUSES: frozenset[str] = frozenset({"PUBLISHED"})
+
+
+def _fee(row: EventReadRow) -> EventFee | None:
+    if row.fee_amount is None or row.fee_currency is None:
+        return None
+    return EventFee(amount=row.fee_amount, currency=row.fee_currency)
+
+
+def _fee_columns(event: SportEvent) -> dict[str, Any]:
+    fee = event.fee
+    return {
+        "fee_amount": fee.amount if fee else None,
+        "fee_currency": fee.currency if fee else None,
+        "fee_updated_at": event.fee_updated_at,
+    }
 
 
 def _event(row: EventReadRow) -> SportEvent:
@@ -76,6 +98,8 @@ def _event(row: EventReadRow) -> SportEvent:
         created_at=row.created_at,
         updated_at=row.updated_at,
         published_at=row.published_at,
+        fee=_fee(row),
+        fee_updated_at=row.fee_updated_at,
     )
 
 
@@ -92,6 +116,7 @@ def _calendar(row: EventReadRow) -> CalendarEventView:
         time_zone=row.time_zone,
         status=row.status,
         version=row.version,
+        fee=_fee(row),
     )
 
 
@@ -148,8 +173,15 @@ class SqlAlchemyOwnEventReader:
             return [_event(item) for item in session.scalars(statement)]
 
 
+def _normalized(column: Any) -> ColumnElement[str]:
+    """`normalize_term` en SQL: la misma tabla de equivalencias y luego minúsculas."""
+    result: ColumnElement[str] = func.lower(func.translate(column, ACCENTED, PLAIN))
+    return result
+
+
 class SqlAlchemyPublishedEventReader:
-    """HU035: eventos publicados que se superponen con un periodo (ADR-031)."""
+    """Eventos publicados que se superponen con un periodo (ADR-031, HU035), con los filtros
+    normalizados de disciplina y ciudad (ADR-040, HU023)."""
 
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -161,6 +193,10 @@ class SqlAlchemyPublishedEventReader:
             row.starts_at <= query.starts_before_or_at,
             row.ends_at >= query.ends_at_or_after,
         )
+        if query.discipline is not None:
+            statement = statement.where(_normalized(row.discipline) == query.discipline)
+        if query.city is not None:
+            statement = statement.where(_normalized(row.location_city) == query.city)
         if query.after is not None:
             statement = statement.where(
                 tuple_(row.starts_at, row.event_id)
@@ -236,6 +272,7 @@ class SqlAlchemyEventDetailReader:
                 description=row.description,
                 capacity=row.capacity,
                 my_registration=_registration(mine) if mine is not None else None,
+                owned_by_caller=owner_id is not None and row.organizer_id == owner_id,
             )
 
 
@@ -267,6 +304,53 @@ class SqlAlchemyRegistrationReader:
                 RegistrationView(registration=_registration(row), event=_summary(event_row))
                 for row, event_row in session.execute(statement)
             ]
+
+
+class SqlAlchemyAttendeeReader:
+    """HU022 (ADR-039): inscritos de un evento propio, con conteo por estado.
+
+    Propiedad, conteo y página se leen en una transacción `REPEATABLE READ`: los tres ven la
+    misma foto de la proyección aunque el proyector confirme entre una sentencia y otra. El
+    orden `registered_at`, `registration_id` usa el índice
+    `ix_event_registration_read_event_order` (migración de lectura `0006`).
+    """
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def attendees(self, query: AttendeesQuery) -> AttendeePage | None:
+        registration = EventRegistrationReadRow
+        with self._session_factory() as session:
+            session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+            owned = session.scalar(
+                select(EventReadRow.event_id).where(
+                    EventReadRow.event_id == query.event_id,
+                    EventReadRow.organizer_id == query.organizer_id,
+                )
+            )
+            if owned is None:
+                return None
+            counts = session.execute(
+                select(registration.status, func.count())
+                .where(registration.event_id == query.event_id)
+                .group_by(registration.status)
+            ).all()
+            statement = select(registration).where(registration.event_id == query.event_id)
+            if query.status is not None:
+                statement = statement.where(registration.status == query.status)
+            if query.after is not None:
+                statement = statement.where(
+                    tuple_(registration.registered_at, registration.registration_id)
+                    > tuple_(query.after.registered_at, query.after.registration_id)
+                )
+            rows = session.scalars(
+                statement.order_by(registration.registered_at, registration.registration_id).limit(
+                    query.limit
+                )
+            ).all()
+        by_status = {status.value: 0 for status in RegistrationStatus}
+        by_status.update({str(status): int(count) for status, count in counts})
+        return AttendeePage(items=tuple(_registration(row) for row in rows), by_status=by_status)
 
 
 class SqlAlchemyProjectionUnitOfWork:
@@ -327,6 +411,7 @@ class SqlAlchemyProjectionUnitOfWork:
                 created_at=event.created_at,
                 updated_at=event.updated_at,
                 published_at=event.published_at,
+                **_fee_columns(event),
                 projected_at=projected_at,
             )
         )
@@ -355,6 +440,7 @@ class SqlAlchemyProjectionUnitOfWork:
                 created_at=event.created_at,
                 updated_at=event.updated_at,
                 published_at=event.published_at,
+                **_fee_columns(event),
                 projected_at=projected_at,
             )
         )
@@ -385,6 +471,25 @@ class SqlAlchemyProjectionUnitOfWork:
             )
         )
 
+    def inbox_contains(self, notification_id: UUID) -> bool:
+        return self.session.get(NotificationInboxViewRow, notification_id) is not None
+
+    def add_inbox_item(self, notification: Notification, projected_at: datetime) -> None:
+        self.session.add(
+            NotificationInboxViewRow(
+                notification_id=notification.notification_id,
+                recipient_id=notification.recipient_id,
+                type=notification.type.value,
+                priority=notification.priority.value,
+                event_id=notification.event_id,
+                title=notification.title,
+                body=notification.body,
+                created_at=notification.created_at,
+                read_at=None,
+                projected_at=projected_at,
+            )
+        )
+
     def add_processed(
         self, message_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -403,8 +508,13 @@ class SqlAlchemyProjectionUnitOfWork:
         except IntegrityError as error:
             self.session.rollback()
             constraint = _violated_constraint(error)
-            # Otra entrega del mismo mensaje (o de la misma inscripción) confirmó primero.
-            if constraint in {PROCESSED_EVENT_PRIMARY_KEY, REGISTRATION_READ_PRIMARY_KEY}:
+            # Otra entrega del mismo mensaje (o de la misma inscripción o notificación)
+            # confirmó primero.
+            if constraint in {
+                PROCESSED_EVENT_PRIMARY_KEY,
+                REGISTRATION_READ_PRIMARY_KEY,
+                INBOX_PRIMARY_KEY,
+            }:
                 raise DuplicateDelivery() from None
             # Otro mensaje del mismo evento creó la vista: se reaplica por versión (ADR-033).
             if constraint == EVENT_READ_PRIMARY_KEY:

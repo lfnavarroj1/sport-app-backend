@@ -1,13 +1,15 @@
 """Lectura validada de los eventos de `sportapp.eventos.v1` para el proyector (CMP-004).
 
-Se proyectan `evento.creado.v1` (HU021), `evento.publicado.v1` (HU024) y
-`usuario.inscrito.v1` (HU041). Un mensaje que
+Se proyectan `evento.creado.v1` (HU021), `evento.publicado.v1` (HU024),
+`evento.tarifa_actualizada.v1` (HU025), `usuario.inscrito.v1` (HU041) y
+`notificacion.solicitada.v1` (HU039). `eventos-notificaciones-worker` reutiliza esta lectura
+para `evento.publicado.v1`. Un mensaje que
 no cumple el contrato es un `InvalidEvent`: no se confirma y, agotados los reintentos,
 termina en la DLQ. Otro tipo de evento del tópico es `UnsupportedEvent`: este proyector
 todavía no lo proyecta y se confirma sin efectos.
 
-`parse_event_document` y `parse_published_event_document` también reconstruyen el evento
-guardado como resultado idempotente de HU021 y HU024.
+`parse_event_document`, `parse_published_event_document` y `parse_event_aggregate_document`
+también reconstruyen el evento guardado como resultado idempotente de HU021, HU024 y HU025.
 """
 
 from collections.abc import Callable
@@ -17,6 +19,21 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 from uuid import UUID
 
+from events_management.domain.notifications.events import (
+    AGGREGATE_VERSION as NOTIFICATION_VERSION,
+)
+from events_management.domain.notifications.events import EVENT_TYPE as NOTIFICATION_REQUESTED
+from events_management.domain.notifications.events import (
+    SCHEMA_VERSION as NOTIFICATION_SCHEMA,
+)
+from events_management.domain.notifications.model import (
+    BODY_MAX,
+    PRIORITIES,
+    TITLE_MAX,
+    Notification,
+    NotificationPriority,
+    NotificationType,
+)
 from events_management.domain.registrations.events import EVENT_TYPE as REGISTERED
 from events_management.domain.registrations.events import (
     SCHEMA_VERSION as REGISTERED_SCHEMA,
@@ -28,6 +45,15 @@ from events_management.domain.registrations.model import (
 )
 from events_management.domain.sport_events.countries import COUNTRY_CODES
 from events_management.domain.sport_events.created import EVENT_TYPE, SCHEMA_VERSION
+from events_management.domain.sport_events.fee import (
+    AMOUNT_MAX,
+    AMOUNT_MIN,
+    CURRENCY,
+    DECIMAL_PLACES,
+    EventFee,
+)
+from events_management.domain.sport_events.fee import EVENT_TYPE as FEE_UPDATED
+from events_management.domain.sport_events.fee import SCHEMA_VERSION as FEE_UPDATED_SCHEMA
 from events_management.domain.sport_events.model import (
     ADDRESS_MAX,
     ADDRESS_MIN,
@@ -87,6 +113,14 @@ class EventPublishedMessage:
 
 
 @dataclass(frozen=True)
+class EventFeeUpdatedMessage:
+    message_id: UUID
+    aggregate_version: int
+    correlation_id: UUID | None
+    event: SportEvent
+
+
+@dataclass(frozen=True)
 class RegistrationCreatedMessage:
     message_id: UUID
     aggregate_version: int
@@ -94,8 +128,22 @@ class RegistrationCreatedMessage:
     registration: EventRegistration
 
 
-EventStateMessage = EventCreatedMessage | EventPublishedMessage
-SportEventMessage = EventCreatedMessage | EventPublishedMessage | RegistrationCreatedMessage
+@dataclass(frozen=True)
+class NotificationRequestedMessage:
+    message_id: UUID
+    aggregate_version: int
+    correlation_id: UUID | None
+    notification: Notification
+
+
+EventStateMessage = EventCreatedMessage | EventPublishedMessage | EventFeeUpdatedMessage
+SportEventMessage = (
+    EventCreatedMessage
+    | EventPublishedMessage
+    | EventFeeUpdatedMessage
+    | RegistrationCreatedMessage
+    | NotificationRequestedMessage
+)
 
 
 def _uuid(value: object, field: str) -> UUID:
@@ -147,24 +195,70 @@ def parse_event_document(document: object) -> SportEvent:
 
     `evento.creado.v1` y el resultado idempotente de HU021 siempre describen un borrador.
     """
-    return _sport_event(document, EventStatus.DRAFT)
+    return _sport_event(document, {EventStatus.DRAFT})
 
 
 def parse_published_event_document(document: object) -> SportEvent:
     """Evento publicado (ADR-033): la forma de ADR-028 más `published_at` en UTC.
 
-    Lo usan `evento.publicado.v1` y el resultado idempotente de HU024.
+    Lo usan `evento.publicado.v1` y el resultado idempotente de HU024. `fee` y
+    `fee_updated_at` son opcionales: los mensajes y respuestas anteriores a HU025 no los
+    llevan y equivalen a un evento sin tarifa.
     """
-    event = _sport_event(document, EventStatus.PUBLISHED)
+    event = _sport_event(document, {EventStatus.PUBLISHED})
     published = cast("dict[str, Any]", document).get("published_at")
     published_at = _instant(published, "published_at")
-    return replace(event, published_at=published_at)
+    return _with_fee(replace(event, published_at=published_at), document, required=False)
 
 
-def _sport_event(document: object, status: EventStatus) -> SportEvent:
+def parse_event_aggregate_document(document: object) -> SportEvent:
+    """HU025: agregado completo en `DRAFT` o `PUBLISHED` con `published_at` coherente y la
+    tarifa obligatoria (`fee` y `fee_updated_at`, que pueden ser `null`).
+
+    Lo usan `evento.tarifa_actualizada.v1` y el resultado idempotente de HU025.
+    """
+    event = _sport_event(document, {EventStatus.DRAFT, EventStatus.PUBLISHED})
+    published = cast("dict[str, Any]", document).get("published_at")
+    if event.status is EventStatus.PUBLISHED:
+        event = replace(event, published_at=_instant(published, "published_at"))
+    elif published is not None:
+        raise InvalidEvent("published_at_invalid")
+    return _with_fee(event, document, required=True)
+
+
+def _fee(value: object) -> EventFee | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get("currency") != CURRENCY:
+        raise InvalidEvent("fee_invalid")
+    amount = value.get("amount")
+    if not isinstance(amount, str):
+        raise InvalidEvent("fee_invalid")
+    try:
+        parsed = Decimal(amount)
+    except InvalidOperation:
+        raise InvalidEvent("fee_invalid") from None
+    if parsed.as_tuple().exponent != -DECIMAL_PLACES or not AMOUNT_MIN <= parsed <= AMOUNT_MAX:
+        raise InvalidEvent("fee_invalid")
+    return EventFee(amount=parsed, currency=CURRENCY)
+
+
+def _with_fee(event: SportEvent, document: object, *, required: bool) -> SportEvent:
+    values = cast("dict[str, Any]", document)
+    if required and ("fee" not in values or "fee_updated_at" not in values):
+        raise InvalidEvent("fee_missing")
+    fee = _fee(values.get("fee"))
+    changed = values.get("fee_updated_at")
+    fee_updated_at = _instant(changed, "fee_updated_at") if changed is not None else None
+    if fee is not None and fee_updated_at is None:
+        raise InvalidEvent("fee_updated_at_missing")
+    return replace(event, fee=fee, fee_updated_at=fee_updated_at)
+
+
+def _sport_event(document: object, statuses: set[EventStatus]) -> SportEvent:
     if not isinstance(document, dict):
         raise InvalidEvent("payload_not_object")
-    if document.get("status") != status.value:
+    if document.get("status") not in {status.value for status in statuses}:
         raise InvalidEvent("unknown_status")
     time_zone = document.get("time_zone")
     if not isinstance(time_zone, str) or not time_zone:
@@ -234,7 +328,14 @@ def _event_published(envelope: dict[str, Any]) -> EventPublishedMessage:
     )
 
 
-def _fee(value: object) -> AppliedFee | None:
+def _event_fee_updated(envelope: dict[str, Any]) -> EventFeeUpdatedMessage:
+    # Toda tarifa cambia un evento que nació en la versión 1: la actualizada es al menos 2.
+    return EventFeeUpdatedMessage(
+        *_event_state(envelope, FEE_UPDATED_SCHEMA, parse_event_aggregate_document, 2)
+    )
+
+
+def _applied_fee(value: object) -> AppliedFee | None:
     if value is None:
         return None
     if not isinstance(value, dict) or not isinstance(value.get("currency"), str):
@@ -273,10 +374,54 @@ def _registration_created(envelope: dict[str, Any]) -> RegistrationCreatedMessag
             athlete_id=_uuid(payload.get("athlete_id"), "athlete_id"),
             status=RegistrationStatus(payload["status"]),
             registered_at=registered_at,
-            applied_fee=_fee(payload.get("applied_fee")),
+            applied_fee=_applied_fee(payload.get("applied_fee")),
             version=version,
             created_at=registered_at,
             updated_at=registered_at,
+        ),
+    )
+
+
+def _notification_text(payload: dict[str, Any], field: str, maximum: int) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not 1 <= len(value) <= maximum:
+        raise InvalidEvent(f"{field}_invalid")
+    return value
+
+
+def _notification_requested(envelope: dict[str, Any]) -> NotificationRequestedMessage:
+    """`notificacion.solicitada.v1` (HU039): agregado `notification`, versión 1."""
+    if envelope.get("schema_version") != NOTIFICATION_SCHEMA:
+        raise InvalidEvent("unsupported_schema_version")
+    if envelope.get("aggregate_version") != NOTIFICATION_VERSION:
+        raise InvalidEvent("aggregate_version_invalid")
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise InvalidEvent("payload_not_object")
+    notification_id = _uuid(payload.get("notification_id"), "notification_id")
+    if _uuid(envelope.get("aggregate_id"), "aggregate_id") != notification_id:
+        raise InvalidEvent("aggregate_id_mismatch")
+    try:
+        notification_type = NotificationType(str(payload.get("type")))
+        priority = NotificationPriority(str(payload.get("priority")))
+    except ValueError:
+        raise InvalidEvent("unknown_type") from None
+    if PRIORITIES[notification_type] is not priority:
+        raise InvalidEvent("priority_mismatch")
+    correlation = envelope.get("correlation_id")
+    return NotificationRequestedMessage(
+        message_id=_uuid(envelope.get("event_id"), "event_id"),
+        aggregate_version=NOTIFICATION_VERSION,
+        correlation_id=_uuid(correlation, "correlation_id") if correlation else None,
+        notification=Notification(
+            notification_id=notification_id,
+            recipient_id=_uuid(payload.get("recipient_id"), "recipient_id"),
+            type=notification_type,
+            priority=priority,
+            event_id=_uuid(payload.get("event_id"), "event_id"),
+            title=_notification_text(payload, "title", TITLE_MAX),
+            body=_notification_text(payload, "body", BODY_MAX),
+            created_at=_instant(payload.get("created_at"), "created_at"),
         ),
     )
 
@@ -291,6 +436,10 @@ def parse_sport_event_message(envelope: object) -> SportEventMessage:
         return _event_created(envelope)
     if event_type == PUBLISHED:
         return _event_published(envelope)
+    if event_type == FEE_UPDATED:
+        return _event_fee_updated(envelope)
     if event_type == REGISTERED:
         return _registration_created(envelope)
+    if event_type == NOTIFICATION_REQUESTED:
+        return _notification_requested(envelope)
     raise UnsupportedEvent(event_type)

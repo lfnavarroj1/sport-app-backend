@@ -8,12 +8,12 @@ consulta el calendario (su contrato se prueba en su servicio).
 """
 
 import contextlib
+import json
 import os
 import time
 import unittest
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -49,10 +49,21 @@ from events_management.workers.read_projector import ProjectionMessageHandler
 from sportapp_platform.migrations import upgrade
 from sportapp_platform.testing.keys import ed25519_private_key_pem
 from sportapp_platform.testing.postgres import temporary_database
+from users_management.application.messages import parse_users_event
+from users_management.application.projections.users_projection import UsersProjector
+from users_management.infrastructure.clock import SystemClock as UsersClock
+from users_management.infrastructure.persistence_read.projection import (
+    SqlAlchemyProjectionUnitOfWork as UsersProjectionUnitOfWork,
+)
+from users_management.infrastructure.persistence_write.outbox import (
+    SqlAlchemyOutboxStore as UsersOutboxStore,
+)
 from users_management.main import create_app as create_users
 from users_management.settings import UsersManagementSettings
+from users_management.workers.outbox_publisher import build_envelope as users_envelope
 
 USERS = "users_management.infrastructure.persistence_write:migrations"
+USERS_READ = "users_management.infrastructure.persistence_read:migrations"
 EVENTS_WRITE = "events_management.infrastructure.persistence_write:migrations"
 EVENTS_READ = "events_management.infrastructure.persistence_read:migrations"
 POLICIES = "2026-10"
@@ -91,12 +102,17 @@ def calendar_capability(request: httpx.Request) -> httpx.Response:
     )
 
 
-class EventPublicationFlowTest(unittest.TestCase):
+class EventFlowCase(unittest.TestCase):
+    """Usuarios, Eventos (escritura y lectura) y BFF web reales; base de HU024 y HU023."""
+
     def setUp(self) -> None:
         users_url = self.enterContext(temporary_database("hu024_flow_users"))
+        # HU022: Usuarios con su base de lectura migrada (`user_directory` para los nombres).
+        users_read_url = self.enterContext(temporary_database("hu024_flow_users_r"))
         self.write_url = self.enterContext(temporary_database("hu024_flow_events_w"))
         read_url = self.enterContext(temporary_database("hu024_flow_events_r"))
         upgrade(USERS, users_url)
+        upgrade(USERS_READ, users_read_url)
         upgrade(EVENTS_WRITE, self.write_url)
         upgrade(EVENTS_READ, read_url)
         users = self.enterContext(
@@ -105,7 +121,7 @@ class EventPublicationFlowTest(unittest.TestCase):
                     UsersManagementSettings(
                         app_env="test",  # type: ignore[arg-type]
                         database_write_url=users_url,  # type: ignore[arg-type]
-                        database_read_url=users_url,  # type: ignore[arg-type]
+                        database_read_url=users_read_url,  # type: ignore[arg-type]
                         registration_policies_version=POLICIES,
                         health_data_consent_version="health-test.v1",
                         jwt_private_key=ed25519_private_key_pem(),  # type: ignore[arg-type]
@@ -133,7 +149,21 @@ class EventPublicationFlowTest(unittest.TestCase):
                 base_url="http://events-management",
             )
         )
-        self.bff = self.enterContext(
+        self.users = users
+        self.bff = self.bff_with(self.events)
+        write_engine, read_engine = create_engine(self.write_url), create_engine(read_url)
+        self.addCleanup(write_engine.dispose)
+        self.addCleanup(read_engine.dispose)
+        self.writes, self.reads = sessionmaker(write_engine), sessionmaker(read_engine)
+        users_write_engine = create_engine(users_url)
+        users_read_engine = create_engine(users_read_url)
+        self.addCleanup(users_write_engine.dispose)
+        self.addCleanup(users_read_engine.dispose)
+        self.users_writes = sessionmaker(users_write_engine)
+        self.users_reads = sessionmaker(users_read_engine)
+
+    def bff_with(self, events_http: httpx.Client) -> TestClient:
+        return self.enterContext(
             TestClient(
                 create_bff(
                     BffWebSettings(
@@ -145,24 +175,20 @@ class EventPublicationFlowTest(unittest.TestCase):
                         events_management_base_url="http://events-management",  # type: ignore[arg-type]
                         cors_allowed_origins=(ORIGIN,),
                     ),
-                    users_http=users,
-                    events_http=self.events,
+                    users_http=self.users,
+                    events_http=events_http,
                 ),
                 base_url="https://bff-web",
                 headers={"Origin": ORIGIN},
             )
         )
-        write_engine, read_engine = create_engine(self.write_url), create_engine(read_url)
-        self.addCleanup(write_engine.dispose)
-        self.addCleanup(read_engine.dispose)
-        self.writes, self.reads = sessionmaker(write_engine), sessionmaker(read_engine)
 
-    def session_for(self, actor_type: str) -> dict[str, str]:
+    def session_for(self, actor_type: str, full_name: str = "Persona Sintética") -> dict[str, str]:
         email = f"{actor_type}-{uuid.uuid4().hex[:8]}@example.com"
         registered = self.bff.post(
             "/v1/users",
             json={
-                "full_name": "Persona Sintética",
+                "full_name": full_name,
                 "email": email,
                 "password": PASSWORD,
                 "actor_type": actor_type,
@@ -172,12 +198,13 @@ class EventPublicationFlowTest(unittest.TestCase):
         )
         self.assertEqual(registered.status_code, 201, registered.text)
         login = self.bff.post("/v1/sessions", json={"email": email, "password": PASSWORD})
+        self.last_user_id = str(registered.json()["user_id"])
         return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
-    def draft(self, organizer: dict[str, str]) -> str:
+    def draft(self, organizer: dict[str, str], **overrides: Any) -> str:
         created = self.bff.post(
             "/v1/events",
-            json=EVENT_REQUEST,
+            json={**EVENT_REQUEST, **overrides},
             headers={**organizer, "Idempotency-Key": str(uuid.uuid4())},
         )
         self.assertEqual(created.status_code, 201, created.text)
@@ -189,6 +216,17 @@ class EventPublicationFlowTest(unittest.TestCase):
     ) -> httpx.Response:
         headers = {**user, **({"Idempotency-Key": key} if key else {})}
         return self.bff.post(f"/v1/events/{event_id}/publish", headers=headers)
+
+    def project_users(self) -> None:
+        """`usuarios-outbox-publisher` + `usuarios-read-projector` sin Pub/Sub (HU022: el
+        directorio de nombres; su transporte por Pub/Sub lo cubre la integración de Usuarios)."""
+        outbox = UsersOutboxStore(self.users_writes)
+        project = UsersProjector(
+            unit_of_work=lambda: UsersProjectionUnitOfWork(self.users_reads), clock=UsersClock()
+        )
+        for event in outbox.claim_batch("w-test", 100, 30):
+            project(parse_users_event(json.loads(json.dumps(users_envelope(event)))))
+            outbox.mark_published(event.event_id, "w-test")
 
     def count(self, sessions: sessionmaker[Any], model: Any) -> int:
         with sessions() as session:
@@ -229,6 +267,8 @@ class EventPublicationFlowTest(unittest.TestCase):
                 streaming.result(timeout=10)
         self.assertTrue(done, f"el proyector no llegó a {processed} mensajes")
 
+
+class EventPublicationFlowTest(EventFlowCase):
     @unittest.skipUnless(os.environ.get("PUBSUB_EMULATOR_HOST"), "requiere el emulador de Pub/Sub")
     def test_publication_flow_through_the_web_channel(self) -> None:
         """CA1, CA3, CA4, CA5 y CA6 de punta a punta en el backend."""
@@ -288,10 +328,10 @@ class EventPublicationFlowTest(unittest.TestCase):
         self.assertEqual(listed.json()["items"][0]["published_at"], body["published_at"])
         public = self.bff.get(f"/v1/events/{event_id}", headers=athlete)
         self.assertEqual((public.status_code, public.json()["status"]), (200, "PUBLISHED"))
-        now = datetime.now(UTC)
+        # Periodo de hasta 92 días (ADR-040) alrededor del evento del 2099-11-15.
         calendar = self.events.get(
             "/v1/events",
-            params={"from": now.isoformat(), "to": (now + timedelta(days=365 * 80)).isoformat()},
+            params={"from": "2099-11-14T00:00:00Z", "to": "2099-11-17T00:00:00Z"},
             headers=athlete,
         )
         self.assertEqual(calendar.status_code, 200, calendar.text)

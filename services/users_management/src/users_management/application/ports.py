@@ -6,7 +6,7 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
-from users_management.domain.account.model import ActorType, UserAccount
+from users_management.domain.account.model import AccountDetails, ActorType, UserAccount
 from users_management.domain.authentication.model import FailureWindow, RefreshToken
 from users_management.domain.profile.events import ProfileSection
 
@@ -158,6 +158,94 @@ class UserDirectory(Protocol):
     def find_active_by_email(self, email: str) -> UserReference | None: ...
 
 
+class NutritionRestrictionsReader(Protocol):
+    """Restricciones alimenticias proyectadas de una cuenta activa (ADR-035, HU009).
+
+    `None` si no hay una cuenta activa con ese identificador; `version = None` (listas vacías)
+    si la cuenta no registró hábitos alimenticios. `ReadModelUnavailable` si la base de
+    lectura no responde.
+    """
+
+    def find(self, user_id: UUID) -> "NutritionRestrictions | None": ...
+
+
+@dataclass(frozen=True)
+class NutritionRestrictions:
+    """Contrato interno de ADR-035: datos de salud que solo recibe `training-management`."""
+
+    restrictions: tuple[str, ...]
+    allergies: tuple[str, ...]
+    diet_pattern: str | None
+    version: int | None
+
+
+class AthleteContextReader(Protocol):
+    """Contexto del deportista proyectado en `athlete_profile_view` (ADR-041, HU026).
+
+    `None` si no hay una cuenta activa con ese identificador; los campos vacíos o `None` si
+    la cuenta aún no registró la sección correspondiente (HU005 o HU006).
+    `ReadModelUnavailable` si la base de lectura no responde.
+    """
+
+    def find(self, user_id: UUID) -> "AthleteContext | None": ...
+
+
+@dataclass(frozen=True)
+class AthleteContext:
+    """Contrato interno de ADR-041: deportes y objetivo (HU006), ciudad, país y fecha de
+    nacimiento (HU005). Datos personales: nunca en trazas ni logs."""
+
+    sports: tuple[str, ...]
+    primary_goal: str | None
+    city: str | None
+    country_code: str | None
+    birth_date: str | None
+
+    def __repr__(self) -> str:
+        return f"AthleteContext(sports={len(self.sports)})"
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.sports and self.city is None and self.birth_date is None
+
+
+@dataclass(frozen=True)
+class AthleteSearchCriteria:
+    """Filtros ya validados de `POST /v1/users/athletes/search` (ADR-045, HU039).
+
+    `sports` son códigos del catálogo de HU006 sin `other`; `city` ya está normalizada con
+    `normalize_term`; `after` es el último `user_id` de la página anterior (keyset).
+    Datos personales: nunca en trazas ni logs.
+    """
+
+    sports: tuple[str, ...]
+    city: str
+    country_code: str
+    limit: int
+    after: UUID | None = None
+
+    def __repr__(self) -> str:
+        return f"AthleteSearchCriteria(sports={len(self.sports)}, limit={self.limit})"
+
+
+@dataclass(frozen=True)
+class AthleteSearchPage:
+    """Hasta `limit` identificadores en orden ascendente; `has_more` si hay otra página."""
+
+    user_ids: tuple[UUID, ...]
+    has_more: bool
+
+    def __repr__(self) -> str:
+        return f"AthleteSearchPage(count={len(self.user_ids)}, has_more={self.has_more})"
+
+
+class AthleteSearchReader(Protocol):
+    """Deportistas activos que coinciden por deporte, ciudad y país en `athlete_profile_view`
+    (ADR-045, HU039). `ReadModelUnavailable` si la base de lectura no responde."""
+
+    def search(self, criteria: AthleteSearchCriteria) -> AthleteSearchPage: ...
+
+
 @dataclass(frozen=True)
 class UserDisplay:
     """Nombre y correo de una cuenta activa (HU011, CA5). Datos personales: solo los recibe el
@@ -235,9 +323,11 @@ class AthleteProfileView:
     demographic: dict[str, Any] | None
     physiological: dict[str, Any] | None
     sport_habits: dict[str, Any] | None
+    nutrition_habits: dict[str, Any] | None
     demographic_version: int | None
     physiological_version: int | None
     sport_habits_version: int | None
+    nutrition_habits_version: int | None
     projected_at: datetime | None
 
     def __repr__(self) -> str:
@@ -249,4 +339,65 @@ class AthleteProfileReader(Protocol):
 
     def get(self, user_id: UUID) -> AthleteProfileView | None:
         """`None` si no hay fila; `ReadModelUnavailable` si la base de lectura no responde."""
+        ...
+
+
+class AccountUnitOfWork(Protocol):
+    """Transacción local de `PUT /v1/me/account` (HU002): cuenta, outbox e idempotencia."""
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None: ...
+
+    def find_idempotency(self, key: UUID) -> IdempotencyRecord | None:
+        """Sin *autoflush*: una consulta no debe adelantar el conflicto al `commit`."""
+        ...
+
+    def delete_idempotency(self, key: UUID) -> None: ...
+
+    def lock_account(self, user_id: UUID) -> AccountDetails | None:
+        """Bloquea la fila de `user_account` (`FOR UPDATE`) hasta el fin de la transacción."""
+        ...
+
+    def email_taken(self, email: str, user_id: UUID) -> bool:
+        """`True` si otra cuenta ya usa ese correo normalizado."""
+        ...
+
+    def save_account(self, account: AccountDetails) -> None: ...
+
+    def add_outbox(self, message: OutboxMessage) -> None: ...
+
+    def add_idempotency(self, record: IdempotencyRecord) -> None: ...
+
+    def commit(self) -> None:
+        """Confirma todo o nada. Traduce la unicidad del correo a `EmailAlreadyRegistered` y
+        la de la clave a `IdempotencyKeyConflict`."""
+        ...
+
+
+@dataclass(frozen=True)
+class AccountView:
+    """Cuenta proyectada en `user_directory` (HU002). Datos personales: nunca en trazas."""
+
+    user_id: UUID
+    full_name: str
+    email: str
+    actor_type: str
+    status: str
+    version: int
+    projected_at: datetime
+
+    def __repr__(self) -> str:
+        return f"AccountView(user_id={self.user_id}, version={self.version})"
+
+
+class AccountReader(Protocol):
+    def get(self, user_id: UUID) -> AccountView | None:
+        """`None` si la cuenta aún no está proyectada (o sin nombre); `ReadModelUnavailable` si
+        la base de lectura no responde."""
         ...

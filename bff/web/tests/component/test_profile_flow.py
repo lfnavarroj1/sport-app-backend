@@ -110,7 +110,9 @@ class _Capture(logging.Handler):
 
 
 @unittest.skipUnless(os.environ.get("PUBSUB_EMULATOR_HOST"), "requiere el emulador de Pub/Sub")
-class ProfileFlowTest(unittest.TestCase):
+class ProfileFlowCase(unittest.TestCase):
+    """Usuarios y BFF reales, Pub/Sub del emulador; base de HU005 y HU006 (sin pruebas)."""
+
     def setUp(self) -> None:
         write_url = self.enterContext(temporary_database("bff_web_hu005_write"))
         read_url = self.enterContext(temporary_database("bff_web_hu005_read"))
@@ -121,14 +123,6 @@ class ProfileFlowTest(unittest.TestCase):
         self.addCleanup(self.write_engine.dispose)
         self.addCleanup(self.read_engine.dispose)
         self.write_url = write_url
-
-        self.capture = _Capture()
-        root = logging.getLogger()
-        previous_level = root.level
-        root.addHandler(self.capture)
-        root.setLevel(logging.DEBUG)
-        self.addCleanup(root.setLevel, previous_level)
-        self.addCleanup(root.removeHandler, self.capture)
 
         users = self.enterContext(
             TestClient(
@@ -145,6 +139,8 @@ class ProfileFlowTest(unittest.TestCase):
                 base_url="http://users-management",
             )
         )
+        # HU009: el contrato interno de restricciones se consulta directamente en Usuarios.
+        self.users = users
         settings = BffWebSettings(
             app_env="test",  # type: ignore[arg-type]
             users_management_base_url="http://users-management",  # type: ignore[arg-type]
@@ -161,6 +157,16 @@ class ProfileFlowTest(unittest.TestCase):
                 headers={"Origin": ORIGIN},
             )
         )
+
+        # La captura se instala después de crear las apps: `create_service_app` reconfigura el
+        # log raíz (`configure_logging` reemplaza sus manejadores) y la descartaría.
+        self.capture = _Capture()
+        root = logging.getLogger()
+        previous_level = root.level
+        root.addHandler(self.capture)
+        root.setLevel(logging.DEBUG)
+        self.addCleanup(root.setLevel, previous_level)
+        self.addCleanup(root.removeHandler, self.capture)
 
         self.project = f"sportapp-test-{uuid.uuid4().hex[:8]}"
         ensure_users_resources(self.project)
@@ -242,6 +248,8 @@ class ProfileFlowTest(unittest.TestCase):
             with contextlib.suppress(Exception):
                 streaming.result(timeout=10)
 
+
+class ProfileFlowTest(ProfileFlowCase):
     def test_athlete_registers_both_sections_and_reads_them_from_the_projection(self) -> None:
         """CA1, CA4 y CA7 de punta a punta; los consumidores de Afiliación no reciben `perfil.*`."""
         empty = self.profile()
@@ -267,6 +275,7 @@ class ProfileFlowTest(unittest.TestCase):
                     "demographic": 1,
                     "physiological": 1,
                     "sport_habits": None,
+                    "nutrition_habits": None,
                 }
             )
         )

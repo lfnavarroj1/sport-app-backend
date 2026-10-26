@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "SportApp - Eventos."
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "cryptography>=50.0",
     "google-cloud-pubsub>=2.29",
     "sportapp-platform",
 ]

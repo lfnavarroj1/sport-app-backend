@@ -1,10 +1,13 @@
-"""HU005: perfil demográfico y fisiológico del deportista (contrato de ADR-034).
+"""HU005, HU006, HU008 y HU009: perfil del deportista (contratos de ADR-034 y ADR-035).
 
-- `PUT /v1/me/demographic-profile` y `PUT /v1/me/physiological-profile`: registran
+- `PUT /v1/me/demographic-profile` y `PUT /v1/me/physiological-profile` (HU005),
+  `PUT /v1/me/sport-habits` (HU006) y `PUT /v1/me/nutrition-habits` (HU009): registran
   (`201`) o reemplazan (`200`) la sección completa.
+- `PATCH /v1/me/sport-habits` (HU008): edita una o más secciones de los hábitos deportivos
+  registrados (`200`); las no enviadas se conservan.
 - `GET /v1/me/profile`: lee la proyección `athlete_profile_view` (consulta eventual).
 
-El cuerpo de los `PUT` se lee como JSON sin validación automática para responder con
+El cuerpo de los comandos se lee como JSON sin validación automática para responder con
 el catálogo de ADR-034 (`details[{field, issue}]`); su esquema se documenta en el
 OpenAPI. Todas las respuestas llevan `Cache-Control: no-store` (datos personales y de
 salud). Los instantes van en UTC con sufijo `Z`; el frontend los convierte.
@@ -29,7 +32,14 @@ from users_management.api.identity import (
     authenticate_athlete,
     correlation_uuid,
 )
-from users_management.api.profile_payload import parse_demographic, parse_physiological
+from users_management.api.profile_payload import (
+    parse_demographic,
+    parse_nutrition_habits,
+    parse_physiological,
+    parse_sport_habits,
+    parse_sport_habits_patch,
+)
+from users_management.application.commands.patch_sport_habits import PatchSportHabits
 from users_management.application.commands.profile_section import (
     ProfileSectionCommand,
     ProfileSectionResult,
@@ -38,9 +48,11 @@ from users_management.application.commands.profile_section import (
 from users_management.application.commands.update_demographic_profile import (
     UpdateDemographicProfile,
 )
+from users_management.application.commands.update_nutrition_habits import UpdateNutritionHabits
 from users_management.application.commands.update_physiological_profile import (
     UpdatePhysiologicalProfile,
 )
+from users_management.application.commands.update_sport_habits import UpdateSportHabits
 from users_management.application.errors import IdempotencyKeyReused, ReadModelUnavailable
 from users_management.application.queries.get_profile import GetAthleteProfile
 from users_management.domain.profile.demographic import (
@@ -52,6 +64,15 @@ from users_management.domain.profile.demographic import (
     IncomeRange,
     MaritalStatus,
 )
+from users_management.domain.profile.nutrition_habits import (
+    ALLERGIES_MAX,
+    MEALS_PER_DAY_MAX,
+    MEALS_PER_DAY_MIN,
+    RESTRICTIONS_MAX,
+    Allergy,
+    DietPattern,
+    Restriction,
+)
 from users_management.domain.profile.physiological import (
     DIASTOLIC_MAX,
     DIASTOLIC_MIN,
@@ -62,7 +83,24 @@ from users_management.domain.profile.physiological import (
     SYSTOLIC_MAX,
     SYSTOLIC_MIN,
 )
-from users_management.domain.profile.section import VersionConflict
+from users_management.domain.profile.section import SectionNotFound, VersionConflict
+from users_management.domain.profile.sport_habits import (
+    DAYS_MAX,
+    DURATION_MAX,
+    DURATION_MIN,
+    FREQUENCY_MAX,
+    FREQUENCY_MIN,
+    SPORTS_MAX,
+    TIME_SLOTS_MAX,
+    YEARS_MAX,
+    YEARS_MIN,
+    Day,
+    Intensity,
+    Level,
+    PrimaryGoal,
+    Sport,
+    TimeSlot,
+)
 from users_management.domain.profile.validation import InvalidProfileSection, Issue, Violation
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
@@ -166,6 +204,110 @@ class PhysiologicalProfileRequest(BaseModel):
     ] = None
 
 
+class SportHabit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sport: Annotated[Sport, Field(description="Catálogo de deportes de HU010; sin repetir.")]
+    frequency_per_week: Annotated[int, Field(ge=FREQUENCY_MIN, le=FREQUENCY_MAX)]
+    session_duration_minutes: Annotated[int, Field(ge=DURATION_MIN, le=DURATION_MAX)]
+    intensity: Intensity
+    level: Level
+    years_practicing: Annotated[int | None, Field(ge=YEARS_MIN, le=YEARS_MAX)] = None
+
+
+class SportAvailability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: Annotated[
+        list[Day], Field(min_length=1, max_length=DAYS_MAX, description="Valores únicos.")
+    ]
+    time_slots: Annotated[
+        list[TimeSlot],
+        Field(min_length=1, max_length=TIME_SLOTS_MAX, description="Valores únicos."),
+    ]
+
+
+class SportHabitsRequest(BaseModel):
+    """Hábitos deportivos completos (HU006). `user_id` y cualquier campo no listado →
+    `field_not_allowed`. Los errores de una lista nombran la posición recibida
+    (`sports[1].sport`, `availability.days[0]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: Annotated[
+        int | None,
+        Field(ge=1, description="Se omite al crear; igual a la versión vigente al reemplazar."),
+    ] = None
+    sports: Annotated[list[SportHabit], Field(min_length=1, max_length=SPORTS_MAX)]
+    availability: SportAvailability
+    primary_goal: PrimaryGoal | None = None
+
+
+class SportHabitsPatchRequest(BaseModel):
+    """Edición parcial de los hábitos deportivos (HU008, ADR-035): una o más secciones; cada
+    sección enviada reemplaza completa a la vigente y las no enviadas se conservan.
+    `primary_goal: null` borra el objetivo. Sin secciones → `422 required` (`field: null`).
+    `user_id` y cualquier campo no listado → `field_not_allowed`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "anyOf": [
+                {"required": ["sports"]},
+                {"required": ["availability"]},
+                {"required": ["primary_goal"]},
+            ]
+        },
+    )
+
+    expected_version: Annotated[
+        int, Field(ge=1, description="Obligatoria: la versión vigente de los hábitos.")
+    ]
+    sports: Annotated[
+        list[SportHabit] | None,
+        Field(min_length=1, max_length=SPORTS_MAX, description="Reemplaza la lista completa."),
+    ] = None
+    availability: Annotated[
+        SportAvailability | None, Field(description="Reemplaza días y franjas.")
+    ] = None
+    primary_goal: Annotated[
+        PrimaryGoal | None, Field(description="Enviado como `null`, borra el objetivo.")
+    ] = None
+
+
+class NutritionHabitsRequest(BaseModel):
+    """Hábitos alimenticios completos (HU009, ADR-035), con el consentimiento de datos de
+    salud vigente. Sin texto libre: solo valores de los catálogos. `user_id` y cualquier
+    campo no listado → `field_not_allowed`. Los errores de una lista nombran la posición
+    recibida (`allergies[1]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: Annotated[
+        int | None,
+        Field(ge=1, description="Se omite al crear; igual a la versión vigente al reemplazar."),
+    ] = None
+    consent: ConsentAcceptance
+    diet_pattern: DietPattern
+    restrictions: Annotated[
+        list[Restriction],
+        Field(max_length=RESTRICTIONS_MAX, description="Valores únicos; puede ir vacía."),
+    ]
+    allergies: Annotated[
+        list[Allergy],
+        Field(max_length=ALLERGIES_MAX, description="Valores únicos; puede ir vacía."),
+    ]
+    meals_per_day: Annotated[int, Field(ge=MEALS_PER_DAY_MIN, le=MEALS_PER_DAY_MAX)]
+    hydration_liters_per_day: Annotated[
+        str | None,
+        Field(
+            pattern=DECIMAL_INPUT_PATTERN,
+            description="Cadena decimal (0 o 1 decimal) entre 0.5 y 10.0 litros.",
+            examples=["2.5"],
+        ),
+    ] = None
+
+
 # --- Respuestas ---
 
 
@@ -221,10 +363,58 @@ class PhysiologicalProfileResponse(PhysiologicalSectionView, _UserIdentity):
     pass
 
 
+class SportHabitView(BaseModel):
+    sport: Sport
+    frequency_per_week: int
+    session_duration_minutes: int
+    intensity: Intensity
+    level: Level
+    years_practicing: int | None
+
+
+class SportAvailabilityView(BaseModel):
+    days: Annotated[list[Day], Field(description="En el orden del catálogo (`MON`…`SUN`).")]
+    time_slots: Annotated[list[TimeSlot], Field(description="En el orden del catálogo.")]
+
+
+class SportHabitsSectionView(BaseModel):
+    version: int
+    sports: Annotated[
+        list[SportHabitView], Field(description="En el orden del catálogo de deportes.")
+    ]
+    availability: SportAvailabilityView
+    primary_goal: PrimaryGoal | None
+    created_at: Annotated[datetime, Field(description=INSTANT_DESCRIPTION)]
+    updated_at: Annotated[datetime, Field(description=INSTANT_DESCRIPTION)]
+
+
+class SportHabitsResponse(SportHabitsSectionView, _UserIdentity):
+    pass
+
+
+class NutritionHabitsSectionView(BaseModel):
+    version: int
+    consent: HealthConsent
+    diet_pattern: DietPattern
+    restrictions: Annotated[list[Restriction], Field(description="En el orden del catálogo.")]
+    allergies: Annotated[list[Allergy], Field(description="En el orden del catálogo.")]
+    meals_per_day: int
+    hydration_liters_per_day: Annotated[
+        str | None, Field(pattern=ONE_DECIMAL_PATTERN, examples=["2.5"])
+    ]
+    created_at: Annotated[datetime, Field(description=INSTANT_DESCRIPTION)]
+    updated_at: Annotated[datetime, Field(description=INSTANT_DESCRIPTION)]
+
+
+class NutritionHabitsResponse(NutritionHabitsSectionView, _UserIdentity):
+    pass
+
+
 class ProfileVersions(BaseModel):
     demographic: int | None
     physiological: int | None
     sport_habits: int | None
+    nutrition_habits: int | None
 
 
 class AthleteProfileResponse(BaseModel):
@@ -232,7 +422,11 @@ class AthleteProfileResponse(BaseModel):
     demographic: DemographicSectionView | None
     physiological: PhysiologicalSectionView | None
     sport_habits: Annotated[
-        dict[str, Any] | None, Field(description="HU006; `null` mientras no exista.")
+        SportHabitsSectionView | None, Field(description="HU006; `null` mientras no exista.")
+    ]
+    nutrition_habits: Annotated[
+        NutritionHabitsSectionView | None,
+        Field(description="HU009; `null` mientras no exista."),
     ]
     versions: ProfileVersions
     projected_at: Annotated[
@@ -296,6 +490,22 @@ def _command_responses(model: type[BaseModel]) -> dict[int | str, dict[str, Any]
     }
 
 
+def _patch_responses(model: type[BaseModel]) -> dict[int | str, dict[str, Any]]:
+    """HU008: solo edita una sección existente; nunca crea (`201`)."""
+    responses = _command_responses(model)
+    del responses[HTTPStatus.CREATED.value]
+    responses[HTTPStatus.OK.value] = {
+        "model": model,
+        "description": "Secciones actualizadas: estado completo con la versión nueva.",
+        "headers": responses[HTTPStatus.OK.value]["headers"],
+    }
+    responses[HTTPStatus.NOT_FOUND.value] = {
+        "model": ErrorResponse,
+        "description": "`sport_habits_not_found`: primero se registran los hábitos (HU006).",
+    }
+    return responses
+
+
 def _no_store(response: Response) -> Response:
     response.headers["Cache-Control"] = NO_STORE
     return response
@@ -338,7 +548,7 @@ def decode_body(raw: bytes) -> object:
         return _MALFORMED_JSON
 
 
-def _put_section[InputT](
+def _section_command[InputT](
     verify_token: TokenVerifier,
     use_case: UpdateProfileSection[InputT],
     *,
@@ -378,6 +588,12 @@ def _run_command[InputT](
         )
     except InvalidProfileSection as error:
         return validation_failure(error.violations)
+    except SectionNotFound as error:
+        return error_response(
+            HTTPStatus.NOT_FOUND,
+            error.code,
+            "La sección todavía no está registrada.",
+        )
     except VersionConflict as error:
         return error_response(
             HTTPStatus.CONFLICT,
@@ -402,6 +618,9 @@ def build_profile_router(
     verify_token: TokenVerifier,
     update_demographic: UpdateDemographicProfile,
     update_physiological: UpdatePhysiologicalProfile,
+    update_sport_habits: UpdateSportHabits,
+    patch_sport_habits: PatchSportHabits,
+    update_nutrition_habits: UpdateNutritionHabits,
     get_profile: GetAthleteProfile,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1/me", tags=["profile"])
@@ -420,7 +639,7 @@ def build_profile_router(
     ) -> Response:
         # Solo se leen los bytes aquí; el trabajo bloqueante (token y base) corre en el pool.
         return await run_in_threadpool(
-            _put_section,
+            _section_command,
             verify_token,
             update_demographic,
             parse=parse_demographic,
@@ -442,7 +661,7 @@ def build_profile_router(
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
         return await run_in_threadpool(
-            _put_section,
+            _section_command,
             verify_token,
             update_physiological,
             parse=parse_physiological,
@@ -451,10 +670,82 @@ def build_profile_router(
             authorization=authorization,
         )
 
+    @router.put(
+        "/sport-habits",
+        response_model=SportHabitsResponse,
+        summary="Registrar o reemplazar los hábitos deportivos (HU006)",
+        description="Registrar hábitos no crea planes ni recomendaciones.",
+        openapi_extra=_request_body(SportHabitsRequest),
+        responses=_command_responses(SportHabitsResponse),
+    )
+    async def put_sport_habits(
+        request: Request,
+        idempotency_key: Annotated[str | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            _section_command,
+            verify_token,
+            update_sport_habits,
+            parse=parse_sport_habits,
+            raw_body=await request.body(),
+            raw_key=idempotency_key,
+            authorization=authorization,
+        )
+
+    @router.patch(
+        "/sport-habits",
+        response_model=SportHabitsResponse,
+        summary="Actualizar parcialmente los hábitos deportivos (HU008)",
+        description="Cada sección enviada reemplaza completa a la vigente y las demás se "
+        "conservan. Publica `habitos.deportivos_actualizados.v1` con la versión nueva; no "
+        "modifica planes de entrenamiento vigentes.",
+        openapi_extra=_request_body(SportHabitsPatchRequest),
+        responses=_patch_responses(SportHabitsResponse),
+    )
+    async def patch_sport_habits_route(
+        request: Request,
+        idempotency_key: Annotated[str | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            _section_command,
+            verify_token,
+            patch_sport_habits,
+            parse=parse_sport_habits_patch,
+            raw_body=await request.body(),
+            raw_key=idempotency_key,
+            authorization=authorization,
+        )
+
+    @router.put(
+        "/nutrition-habits",
+        response_model=NutritionHabitsResponse,
+        summary="Registrar o reemplazar los hábitos alimenticios con consentimiento (HU009)",
+        description="Exige el consentimiento vigente de datos de salud; sin él no se guarda "
+        "nada. Registrar hábitos no crea planes, consumos ni recomendaciones.",
+        openapi_extra=_request_body(NutritionHabitsRequest),
+        responses=_command_responses(NutritionHabitsResponse),
+    )
+    async def put_nutrition_habits(
+        request: Request,
+        idempotency_key: Annotated[str | None, Header(alias=IDEMPOTENCY_HEADER)] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        return await run_in_threadpool(
+            _section_command,
+            verify_token,
+            update_nutrition_habits,
+            parse=parse_nutrition_habits,
+            raw_body=await request.body(),
+            raw_key=idempotency_key,
+            authorization=authorization,
+        )
+
     @router.get(
         "/profile",
         response_model=AthleteProfileResponse,
-        summary="Consultar el perfil propio desde la proyección (HU005)",
+        summary="Consultar el perfil propio desde la proyección (HU005, HU006 y HU009)",
         responses={
             **AUTH_RESPONSES,
             HTTPStatus.SERVICE_UNAVAILABLE.value: {
@@ -487,10 +778,12 @@ def build_profile_router(
                 "demographic": view.demographic,
                 "physiological": view.physiological,
                 "sport_habits": view.sport_habits,
+                "nutrition_habits": view.nutrition_habits,
                 "versions": {
                     "demographic": view.demographic_version,
                     "physiological": view.physiological_version,
                     "sport_habits": view.sport_habits_version,
+                    "nutrition_habits": view.nutrition_habits_version,
                 },
                 "projected_at": (view.projected_at.astimezone(UTC) if view.projected_at else None),
             }

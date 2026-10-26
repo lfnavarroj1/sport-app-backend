@@ -2,8 +2,12 @@
 
 Ejecución: `python -m events_management.workers.read_projector`.
 
-- Proyecta `evento.creado.v1` y `evento.publicado.v1` por estado completo (ADR-033) y
-  `usuario.inscrito.v1` (HU041).
+- Proyecta `evento.creado.v1`, `evento.publicado.v1` y `evento.tarifa_actualizada.v1`
+  (HU025, ADR-040) por estado completo (ADR-033), `usuario.inscrito.v1` (HU041) y
+  `notificacion.solicitada.v1` en la bandeja (HU039, ADR-045).
+- Con `FCM_ENABLED` envía además el *push* de cada notificación nueva después del COMMIT de
+  la bandeja, en hilos propios (`BackgroundPush`): el ACK no espera a FCM y un fallo se
+  registra en `notification_delivery`.
 - Consume `sportapp.eventos.v1` por la suscripción ordenada `proyector-eventos-v1`.
 - Confirma (ACK) el mensaje solo después del COMMIT de `event_read` y `processed_event`.
 - Un mensaje inválido o un fallo de procesamiento no se confirma:
@@ -15,14 +19,20 @@ Ejecución: `python -m events_management.workers.read_projector`.
 import json
 import logging
 import signal
+import threading
+import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
+import httpx
 from google.cloud import pubsub_v1
 from sqlalchemy.orm import sessionmaker
 
+from events_management.application.commands.push_delivery import DeliverPush
 from events_management.application.messages import (
     InvalidEvent,
+    NotificationRequestedMessage,
     RegistrationCreatedMessage,
     SportEventMessage,
     UnsupportedEvent,
@@ -32,10 +42,19 @@ from events_management.application.projections.event_projection import (
     EventsProjector,
     ProjectionOutcome,
 )
+from events_management.domain.notifications.model import Notification
 from events_management.infrastructure.clock import SystemClock
+from events_management.infrastructure.integrations.fcm import (
+    FcmPushSender,
+    ServiceAccountAccessToken,
+)
 from events_management.infrastructure.persistence_read.events import (
     SqlAlchemyProjectionUnitOfWork,
 )
+from events_management.infrastructure.persistence_write.notifications import (
+    SqlAlchemyPushDeliveryStore,
+)
+from events_management.infrastructure.token_cipher import TokenCipher, decode_key
 from events_management.settings import ReadProjectorSettings
 from sportapp_platform.config import load_settings
 from sportapp_platform.database import create_database_engine
@@ -85,11 +104,7 @@ class ProjectionMessageHandler:
             return
         fields |= {
             "event_id": str(event.message_id),
-            "aggregate_id": str(
-                event.registration.registration_id
-                if isinstance(event, RegistrationCreatedMessage)
-                else event.event.event_id
-            ),
+            "aggregate_id": str(_aggregate_id(event)),
             "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         }
         try:
@@ -111,6 +126,84 @@ class ProjectionMessageHandler:
         message.nack()
 
 
+def _aggregate_id(event: SportEventMessage) -> object:
+    if isinstance(event, RegistrationCreatedMessage):
+        return event.registration.registration_id
+    if isinstance(event, NotificationRequestedMessage):
+        return event.notification.notification_id
+    return event.event.event_id
+
+
+class BackgroundPush:
+    """Ejecuta el *push* en hilos propios para que el callback confirme el mensaje sin esperar
+    a FCM (CA4: un FCM lento o caído no frena la bandeja ni las demás proyecciones).
+
+    Como máximo `workers + queue_size` envíos pendientes; si no hay cupo, la notificación se
+    descarta para el *push* (sigue en la bandeja) y se registra `push.dropped`.
+    """
+
+    def __init__(
+        self, deliver: Callable[[Notification], None], *, workers: int, queue_size: int
+    ) -> None:
+        self._deliver = deliver
+        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="push")
+        self._slots = threading.BoundedSemaphore(workers + queue_size)
+
+    def __call__(self, notification: Notification) -> None:
+        if not self._slots.acquire(blocking=False):
+            _logger.warning(
+                "push.dropped",
+                extra={
+                    "fields": {
+                        "notification_id": str(notification.notification_id),
+                        "reason": "queue_full",
+                    }
+                },
+            )
+            return
+        future = self._executor.submit(self._deliver, notification)
+        future.add_done_callback(lambda _: self._slots.release())
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True)
+
+
+def build_push_delivery(
+    settings: ReadProjectorSettings,
+) -> tuple[Callable[[Notification], None] | None, list[Callable[[], None]]]:
+    """Envío *push* y sus cierres; `None` sin `FCM_ENABLED` (valor por defecto)."""
+    if not settings.fcm_enabled:
+        return None, []
+    write_url = settings.database_write_url
+    key = settings.push_token_encryption_key
+    project_id = settings.fcm_project_id
+    service_account = settings.fcm_service_account
+    if write_url is None or key is None or project_id is None or service_account is None:
+        # La validación de la configuración ya lo impide; se repite para el tipado.
+        raise ValueError("FCM_ENABLED requiere su configuración completa")
+    write_engine = create_database_engine(write_url, settings)
+    fcm_http = httpx.Client(
+        base_url=str(settings.fcm_base_url), timeout=settings.fcm_timeout_seconds
+    )
+    deliver = DeliverPush(
+        store=SqlAlchemyPushDeliveryStore(
+            sessionmaker(write_engine), TokenCipher(decode_key(key.get_secret_value()))
+        ),
+        sender=FcmPushSender(
+            fcm_http,
+            project_id=project_id,
+            access_token=ServiceAccountAccessToken(service_account),
+        ),
+        clock=SystemClock(),
+        sleep=time.sleep,
+    )
+    background = BackgroundPush(
+        deliver, workers=settings.push_workers, queue_size=settings.push_queue_size
+    )
+    # Primero se terminan los envíos en curso y después se cierran sus recursos.
+    return background, [background.close, fcm_http.close, write_engine.dispose]
+
+
 def main() -> None:
     settings = load_settings(ReadProjectorSettings)
     configure_logging(
@@ -120,9 +213,11 @@ def main() -> None:
         level=settings.log_level,
     )
     engine = create_database_engine(settings.database_read_url, settings)
+    deliver_push, closers = build_push_delivery(settings)
     project = EventsProjector(
         unit_of_work=lambda: SqlAlchemyProjectionUnitOfWork(sessionmaker(engine)),
         clock=SystemClock(),
+        deliver_push=deliver_push,
     )
     subscriber = pubsub_v1.SubscriberClient()
     subscription = subscriber.subscription_path(
@@ -143,6 +238,8 @@ def main() -> None:
     finally:
         subscriber.close()
         engine.dispose()
+        for close in closers:
+            close()
         _logger.info("projector.stopped")
 
 

@@ -1,4 +1,4 @@
-"""Unidad de trabajo SQLAlchemy del alta gratuita (inbox + suscripción + outbox)."""
+"""Unidad de trabajo SQLAlchemy del alta gratuita (inbox + suscripción + historial + outbox)."""
 
 from datetime import datetime
 from types import TracebackType
@@ -15,7 +15,9 @@ from affiliation_management.application.ports import (
     InboxRecord,
     OutboxMessage,
 )
+from affiliation_management.domain.subscriptions.change import Movement
 from affiliation_management.domain.subscriptions.model import (
+    Periodicity,
     PlanVersionRef,
     Subscription,
     SubscriptionStatus,
@@ -25,10 +27,61 @@ from affiliation_management.infrastructure.persistence.models import (
     INBOX_PRIMARY_KEY,
     InboxEventRow,
     OutboxEventRow,
+    PlanOfferRow,
     PlanRow,
     PlanVersionRow,
+    SubscriptionHistoryRow,
     SubscriptionRow,
 )
+
+
+def subscription_row(subscription: Subscription) -> SubscriptionRow:
+    return SubscriptionRow(
+        subscription_id=subscription.subscription_id,
+        user_id=subscription.user_id,
+        plan_code=subscription.plan.plan_code,
+        plan_version=subscription.plan.version,
+        status=subscription.status.value,
+        origin=subscription.origin.value,
+        started_at=subscription.started_at,
+        version=subscription.version,
+        created_at=subscription.started_at,
+        updated_at=subscription.started_at,
+        periodicity=subscription.periodicity.value,
+        plan_offer_id=subscription.plan_offer_id,
+        period_start=subscription.period_start,
+        period_end=subscription.period_end,
+    )
+
+
+def movement_row(movement: Movement) -> SubscriptionHistoryRow:
+    return SubscriptionHistoryRow(
+        movement_id=movement.movement_id,
+        user_id=movement.user_id,
+        movement_type=movement.movement_type.value,
+        occurred_at=movement.occurred_at,
+        subscription_id=movement.subscription_id,
+        commitment_id=movement.commitment_id,
+        plan_code=movement.plan_code,
+        periodicity=movement.periodicity.value,
+    )
+
+
+def outbox_row(message: OutboxMessage) -> OutboxEventRow:
+    return OutboxEventRow(
+        event_id=message.event_id,
+        aggregate_type=message.aggregate_type,
+        aggregate_id=message.aggregate_id,
+        aggregate_version=message.aggregate_version,
+        event_type=message.event_type,
+        schema_version=message.schema_version,
+        occurred_at=message.occurred_at,
+        correlation_id=message.correlation_id,
+        causation_id=message.causation_id,
+        payload=message.payload,
+        attempts=0,
+        next_attempt_at=message.occurred_at,
+    )
 
 
 def _violated_constraint(error: IntegrityError) -> str | None:
@@ -94,39 +147,27 @@ class SqlAlchemyProvisioningUnitOfWork:
             return None
         return PlanVersionRef(plan_code=row[0], version=row[1], catalog_version=row[2])
 
-    def add_subscription(self, subscription: Subscription) -> None:
-        self.session.add(
-            SubscriptionRow(
-                subscription_id=subscription.subscription_id,
-                user_id=subscription.user_id,
-                plan_code=subscription.plan.plan_code,
-                plan_version=subscription.plan.version,
-                status=subscription.status.value,
-                origin=subscription.origin.value,
-                started_at=subscription.started_at,
-                version=subscription.version,
-                created_at=subscription.started_at,
-                updated_at=subscription.started_at,
+    def none_offer_id(self, plan: PlanVersionRef) -> UUID | None:
+        offer_id: UUID | None = self.session.scalar(
+            select(PlanOfferRow.offer_id).where(
+                PlanOfferRow.plan_code == plan.plan_code,
+                PlanOfferRow.plan_version == plan.version,
+                PlanOfferRow.periodicity == Periodicity.NONE.value,
             )
         )
+        return offer_id
+
+    def add_subscription(self, subscription: Subscription) -> None:
+        # Se inserta ya: el historial la referencia por clave foránea y, sin `relationship`,
+        # SQLAlchemy no ordena esas inserciones. Las unicidades se traducen igual que en commit.
+        self.session.add(subscription_row(subscription))
+        self._flush()
+
+    def add_movement(self, movement: Movement) -> None:
+        self.session.add(movement_row(movement))
 
     def add_outbox(self, message: OutboxMessage) -> None:
-        self.session.add(
-            OutboxEventRow(
-                event_id=message.event_id,
-                aggregate_type=message.aggregate_type,
-                aggregate_id=message.aggregate_id,
-                aggregate_version=message.aggregate_version,
-                event_type=message.event_type,
-                schema_version=message.schema_version,
-                occurred_at=message.occurred_at,
-                correlation_id=message.correlation_id,
-                causation_id=message.causation_id,
-                payload=message.payload,
-                attempts=0,
-                next_attempt_at=message.occurred_at,
-            )
-        )
+        self.session.add(outbox_row(message))
 
     def add_inbox(self, record: InboxRecord) -> None:
         self.session.add(
@@ -139,14 +180,25 @@ class SqlAlchemyProvisioningUnitOfWork:
             )
         )
 
+    def _flush(self) -> None:
+        try:
+            self.session.flush()
+        except IntegrityError as error:
+            self.session.rollback()
+            self._translate(error)
+
     def commit(self) -> None:
         try:
             self.session.commit()
         except IntegrityError as error:
             self.session.rollback()
-            constraint = _violated_constraint(error)
-            if constraint == INBOX_PRIMARY_KEY:
-                raise DuplicateDelivery() from None
-            if constraint == ACTIVE_SUBSCRIPTION_INDEX:
-                raise ActiveSubscriptionExists() from None
-            raise
+            self._translate(error)
+
+    @staticmethod
+    def _translate(error: IntegrityError) -> None:
+        constraint = _violated_constraint(error)
+        if constraint == INBOX_PRIMARY_KEY:
+            raise DuplicateDelivery() from None
+        if constraint == ACTIVE_SUBSCRIPTION_INDEX:
+            raise ActiveSubscriptionExists() from None
+        raise error

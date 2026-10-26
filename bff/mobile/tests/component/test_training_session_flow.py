@@ -115,6 +115,7 @@ class TrainingSessionFlowTest(unittest.TestCase):
                         app_env="test",  # type: ignore[arg-type]
                         database_url=self.urls["affiliation"],  # type: ignore[arg-type]
                         affiliation_expected_catalog_version=CATALOG,
+                        users_management_base_url="http://users-management",  # type: ignore[arg-type]
                     )
                 ),
                 base_url="http://affiliation-management",
@@ -129,6 +130,7 @@ class TrainingSessionFlowTest(unittest.TestCase):
                         database_read_url=self.urls["training_r"],  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
                         affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
+                        health_data_consent_version="local-dev",
                     ),
                     users_http=self.users,
                     affiliation_http=affiliation,
@@ -145,6 +147,7 @@ class TrainingSessionFlowTest(unittest.TestCase):
                         affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
                         training_management_base_url="http://training-management",  # type: ignore[arg-type]
                         events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
+                        complementary_services_base_url="http://services.invalid",  # type: ignore[arg-type]
                     ),
                     users_http=self.users,
                     affiliation_http=affiliation,

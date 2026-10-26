@@ -193,6 +193,7 @@ class TrainingPlanVerticalFlowTest(unittest.TestCase):
                         app_env="test",  # type: ignore[arg-type]
                         database_url=self.urls["affiliation"],  # type: ignore[arg-type]
                         affiliation_expected_catalog_version=CATALOG,
+                        users_management_base_url="http://users-management",  # type: ignore[arg-type]
                     )
                 ),
                 base_url="http://affiliation-management",
@@ -207,6 +208,7 @@ class TrainingPlanVerticalFlowTest(unittest.TestCase):
                         database_read_url=self.urls["training_r"],  # type: ignore[arg-type]
                         users_management_base_url="http://users-management",  # type: ignore[arg-type]
                         affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
+                        health_data_consent_version="local-dev",
                     ),
                     users_http=users,
                     affiliation_http=affiliation,

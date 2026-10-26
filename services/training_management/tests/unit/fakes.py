@@ -18,13 +18,21 @@ from training_management.application.ports import (
     DuplicateDelivery,
     HistoryQuery,
     IdempotencyRecord,
+    MonitoringView,
     OutboxMessage,
     PlanView,
+    RiskAlertView,
     SessionHistoryEntry,
 )
 from training_management.domain.authorizations.model import TrainingAuthorization
+from training_management.domain.health.model import HealthReport
 from training_management.domain.metrics.model import TrainingMetricCalculation
+from training_management.domain.nutrition.intake import FoodIntake
+from training_management.domain.nutrition.model import NutritionPlan
 from training_management.domain.plans.model import TrainingPlan
+from training_management.domain.routes.model import Route
+from training_management.domain.routines.model import NutritionRoutineTemplate
+from training_management.domain.templates.model import TrainingPlanTemplate
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
 
@@ -188,6 +196,14 @@ class InMemoryReadStore:
     active: dict[UUID, ActiveSessionView] = field(default_factory=dict)
     planned: dict[UUID, PlanView] = field(default_factory=dict)
     metric_results: dict[UUID, TrainingMetricCalculation] = field(default_factory=dict)
+    nutrition_plans: dict[UUID, NutritionPlan] = field(default_factory=dict)
+    food_intakes: dict[UUID, FoodIntake] = field(default_factory=dict)
+    routes: dict[UUID, Route] = field(default_factory=dict)
+    templates: dict[UUID, TrainingPlanTemplate] = field(default_factory=dict)
+    routines: dict[UUID, NutritionRoutineTemplate] = field(default_factory=dict)
+    monitoring: dict[UUID, MonitoringView] = field(default_factory=dict)
+    risk_alerts: dict[UUID, RiskAlertView] = field(default_factory=dict)
+    health_reports: dict[UUID, HealthReport] = field(default_factory=dict)
 
 
 class InMemoryHistoryReader:
@@ -242,6 +258,14 @@ class InMemoryProjectionUnitOfWork:
         self._removed: list[UUID] = []
         self._planned: list[PlanView] = []
         self._metrics: list[TrainingMetricCalculation] = []
+        self._nutrition: list[NutritionPlan] = []
+        self._intakes: list[FoodIntake] = []
+        self._routes: list[Route] = []
+        self._templates: list[TrainingPlanTemplate] = []
+        self._routines: list[NutritionRoutineTemplate] = []
+        self._monitoring: list[MonitoringView] = []
+        self._risk_alerts: list[RiskAlertView] = []
+        self._health_reports: list[HealthReport] = []
 
     def __enter__(self) -> Self:
         return self
@@ -254,6 +278,9 @@ class InMemoryProjectionUnitOfWork:
     ) -> None:
         self._views, self._processed, self._authorizations, self._sessions = [], [], [], []
         self._active, self._removed, self._planned, self._metrics = [], [], [], []
+        self._nutrition, self._intakes, self._routes, self._templates = [], [], [], []
+        self._monitoring, self._risk_alerts = [], []
+        self._health_reports, self._routines = [], []
 
     def is_processed(self, event_id: UUID) -> bool:
         return event_id in self.store.processed
@@ -300,6 +327,60 @@ class InMemoryProjectionUnitOfWork:
     ) -> None:
         self._metrics.append(calculation)
 
+    def nutrition_plan_version(self, plan_id: UUID) -> int | None:
+        plan = self.store.nutrition_plans.get(plan_id)
+        return plan.version if plan is not None else None
+
+    def save_nutrition_plan_view(self, plan: NutritionPlan, projected_at: datetime) -> None:
+        self._nutrition.append(plan)
+
+    def food_intake_version(self, intake_id: UUID) -> int | None:
+        intake = self.store.food_intakes.get(intake_id)
+        return intake.version if intake is not None else None
+
+    def save_food_intake_view(self, intake: FoodIntake, projected_at: datetime) -> None:
+        self._intakes.append(intake)
+
+    def route_version(self, route_id: UUID) -> int | None:
+        route = self.store.routes.get(route_id)
+        return route.version if route is not None else None
+
+    def save_route_view(self, route: Route, projected_at: datetime) -> None:
+        self._routes.append(route)
+
+    def template_version(self, template_id: UUID) -> int | None:
+        template = self.store.templates.get(template_id)
+        return template.version if template is not None else None
+
+    def save_template_view(self, template: TrainingPlanTemplate, projected_at: datetime) -> None:
+        self._templates.append(template)
+
+    def routine_version(self, template_id: UUID) -> int | None:
+        routine = self.store.routines.get(template_id)
+        return routine.version if routine is not None else None
+
+    def save_routine_view(self, routine: NutritionRoutineTemplate, projected_at: datetime) -> None:
+        self._routines.append(routine)
+
+    def monitoring_view(self, session_id: UUID) -> MonitoringView | None:
+        return self.store.monitoring.get(session_id)
+
+    def save_monitoring_view(self, view: MonitoringView, projected_at: datetime) -> None:
+        self._monitoring.append(view)
+
+    def has_risk_alert(self, alert_id: UUID) -> bool:
+        return alert_id in self.store.risk_alerts
+
+    def add_risk_alert(self, alert: RiskAlertView, projected_at: datetime) -> None:
+        self._risk_alerts.append(alert)
+
+    def health_report_version(self, report_id: UUID) -> int | None:
+        report = self.store.health_reports.get(report_id)
+        return report.version if report is not None else None
+
+    def save_health_report_view(self, report: HealthReport, projected_at: datetime) -> None:
+        self._health_reports.append(report)
+
     def add_processed(
         self, event_id: UUID, event_type: str, aggregate_id: UUID, processed_at: datetime
     ) -> None:
@@ -324,8 +405,18 @@ class InMemoryProjectionUnitOfWork:
             self.store.planned[planned.plan_id] = planned
         for session_id in self._removed:
             self.store.active.pop(session_id, None)
-        for calculation in self._metrics:
-            self.store.metric_results[calculation.calculation_id] = calculation
+        # Vistas de estado completo (HU034, HU014, HU043, HU026, HU028 y HU030).
+        self.store.metric_results.update((c.calculation_id, c) for c in self._metrics)
+        self.store.nutrition_plans.update((p.plan_id, p) for p in self._nutrition)
+        self.store.food_intakes.update((i.intake_id, i) for i in self._intakes)
+        self.store.routes.update((r.route_id, r) for r in self._routes)
+        self.store.templates.update((t.template_id, t) for t in self._templates)
+        self.store.routines.update((r.template_id, r) for r in self._routines)
+        # HU036: resumen acumulado y alertas de inserción única.
+        self.store.monitoring.update((m.session_id, m) for m in self._monitoring)
+        self.store.risk_alerts.update((a.alert_id, a) for a in self._risk_alerts)
+        # HU042: reportes de salud por estado completo.
+        self.store.health_reports.update((r.report_id, r) for r in self._health_reports)
         for event_id, event_type, aggregate_id in self._processed:
             self.store.processed[event_id] = (event_type, aggregate_id)
 

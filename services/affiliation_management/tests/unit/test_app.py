@@ -9,6 +9,7 @@ SETTINGS = AffiliationManagementSettings(
     app_env="test",
     database_url="postgresql+psycopg://contract@127.0.0.1:1/contract",
     affiliation_expected_catalog_version="plans-2026-10-11.v1",
+    users_management_base_url="http://users-management",  # type: ignore[arg-type]
     db_connect_timeout_seconds=1,
 )
 

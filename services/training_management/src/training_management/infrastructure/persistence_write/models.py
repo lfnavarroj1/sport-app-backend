@@ -11,10 +11,13 @@ from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
+    Double,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -33,6 +36,11 @@ TRAINING_SESSION_PRIMARY_KEY = "pk_training_session"
 ACTIVE_SESSION_INDEX = "uq_training_session_athlete_active"
 AUTHORIZATION_PRIMARY_KEY = "pk_training_authorization"
 METRIC_CALCULATION_PRIMARY_KEY = "pk_training_metric_calculation"
+HEALTH_REPORT_PRIMARY_KEY = "pk_health_report"
+ATHLETE_DEVICE_PRIMARY_KEY = "pk_athlete_device"
+MONITORING_SETTINGS_PRIMARY_KEY = "pk_monitoring_settings"
+SESSION_REMINDER_PREFERENCE_PRIMARY_KEY = "pk_session_reminder_preference"
+FOOD_INTAKE_PRIMARY_KEY = "pk_food_intake"
 
 
 class WriteBase(DeclarativeBase):
@@ -157,6 +165,11 @@ class TrainingSessionRow(WriteBase):
             " AND version = 2)",
             name="transition",
         ),
+        # HU036: `RISK_STOP` solo en una sesión terminada.
+        CheckConstraint(
+            "end_reason IS NULL OR (end_reason = 'RISK_STOP' AND status = 'FINISHED')",
+            name="end_reason",
+        ),
         # Como máximo una sesión activa por deportista: serializa los inicios concurrentes.
         Index(
             ACTIVE_SESSION_INDEX,
@@ -179,6 +192,7 @@ class TrainingSessionRow(WriteBase):
     version: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    end_reason: Mapped[str | None] = mapped_column(String(16))
 
 
 class CommandIdempotencyRow(WriteBase):
@@ -241,3 +255,434 @@ class TrainingMetricInputRow(WriteBase):
     position: Mapped[int] = mapped_column(SmallInteger)
     value: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     unit: Mapped[str] = mapped_column(String(32))
+
+
+class HealthReportRow(WriteBase):
+    """Reporte de molestia, incapacidad o lesión de HU042 (ADR-037); catálogos cerrados y sin
+    texto libre. `session_id` opcional apunta a una sesión propia de HU032."""
+
+    __tablename__ = "health_report"
+    __table_args__ = (
+        CheckConstraint("type IN ('DISCOMFORT', 'INJURY', 'INCAPACITY')", name="type"),
+        CheckConstraint(
+            "body_area IN ('HEAD', 'NECK', 'SHOULDER', 'ARM', 'ELBOW', 'WRIST_HAND', 'CHEST',"
+            " 'BACK', 'HIP', 'THIGH', 'KNEE', 'LOWER_LEG', 'ANKLE_FOOT', 'OTHER')",
+            name="body_area",
+        ),
+        CheckConstraint("severity IN ('LOW', 'MODERATE', 'HIGH')", name="severity"),
+        CheckConstraint(
+            "expected_recovery_days IS NULL OR expected_recovery_days BETWEEN 0 AND 365",
+            name="expected_recovery_days",
+        ),
+        CheckConstraint("status IN ('OPEN')", name="status"),
+        CheckConstraint("version = 1", name="version"),
+    )
+
+    report_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT")
+    )
+    type: Mapped[str] = mapped_column(String(16))
+    body_area: Mapped[str] = mapped_column(String(16))
+    severity: Mapped[str] = mapped_column(String(16))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expected_recovery_days: Mapped[int | None] = mapped_column(SmallInteger)
+    health_consent_version: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FoodCatalogItemRow(WriteBase):
+    """Alimento del catálogo cerrado de HU014/HU043 (ADR-037); lo precarga la migración."""
+
+    __tablename__ = "food_catalog_item"
+
+    food_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label_key: Mapped[str] = mapped_column(String(80))
+    category: Mapped[str] = mapped_column(String(16))
+    default_unit: Mapped[str] = mapped_column(String(8))
+    allowed_units: Mapped[list[str]] = mapped_column(JSONB)
+    allergens: Mapped[list[str]] = mapped_column(JSONB)
+    incompatible_with: Mapped[list[str]] = mapped_column(JSONB)
+    catalog_version: Mapped[str] = mapped_column(String(64))
+
+
+class NutritionPlanRow(WriteBase):
+    """Plan de alimentación asignado (HU014); inmutable en versión 1."""
+
+    __tablename__ = "nutrition_plan"
+    __table_args__ = (
+        CheckConstraint("status IN ('ASSIGNED')", name="status"),
+        CheckConstraint("version = 1", name="version"),
+        CheckConstraint("start_date <= end_date", name="period"),
+    )
+
+    plan_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    professional_id: Mapped[UUID] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    objectives: Mapped[list[str]] = mapped_column(JSONB)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(16))
+    catalog_version: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+
+
+class NutritionPlanMealRow(WriteBase):
+    """Comida del menú diario del plan, en el orden del profesional."""
+
+    __tablename__ = "nutrition_plan_meal"
+    __table_args__ = (
+        CheckConstraint(
+            "meal_type IN ('BREAKFAST', 'LUNCH', 'DINNER', 'SNACK', 'HYDRATION')",
+            name="meal_type",
+        ),
+    )
+
+    plan_id: Mapped[UUID] = mapped_column(
+        ForeignKey("nutrition_plan.plan_id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    meal_type: Mapped[str] = mapped_column(String(16))
+
+
+class NutritionPlanItemRow(WriteBase):
+    """Alimento de una comida: cantidad con un decimal y unidad permitida del catálogo."""
+
+    __tablename__ = "nutrition_plan_item"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "meal_position"],
+            ["nutrition_plan_meal.plan_id", "nutrition_plan_meal.position"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("quantity BETWEEN 0.1 AND 5000.0", name="quantity"),
+        CheckConstraint("unit IN ('G', 'ML', 'UNIT', 'CUP', 'TBSP')", name="unit"),
+    )
+
+    plan_id: Mapped[UUID] = mapped_column(primary_key=True)
+    meal_position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    food_code: Mapped[str] = mapped_column(
+        String(64), ForeignKey("food_catalog_item.food_code", ondelete="RESTRICT")
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(5, 1))
+    unit: Mapped[str] = mapped_column(String(8))
+
+
+class FoodIntakeRow(WriteBase):
+    """Consumo de alimentos y bebidas del deportista (HU043); inmutable en versión 1."""
+
+    __tablename__ = "food_intake"
+    __table_args__ = (
+        CheckConstraint(
+            "meal_type IN ('BREAKFAST', 'LUNCH', 'DINNER', 'SNACK', 'HYDRATION')",
+            name="meal_type",
+        ),
+        CheckConstraint("version = 1", name="version"),
+    )
+
+    intake_id: Mapped[UUID] = mapped_column(primary_key=True)
+    athlete_id: Mapped[UUID] = mapped_column(index=True)
+    consumed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    meal_type: Mapped[str] = mapped_column(String(16))
+    catalog_version: Mapped[str] = mapped_column(String(64))
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(BigInteger)
+    data_fingerprint: Mapped[str] = mapped_column(String(64))
+
+
+class FoodIntakeItemRow(WriteBase):
+    """Alimento consumido: cantidad con un decimal y unidad permitida del catálogo."""
+
+    __tablename__ = "food_intake_item"
+    __table_args__ = (
+        CheckConstraint("quantity BETWEEN 0.1 AND 5000.0", name="quantity"),
+        CheckConstraint("unit IN ('G', 'ML', 'UNIT', 'CUP', 'TBSP')", name="unit"),
+    )
+
+    intake_id: Mapped[UUID] = mapped_column(
+        ForeignKey("food_intake.intake_id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    food_code: Mapped[str] = mapped_column(
+        String(64), ForeignKey("food_catalog_item.food_code", ondelete="RESTRICT")
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(5, 1))
+    unit: Mapped[str] = mapped_column(String(8))
+
+
+class RouteRow(WriteBase):
+    """Ruta sugerible publicada por un organizador (HU026, ADR-041); al retirarse se conserva.
+
+    `organizer_id` es un identificador de Usuarios, sin clave foránea entre bases.
+    """
+
+    __tablename__ = "route"
+    __table_args__ = (
+        CheckConstraint("status IN ('PUBLISHED', 'RETIRED')", name="status"),
+        CheckConstraint(
+            "sport IN ('running', 'cycling', 'swimming', 'strength', 'other')", name="sport"
+        ),
+        CheckConstraint("difficulty IN ('LOW', 'MODERATE', 'HIGH')", name="difficulty"),
+        CheckConstraint("distance_km BETWEEN 0.1 AND 500.0", name="distance_km"),
+        CheckConstraint("start_lat BETWEEN -90 AND 90", name="start_lat"),
+        CheckConstraint("start_lng BETWEEN -180 AND 180", name="start_lng"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'RETIRED') = (retired_at IS NOT NULL)", name="retired_at"),
+    )
+
+    route_id: Mapped[UUID] = mapped_column(primary_key=True)
+    organizer_id: Mapped[UUID] = mapped_column(index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(String(2000))
+    sport: Mapped[str] = mapped_column(String(16))
+    distance_km: Mapped[Decimal] = mapped_column(Numeric(4, 1))
+    difficulty: Mapped[str] = mapped_column(String(16))
+    city: Mapped[str] = mapped_column(String(80))
+    country_code: Mapped[str] = mapped_column(String(2))
+    start_lat: Mapped[float] = mapped_column(Double)
+    start_lng: Mapped[float] = mapped_column(Double)
+    # Hasta 200 puntos `{lat, lng}` en el orden del organizador.
+    waypoints: Mapped[list[dict[str, float]]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingPlanTemplateRow(WriteBase):
+    """Plantilla de plan publicada por un profesional (HU028, ADR-041); al retirarse se
+    conserva. No es un plan asignado: no tiene deportista ni fechas.
+
+    `professional_id` es un identificador de Usuarios, sin clave foránea entre bases.
+    """
+
+    __tablename__ = "training_plan_template"
+    __table_args__ = (
+        CheckConstraint("status IN ('PUBLISHED', 'RETIRED')", name="status"),
+        CheckConstraint(
+            "sport IN ('running', 'cycling', 'swimming', 'strength', 'other')", name="sport"
+        ),
+        CheckConstraint(
+            "goal IN ('HEALTH', 'PERFORMANCE', 'WEIGHT_MANAGEMENT', 'RECREATION', 'COMPETITION')",
+            name="goal",
+        ),
+        CheckConstraint("level IN ('BEGINNER', 'INTERMEDIATE', 'ADVANCED')", name="level"),
+        CheckConstraint("duration_weeks BETWEEN 1 AND 52", name="duration_weeks"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'RETIRED') = (retired_at IS NOT NULL)", name="retired_at"),
+    )
+
+    template_id: Mapped[UUID] = mapped_column(primary_key=True)
+    professional_id: Mapped[UUID] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    objectives: Mapped[str] = mapped_column(String(2000))
+    sport: Mapped[str] = mapped_column(String(16))
+    goal: Mapped[str] = mapped_column(String(32))
+    level: Mapped[str] = mapped_column(String(16))
+    duration_weeks: Mapped[int] = mapped_column(SmallInteger)
+    # De 1 a 14 sesiones `{day_of_week, description, duration_minutes}` en el orden del
+    # profesional.
+    weekly_sessions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class NutritionRoutineTemplateRow(WriteBase):
+    """Rutina alimenticia publicada por un profesional (HU030, ADR-041); al retirarse se
+    conserva. No es un plan de alimentación asignado: no tiene deportista ni fechas.
+
+    `professional_id` es un identificador de Usuarios, sin clave foránea entre bases.
+    """
+
+    __tablename__ = "nutrition_routine_template"
+    __table_args__ = (
+        CheckConstraint("status IN ('PUBLISHED', 'RETIRED')", name="status"),
+        CheckConstraint(
+            "goal IN ('HEALTH', 'PERFORMANCE', 'WEIGHT_MANAGEMENT', 'RECREATION', 'COMPETITION')",
+            name="goal",
+        ),
+        CheckConstraint(
+            "sport IS NULL OR sport IN ('running', 'cycling', 'swimming', 'strength', 'other')",
+            name="sport",
+        ),
+        CheckConstraint(
+            "dietary_pattern IN ('OMNIVORE', 'VEGETARIAN', 'VEGAN', 'PESCATARIAN', 'FLEXITARIAN')",
+            name="dietary_pattern",
+        ),
+        CheckConstraint("duration_days BETWEEN 1 AND 90", name="duration_days"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'RETIRED') = (retired_at IS NOT NULL)", name="retired_at"),
+    )
+
+    template_id: Mapped[UUID] = mapped_column(primary_key=True)
+    professional_id: Mapped[UUID] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(2000))
+    goal: Mapped[str] = mapped_column(String(32))
+    sport: Mapped[str | None] = mapped_column(String(16))
+    dietary_pattern: Mapped[str] = mapped_column(String(16))
+    # Alérgenos del catálogo de HU009 en su orden (declarados más los de los alimentos).
+    contains_allergens: Mapped[list[str]] = mapped_column(JSONB)
+    duration_days: Mapped[int] = mapped_column(SmallInteger)
+    # De 1 a 8 comidas `{meal, items[{food_code, portions}]}` en el orden del profesional.
+    daily_meals: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AthleteDeviceRow(WriteBase):
+    """Monitor de frecuencia cardiaca vinculado por el deportista (HU037, ADR-044).
+
+    `device_id` es el SHA-256 que calcula el móvil; la dirección BLE nunca llega al backend.
+    """
+
+    __tablename__ = "athlete_device"
+    __table_args__ = (
+        CheckConstraint("device_id ~ '^[0-9a-f]{64}$'", name="device_id"),
+        CheckConstraint("char_length(display_name) BETWEEN 1 AND 60", name="display_name"),
+        CheckConstraint("device_type = 'HEART_RATE_MONITOR'", name="device_type"),
+        CheckConstraint("protocol = 'BLE_HRS'", name="protocol"),
+        CheckConstraint("status IN ('ACTIVE', 'REVOKED')", name="status"),
+        CheckConstraint("version >= 1", name="version"),
+        CheckConstraint("(status = 'REVOKED') = (revoked_at IS NOT NULL)", name="revoked_at"),
+    )
+
+    athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
+    device_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(60))
+    device_type: Mapped[str] = mapped_column(String(32))
+    protocol: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingMeasurementRow(WriteBase):
+    """Muestra de frecuencia cardiaca de una sesión (HU037, ADR-044 §7); la clave primaria es la
+    identidad natural que deduplica los reenvíos."""
+
+    __tablename__ = "training_measurement"
+    __table_args__ = (
+        CheckConstraint("type = 'HEART_RATE'", name="type"),
+        CheckConstraint("unit = 'bpm'", name="unit"),
+        CheckConstraint("value BETWEEN 20 AND 250", name="value"),
+        # HU036: retención de 90 días por instante de la muestra.
+        Index("ix_training_measurement_measured_at", "measured_at"),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT"), primary_key=True
+    )
+    device_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    type: Mapped[str] = mapped_column(String(16))
+    value: Mapped[int] = mapped_column(SmallInteger)
+    unit: Mapped[str] = mapped_column(String(8))
+
+
+class MonitoringSettingsRow(WriteBase):
+    """Umbral de alerta configurado por el deportista (HU036, ADR-044 §9); sin fila se usa el
+    valor por defecto."""
+
+    __tablename__ = "monitoring_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "max_heart_rate_alert_bpm BETWEEN 100 AND 220", name="max_heart_rate_alert_bpm"
+        ),
+        CheckConstraint("version >= 1", name="version"),
+    )
+
+    athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
+    max_heart_rate_alert_bpm: Mapped[int] = mapped_column(SmallInteger)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SessionReminderPreferenceRow(WriteBase):
+    """Preferencias de recordatorios en sesión del deportista (HU038, ADR-045 §5); sin fila
+    valen los valores por defecto del ruleset. Los rangos repiten los del ruleset
+    `session-reminders-2026-10-13.v1`."""
+
+    __tablename__ = "session_reminder_preference"
+    __table_args__ = (
+        CheckConstraint(
+            "hydration_interval_minutes BETWEEN 10 AND 60", name="hydration_interval_minutes"
+        ),
+        CheckConstraint(
+            "nutrition_interval_minutes BETWEEN 30 AND 120", name="nutrition_interval_minutes"
+        ),
+        CheckConstraint("version >= 1", name="version"),
+    )
+
+    athlete_id: Mapped[UUID] = mapped_column(primary_key=True)
+    hydration_enabled: Mapped[bool] = mapped_column(Boolean)
+    hydration_interval_minutes: Mapped[int] = mapped_column(SmallInteger)
+    nutrition_enabled: Mapped[bool] = mapped_column(Boolean)
+    nutrition_interval_minutes: Mapped[int] = mapped_column(SmallInteger)
+    version: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SessionMonitoringStateRow(WriteBase):
+    """Secuencias del monitoreo de una sesión (HU036): versión del resumen de
+    `medicion.recibida.v1` y número de alertas. Su bloqueo serializa los lotes de la sesión."""
+
+    __tablename__ = "session_monitoring_state"
+    __table_args__ = (
+        CheckConstraint("summary_version >= 0", name="summary_version"),
+        CheckConstraint("alert_count >= 0", name="alert_count"),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT"), primary_key=True
+    )
+    summary_version: Mapped[int] = mapped_column(BigInteger)
+    alert_count: Mapped[int] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrainingRiskAlertRow(WriteBase):
+    """Alerta `HR_ABOVE_THRESHOLD_V1` confirmada (HU036, ADR-044 §9). `alert_id` es un UUIDv5
+    estable de la sesión, el dispositivo, el instante y la regla."""
+
+    __tablename__ = "training_risk_alert"
+    __table_args__ = (
+        CheckConstraint("rule = 'HR_ABOVE_THRESHOLD_V1'", name="rule"),
+        CheckConstraint("severity = 'HIGH'", name="severity"),
+        CheckConstraint("threshold_bpm BETWEEN 100 AND 220", name="threshold_bpm"),
+        CheckConstraint("sequence >= 1", name="sequence"),
+        Index("ix_training_risk_alert_session_detected", "session_id", "detected_at"),
+    )
+
+    alert_id: Mapped[UUID] = mapped_column(primary_key=True)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("training_session.session_id", ondelete="RESTRICT")
+    )
+    device_id: Mapped[str] = mapped_column(String(64))
+    rule: Mapped[str] = mapped_column(String(32))
+    severity: Mapped[str] = mapped_column(String(8))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    threshold_bpm: Mapped[int] = mapped_column(SmallInteger)
+    sequence: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

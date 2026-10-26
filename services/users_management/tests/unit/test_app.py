@@ -60,15 +60,39 @@ class UsersManagementAppTest(unittest.TestCase):
         self.assertEqual(info["title"], "SportApp - Usuarios")
 
     def test_profile_routes_are_wired_and_require_a_token(self) -> None:
-        """HU005: las tres rutas del perfil exigen `Authorization: Bearer`."""
-        self.assertEqual(API_VERSION, "0.7.0")
+        """HU005, HU006 y HU009: las cinco rutas del perfil exigen `Authorization: Bearer`."""
+        self.assertEqual(API_VERSION, "0.15.0")
         for method, path in (
             ("PUT", "/v1/me/demographic-profile"),
             ("PUT", "/v1/me/physiological-profile"),
+            ("PUT", "/v1/me/sport-habits"),
+            ("PUT", "/v1/me/nutrition-habits"),
             ("GET", "/v1/me/profile"),
         ):
             with self.subTest(path=path):
                 response = self.client.request(method, path, json={})
+
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_athletes_search_is_wired_and_rejects_a_client_token(self) -> None:
+        """HU039 (ADR-045): el contrato interno está montado y rechaza un token de cliente."""
+        response = self.client.post(
+            "/v1/users/athletes/search",
+            json={"sports": ["running"], "city": "Bogotá", "country_code": "CO"},
+            headers={"Authorization": "Bearer token-de-cliente"},
+        )
+
+        self.assertEqual(
+            (response.status_code, response.json()["code"]), (403, "permission_required")
+        )
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_account_routes_are_wired_and_require_a_token(self) -> None:
+        """HU002: `PUT` y `GET /v1/me/account` exigen `Authorization: Bearer`."""
+        for method in ("PUT", "GET"):
+            with self.subTest(method=method):
+                response = self.client.request(method, "/v1/me/account", json={})
 
                 self.assertEqual(response.status_code, 401)
                 self.assertEqual(response.headers["Cache-Control"], "no-store")

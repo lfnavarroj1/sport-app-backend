@@ -87,3 +87,62 @@ class CalculationIdReused(Exception):
 
 class CalculationIdConflict(Exception):
     """Otra solicitud concurrente insertó primero el mismo `calculation_id`."""
+
+
+class ReportIdReused(Exception):
+    """HU042: el `report_id` ya existe con otros datos o pertenece a otra persona."""
+
+    code = "report_id_reused"
+
+
+class ReportIdConflict(Exception):
+    """Otra solicitud concurrente insertó primero el mismo `report_id`."""
+
+
+class NutritionPlanNotFound(Exception):
+    """HU014: el plan de alimentación no existe, no es visible para quien consulta o aún no
+    está proyectado."""
+
+    code = "nutrition_plan_not_found"
+
+
+class NutritionRestrictionsUnavailable(Exception):
+    """HU014: Usuarios no entregó las restricciones (caída, timeout o respuesta inesperada);
+    el plan nunca se crea sin validarlas."""
+
+    code = "upstream_unavailable"
+
+
+class DashboardSourceUnavailable(Exception):
+    """HU033: una consulta del tablero (sesiones o indicadores) no respondió."""
+
+    code = "upstream_unavailable"
+
+
+class DeviceConflict(Exception):
+    """HU037: otra solicitud concurrente vinculó primero el mismo dispositivo."""
+
+
+class AthleteContextUnavailable(Exception):
+    """HU036: Usuarios no entregó la fecha de nacimiento para el umbral por defecto (caída,
+    timeout o respuesta inesperada); no se evalúa con un umbral supuesto."""
+
+    code = "upstream_unavailable"
+
+
+class MonitoringSettingsConflict(Exception):
+    """HU036: otra solicitud concurrente creó primero la configuración del deportista."""
+
+
+class SessionReminderPreferencesConflict(Exception):
+    """HU038: otra solicitud concurrente creó primero las preferencias del deportista."""
+
+
+class IntakeIdReused(Exception):
+    """HU043: el `intake_id` ya existe con otros datos o pertenece a otra persona."""
+
+    code = "intake_id_reused"
+
+
+class IntakeIdConflict(Exception):
+    """HU043: otra solicitud concurrente insertó primero el mismo `intake_id`."""

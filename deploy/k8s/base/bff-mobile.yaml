@@ -50,6 +50,10 @@ spec:
             # HU029: Service interno del clúster. En Cloud Run la plataforma lo sustituye.
             - name: COMPLEMENTARY_SERVICES_BASE_URL
               value: http://complementary-services
+            # HU031: Service interno del clúster (Strava y callback OAuth). En Cloud Run la
+            # plataforma lo sustituye.
+            - name: THIRD_PARTY_MANAGEMENT_BASE_URL
+              value: http://third-party-management
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

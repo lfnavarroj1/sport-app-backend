@@ -115,6 +115,11 @@ _BFF = {
     "COMPLEMENTARY_SERVICES_BASE_URL": "http://complementary-services.invalid",
     "EVENTS_MANAGEMENT_BASE_URL": "http://events-management.invalid",
 }
+# HU031: bff-mobile reenvía las operaciones de Strava a Terceros (bff-web no lo necesita).
+_BFF_MOBILE = {
+    **_BFF,
+    "THIRD_PARTY_MANAGEMENT_BASE_URL": "http://third-party-management.invalid",
+}
 _COMPLEMENTARY = {
     **_SINGLE,
     "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
@@ -131,6 +136,13 @@ _TRAINING = {
     "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
     # HU042: consentimiento de datos de salud de los reportes.
     "HEALTH_DATA_CONSENT_VERSION": "contract",
+}
+# HU031 (ADR-042): base única, JWKS de Usuarios y capacidad en Afiliación. Las STRAVA_* son
+# opcionales al construir la app (sin ellas solo falla `/health/ready`): no cambian el OpenAPI.
+_THIRD_PARTY = {
+    **_SINGLE,
+    "USERS_MANAGEMENT_BASE_URL": "http://users-management.invalid",
+    "AFFILIATION_MANAGEMENT_BASE_URL": "http://affiliation-management.invalid",
 }
 
 COMPONENTS = (
@@ -158,10 +170,13 @@ COMPONENTS = (
     ),
     Component("events-management", "events_management", "services/events_management", _EVENTS),
     Component(
-        "third-party-management", "third_party_management", "services/third_party_management"
+        "third-party-management",
+        "third_party_management",
+        "services/third_party_management",
+        _THIRD_PARTY,
     ),
     Component("bff-web", "bff_web", "bff/web", _BFF),
-    Component("bff-mobile", "bff_mobile", "bff/mobile", _BFF),
+    Component("bff-mobile", "bff_mobile", "bff/mobile", _BFF_MOBILE),
 )
 
 # Paquetes con pruebas propias (componentes desplegables + librería técnica).

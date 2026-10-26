@@ -37,6 +37,9 @@ class FinishedSession:
     sport: str
     ended_at: datetime
     duration_seconds: int
+    # HU031: origen y distancia (solo las importadas de Strava la tienen).
+    source: Source = Source.SPORTAPP
+    distance_meters: int | None = None
 
 
 @dataclass(frozen=True)
@@ -47,7 +50,8 @@ class MetricResult:
 
 class InMemoryDashboardReader:
     """Misma semántica que `SqlAlchemyDashboardReader`: `[from, to)` por `ended_at` /
-    `measured_at`, semana ISO en la zona del `from` y último resultado por indicador."""
+    `measured_at`, grupos por deporte, semana ISO en la zona del `from` y fuente, distancia
+    sumada solo de las filas que la tienen y último resultado por indicador."""
 
     def __init__(self) -> None:
         self.sessions: list[FinishedSession] = []
@@ -60,20 +64,22 @@ class InMemoryDashboardReader:
         self.queried.append(athlete_id)
         if self.sessions_down:
             raise DashboardSourceUnavailable()
-        groups: dict[tuple[str, Any], list[int]] = {}
+        groups: dict[tuple[str, Any, Source], list[FinishedSession]] = {}
         for item in self.sessions:
             if item.athlete_id == athlete_id and period.start <= item.ended_at < period.end:
-                key = (item.sport, iso_week_start(item.ended_at, period.offset))
-                groups.setdefault(key, []).append(item.duration_seconds)
+                key = (item.sport, iso_week_start(item.ended_at, period.offset), item.source)
+                groups.setdefault(key, []).append(item)
         return [
             SessionBucket(
                 sport=sport,
                 week_start=week,
-                source=Source.SPORTAPP,
-                sessions_count=len(durations),
-                duration_seconds=sum(durations),
+                source=source,
+                sessions_count=len(items),
+                duration_seconds=sum(item.duration_seconds for item in items),
+                distance_meters=sum(item.distance_meters or 0 for item in items),
+                sessions_with_distance=sum(item.distance_meters is not None for item in items),
             )
-            for (sport, week), durations in groups.items()
+            for (sport, week, source), items in groups.items()
         ]
 
     def latest_metrics(self, athlete_id: UUID, period: DashboardPeriod) -> list[LatestMetric]:
@@ -136,10 +142,19 @@ class TrainingDashboardApiTest(unittest.TestCase):
         return self.client.get(DASHBOARD, params=params, headers={**self.auth, **headers})
 
     def finished(
-        self, sport: str, ended_at: datetime, minutes: int, athlete: UUID | None = None
+        self,
+        sport: str,
+        ended_at: datetime,
+        minutes: int,
+        athlete: UUID | None = None,
+        *,
+        source: Source = Source.SPORTAPP,
+        distance: int | None = None,
     ) -> None:
         self.reader.sessions.append(
-            FinishedSession(athlete or self.athlete_id, sport, ended_at, minutes * 60)
+            FinishedSession(
+                athlete or self.athlete_id, sport, ended_at, minutes * 60, source, distance
+            )
         )
 
     def details(self, response: Any) -> list[tuple[str, str]]:
@@ -237,6 +252,48 @@ class TrainingDashboardApiTest(unittest.TestCase):
                 {"source": "training_sessions", "status": "OK"},
                 {"source": "training_metrics", "status": "OK"},
             ],
+        )
+
+    def test_strava_sessions_feed_by_source_and_distance(self) -> None:
+        """HU031 (ADR-042 §12, ADR-043 §2): las actividades importadas cuentan en `STRAVA` y su
+        distancia se suma solo con las filas que la tienen."""
+        self.finished("running", datetime(2026, 10, 6, 12, tzinfo=UTC), 30)  # SportApp
+        self.finished(
+            "running",
+            datetime(2026, 10, 7, 12, tzinfo=UTC),
+            60,
+            source=Source.STRAVA,
+            distance=10234,
+        )
+        self.finished(
+            "cycling",
+            datetime(2026, 10, 8, 12, tzinfo=UTC),
+            90,
+            source=Source.STRAVA,
+            distance=40500,
+        )
+
+        body = self.get({"from": "2026-10-01T00:00:00Z", "to": "2026-11-01T00:00:00Z"}).json()
+
+        self.assertEqual(
+            body["totals"],
+            {
+                "sessions_count": 3,
+                "total_duration_minutes": 180,
+                "avg_duration_minutes": 60,
+                "distance_meters": 50734,
+            },
+        )
+        self.assertEqual(
+            [(i["sport"], i["sessions_count"], i["distance_meters"]) for i in body["by_sport"]],
+            [("running", 2, 10234), ("cycling", 1, 40500)],
+        )
+        self.assertEqual(
+            body["by_source"],
+            {
+                "SPORTAPP": {"sessions_count": 1, "total_duration_minutes": 30},
+                "STRAVA": {"sessions_count": 2, "total_duration_minutes": 150},
+            },
         )
 
     def test_the_same_sessions_fall_in_other_weeks_in_another_zone(self) -> None:

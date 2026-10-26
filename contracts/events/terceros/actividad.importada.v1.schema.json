@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sportapp/contracts/events/terceros/actividad.importada.v1.schema.json",
+  "title": "actividad.importada.v1",
+  "description": "Publicado en sportapp.terceros.v1 con ordering_key = user_id (distinta de aggregate_id = activity_id) cuando terceros-sync-worker importa una actividad de Strava nueva o cambiada (HU031, ADR-042). imported_activity y este evento se confirman en la misma transacción (outbox); terceros-outbox-publisher lo publica después. Modelo normalizado strava-activity.v1: nunca contiene tokens ni el JSON de Strava. Una entrega repetida con el mismo hash no publica nada; con hash distinto se publica la versión siguiente. Lo consume entrenamientos-external-activity-consumer (training_management). Instantes en UTC con sufijo Z.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "producer",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "correlation_id",
+    "causation_id",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador del mensaje; el consumidor deduplica por este valor (processed_event)."
+    },
+    "event_type": {"const": "actividad.importada.v1"},
+    "occurred_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "producer": {"const": "third-party-management"},
+    "aggregate_type": {"const": "external_activity"},
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "activity_id de la actividad: una secuencia de versiones por actividad."
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Igual a payload.version: 1 al importarla y la siguiente cada vez que cambia su hash."
+    },
+    "correlation_id": {"type": ["string", "null"], "format": "uuid"},
+    "causation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "sync_run_id de la corrida de sincronización que la importó."
+    },
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Actividad normalizada (mapeo strava-activity.v1); sin tokens, sin JSON de Strava, sin datos de salud.",
+      "required": [
+        "activity_id",
+        "user_id",
+        "provider",
+        "external_activity_id",
+        "sport",
+        "name",
+        "started_at",
+        "ended_at",
+        "time_zone",
+        "duration_seconds",
+        "moving_seconds",
+        "distance_meters",
+        "elevation_gain_meters",
+        "mapping_version",
+        "version"
+      ],
+      "properties": {
+        "activity_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID v5 determinista de `strava:<external_activity_id>` (espacio NAMESPACE_URL)."
+        },
+        "user_id": {"type": "string", "format": "uuid", "description": "Deportista de SportApp dueño de la vinculación."},
+        "provider": {"const": "STRAVA"},
+        "external_activity_id": {"type": "string", "pattern": "^[0-9]{1,20}$", "description": "Identificador de la actividad en Strava, como texto."},
+        "sport": {
+          "enum": ["running", "cycling", "swimming", "strength", "other"],
+          "description": "Run|TrailRun|VirtualRun → running; Ride|VirtualRide|MountainBikeRide|GravelRide → cycling; Swim → swimming; WeightTraining|Crossfit|Workout → strength; resto → other."
+        },
+        "name": {"type": ["string", "null"], "minLength": 1, "maxLength": 120},
+        "started_at": {"type": "string", "format": "date-time", "pattern": "Z$", "description": "start_date de Strava en UTC."},
+        "ended_at": {"type": "string", "format": "date-time", "pattern": "Z$", "description": "started_at + duration_seconds."},
+        "time_zone": {"type": "string", "minLength": 1, "description": "Zona IANA tomada de `timezone` de Strava; UTC si no es reconocible."},
+        "duration_seconds": {"type": "integer", "minimum": 1, "description": "elapsed_time de Strava."},
+        "moving_seconds": {"type": ["integer", "null"], "minimum": 0, "description": "moving_time de Strava."},
+        "distance_meters": {"type": "integer", "minimum": 0, "description": "distance de Strava redondeada al metro (ROUND_HALF_UP)."},
+        "elevation_gain_meters": {"type": ["integer", "null"], "minimum": 0, "description": "total_elevation_gain redondeado al metro; null si Strava no lo informa."},
+        "mapping_version": {"const": "strava-activity.v1"},
+        "version": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

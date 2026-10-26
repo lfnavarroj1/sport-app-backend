@@ -18,6 +18,8 @@ class BffMobileSettings(ServiceSettings):
     events_management_base_url: AnyHttpUrl
     # HU029: disponibilidad de servicios publicados para las sugerencias de acompañamiento.
     complementary_services_base_url: AnyHttpUrl
+    # HU031 (ADR-042): vinculación, estado y sincronización con Strava y su callback.
+    third_party_management_base_url: AnyHttpUrl
     # `iss` y `aud` que emite users-management (mismos valores por defecto).
     jwt_issuer: str = Field(default="sportapp-users-management", min_length=1, max_length=128)
     jwt_audience: str = Field(default="sportapp", min_length=1, max_length=128)

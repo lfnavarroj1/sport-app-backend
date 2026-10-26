@@ -106,6 +106,12 @@ class TrainingSessionHistoryRow(ReadBase):
     duration_seconds: Mapped[int] = mapped_column(Integer)
     version: Mapped[int] = mapped_column(BigInteger)
     projected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # HU031 (ADR-042 §12, migración `0015_session_history_source`): origen de la fila
+    # (`SPORTAPP` para HU032, `STRAVA` para `actividad.importada.v1`), `activity_id` de Terceros
+    # y distancia en metros; las dos últimas solo en las actividades importadas.
+    source: Mapped[str] = mapped_column(String(16), server_default=text("'SPORTAPP'"))
+    external_ref: Mapped[UUID | None]
+    distance_meters: Mapped[int | None] = mapped_column(Integer)
 
 
 class TrainingPlanSessionViewRow(ReadBase):

@@ -32,6 +32,7 @@ from training_management.application.queries.training_history import (
     HistoryPage,
     InvalidHistoryQuery,
 )
+from training_management.domain.dashboard.model import Source
 from training_management.domain.plans.model import Sport
 
 
@@ -42,6 +43,10 @@ class SessionHistoryItem(BaseModel):
     started_at: datetime
     ended_at: datetime
     duration_seconds: int
+    # HU031 (ADR-042 §12): campo nuevo compatible; no se exponen `external_ref` ni distancia.
+    source: Source = Field(
+        description="Origen: `SPORTAPP` (registrada en SportApp) o `STRAVA` (importada, HU031)."
+    )
 
 
 class HistoryFiltersResponse(BaseModel):
@@ -66,6 +71,7 @@ class TrainingHistoryResponse(BaseModel):
                     started_at=item.started_at,
                     ended_at=item.ended_at,
                     duration_seconds=item.duration_seconds,
+                    source=Source(item.source),
                 )
                 for item in page.items
             ],

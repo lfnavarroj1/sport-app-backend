@@ -144,7 +144,7 @@ from training_management.infrastructure.persistence_write.unit_of_work import (
 from training_management.settings import TrainingManagementSettings
 
 SERVICE_NAME = "training-management"
-API_VERSION = "0.19.0"
+API_VERSION = "0.21.0"
 
 
 def create_app(

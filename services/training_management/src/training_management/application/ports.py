@@ -267,6 +267,9 @@ class SessionHistoryEntry:
     ended_at: datetime
     duration_seconds: int
     version: int
+    # HU031 (ADR-042 §12): `SPORTAPP` (HU032) o `STRAVA` (actividad importada); valores de
+    # `domain.dashboard.model.Source`.
+    source: str = "SPORTAPP"
 
 
 @dataclass(frozen=True)

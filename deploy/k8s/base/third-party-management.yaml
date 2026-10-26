@@ -35,6 +35,39 @@ spec:
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            # HU031 (ADR-042): base única `terceros`. La clave y la base las crea T-HU031-PLAT; sin
+            # ellas el pod arranca (`/health/live` 200) pero `/health/ready` responde 503.
+            - name: DATABASE_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: DATABASE_HOST}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: sportapp-database, key: TERCEROS_DB_PASSWORD, optional: true}
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://terceros:$(DB_PASSWORD)@$(DATABASE_HOST):5432/terceros"
+            # JWKS de Usuarios y capacidad integrations.strava.connect en Afiliación.
+            - name: USERS_MANAGEMENT_BASE_URL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: USERS_MANAGEMENT_BASE_URL}
+            - name: AFFILIATION_MANAGEMENT_BASE_URL
+              value: http://affiliation-management
+            # Aplicación de Strava y clave AES-256-GCM (Secret de T-HU031-PLAT); sin ellas
+            # `/health/ready` falla y las operaciones de Strava responden 503.
+            - name: STRAVA_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: sportapp-third-party, key: STRAVA_CLIENT_ID, optional: true}
+            - name: STRAVA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: sportapp-third-party, key: STRAVA_CLIENT_SECRET, optional: true}
+            - name: STRAVA_TOKEN_KEY
+              valueFrom:
+                secretKeyRef: {name: sportapp-third-party, key: STRAVA_TOKEN_KEY, optional: true}
+            - name: STRAVA_REDIRECT_URI
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: STRAVA_REDIRECT_URI, optional: true}
+            - name: STRAVA_CONSENT_VERSION
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: STRAVA_CONSENT_VERSION, optional: true}
           readinessProbe:
             httpGet: {path: /health/ready, port: http}
             periodSeconds: 10

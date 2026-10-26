@@ -160,6 +160,52 @@ class DashboardPersistenceTest(unittest.TestCase):
                     {item.week_start: item.sessions_count for item in buckets}, expected
                 )
 
+    def test_strava_rows_are_grouped_by_source_with_their_distance(self) -> None:
+        """HU031 (ADR-042 §12): `source` y `distance_meters` reales de la tabla; las filas sin
+        `source` explícito toman `SPORTAPP` por defecto y no cuentan para la distancia."""
+        athlete = self.athlete.user_id
+        ended = datetime(2026, 10, 7, 12, tzinfo=UTC)
+        strava = [
+            {**history_row(athlete, ended, minutes=60), "source": "STRAVA",
+             "distance_meters": 10234},
+            {**history_row(athlete, ended, sport="cycling", minutes=90), "source": "STRAVA",
+             "distance_meters": 40500},
+            {**history_row(athlete, ended, minutes=20), "source": "STRAVA",
+             "distance_meters": None},
+        ]
+        self.seed([history_row(athlete, ended, minutes=30)])  # SportApp, sin distancia
+        self.seed(strava)
+        period = DashboardPeriod(
+            datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 11, 1, tzinfo=UTC)
+        )
+
+        buckets = self.reader.session_buckets(athlete, period)
+        dashboard = self.dashboard()(
+            self.athlete, "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"
+        )
+
+        by_key = {
+            (item.sport, item.source.value): (
+                item.sessions_count,
+                item.distance_meters,
+                item.sessions_with_distance,
+            )
+            for item in buckets
+        }
+        self.assertEqual(
+            by_key,
+            {
+                ("running", "SPORTAPP"): (1, 0, 0),
+                ("running", "STRAVA"): (2, 10234, 1),
+                ("cycling", "STRAVA"): (1, 40500, 1),
+            },
+        )
+        self.assertEqual(dashboard.totals.distance, 50734)
+        self.assertEqual(
+            [(source.value, a.sessions_count) for source, a in dashboard.by_source],
+            [("SPORTAPP", 1), ("STRAVA", 3)],
+        )
+
     def test_period_is_half_open_and_only_the_caller_is_aggregated(self) -> None:
         start, end = datetime(2026, 10, 1, tzinfo=BOGOTA), datetime(2026, 10, 8, tzinfo=BOGOTA)
         other = uuid4()

@@ -20,6 +20,7 @@ from bff_mobile.api.service_availability import build_service_availability_route
 from bff_mobile.api.service_suggestions import build_service_suggestions_router
 from bff_mobile.api.session_reminders import build_session_reminders_router
 from bff_mobile.api.sessions import build_sessions_router
+from bff_mobile.api.strava_integration import build_strava_integration_router
 from bff_mobile.api.template_suggestions import build_template_suggestions_router
 from bff_mobile.api.training_dashboard import build_training_dashboard_router
 from bff_mobile.api.training_metrics import build_training_metrics_router
@@ -27,6 +28,7 @@ from bff_mobile.api.training_sessions import build_training_sessions_router
 from bff_mobile.clients.affiliation_management import AffiliationManagementClient
 from bff_mobile.clients.complementary_services import ComplementaryServicesClient
 from bff_mobile.clients.events_management import EventsManagementClient
+from bff_mobile.clients.third_party_management import ThirdPartyManagementClient
 from bff_mobile.clients.training_management import TrainingManagementClient
 from bff_mobile.clients.users_management import UsersManagementClient
 from bff_mobile.settings import BffMobileSettings
@@ -36,7 +38,7 @@ from sportapp_platform.config import load_settings
 from sportapp_platform.tokens import CachedJwksVerifier
 
 SERVICE_NAME = "bff-mobile"
-API_VERSION = "0.20.0"
+API_VERSION = "0.22.0"
 CHANNEL = "mobile"
 
 
@@ -48,6 +50,7 @@ def create_app(
     events_http: httpx.Client | None = None,
     *,
     services_http: httpx.Client | None = None,
+    third_party_http: httpx.Client | None = None,
 ) -> FastAPI:
     """Los transportes `*_http` permiten inyectar servicios en pruebas de componente."""
     settings = settings or load_settings(BffMobileSettings)
@@ -74,11 +77,17 @@ def create_app(
         base_url=str(settings.complementary_services_base_url),
         timeout=settings.upstream_timeout_seconds,
     )
+    # HU031 (ADR-042): vinculación y sincronización con Strava.
+    third_party_http = third_party_http or httpx.Client(
+        base_url=str(settings.third_party_management_base_url),
+        timeout=settings.upstream_timeout_seconds,
+    )
     users = UsersManagementClient(users_http)
     training = TrainingManagementClient(training_http)
     events = EventsManagementClient(events_http)
     affiliation = AffiliationManagementClient(affiliation_http)
     services = ComplementaryServicesClient(services_http)
+    third_party = ThirdPartyManagementClient(third_party_http)
     # Una sola caché del contexto del deportista para todas las sugerencias (ADR-041).
     contexts = AthleteContextCache()
     verifier = CachedJwksVerifier(
@@ -162,6 +171,11 @@ def create_app(
                 services=services,
             ),
             build_food_intakes_router(verify_token=verifier.verify, training=training),
+            build_strava_integration_router(
+                verify_token=verifier.verify,
+                athlete_snapshot=affiliation.user_capabilities,
+                third_party=third_party,
+            ),
         ],
         shutdown_hooks=[
             users_http.close,
@@ -169,5 +183,6 @@ def create_app(
             training_http.close,
             events_http.close,
             services_http.close,
+            third_party_http.close,
         ],
     )

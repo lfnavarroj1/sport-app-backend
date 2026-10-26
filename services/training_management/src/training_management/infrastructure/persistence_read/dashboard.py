@@ -3,8 +3,8 @@
 - Sesiones: `training_session_history` filtrada por `athlete_id` y `ended_at` en `[from, to)`
   (índice `ix_training_session_history_athlete_order`) y agrupada por deporte y semana ISO en
   la zona del `from`: `date_trunc('week', <hora local>)` da el lunes, como
-  `iso_week_start`. La tabla todavía no tiene fuente ni distancia (llegan con HU031): toda fila
-  es `SPORTAPP` y sin distancia.
+  `iso_week_start`, y por `source` (HU031). `distance_meters` suma la columna y
+  `count(distance_meters)` cuenta solo las filas que la tienen (hoy, las de Strava).
 - Indicadores: `DISTINCT ON (metric_code)` sobre `training_metric_result` filtrado por
   `measured_at` en `[from, to)` (índice `ix_training_metric_result_athlete_order`), el más
   reciente por `measured_at` y `calculation_id`.
@@ -49,15 +49,18 @@ class SqlAlchemyDashboardReader:
             select(
                 row.sport,
                 week_start,
+                row.source,
                 func.count().label("sessions_count"),
                 func.coalesce(func.sum(row.duration_seconds), 0).label("duration_seconds"),
+                func.coalesce(func.sum(row.distance_meters), 0).label("distance_meters"),
+                func.count(row.distance_meters).label("sessions_with_distance"),
             )
             .where(
                 row.athlete_id == athlete_id,
                 row.ended_at >= period.start,
                 row.ended_at < period.end,
             )
-            .group_by(row.sport, week_start)
+            .group_by(row.sport, week_start, row.source)
         )
         try:
             with self._session_factory() as session:
@@ -69,11 +72,13 @@ class SqlAlchemyDashboardReader:
             SessionBucket(
                 sport=str(sport),
                 week_start=_as_date(week),
-                source=Source.SPORTAPP,
+                source=Source(str(source)),
                 sessions_count=int(count),
                 duration_seconds=int(seconds),
+                distance_meters=int(distance),
+                sessions_with_distance=int(with_distance),
             )
-            for sport, week, count, seconds in rows
+            for sport, week, source, count, seconds, distance, with_distance in rows
         ]
 
     def latest_metrics(self, athlete_id: UUID, period: DashboardPeriod) -> list[LatestMetric]:

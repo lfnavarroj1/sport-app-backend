@@ -3,7 +3,11 @@ name = "third-party-management"
 version = "0.1.0"
 description = "SportApp - Gestión de terceros."
 requires-python = ">=3.13,<3.14"
-dependencies = ["sportapp-platform"]
+dependencies = [
+    "cryptography>=50.0",
+    "google-cloud-pubsub>=2.29",
+    "sportapp-platform",
+]
 
 [tool.uv.sources]
 sportapp-platform = { workspace = true }

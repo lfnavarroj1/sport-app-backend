@@ -1,0 +1,69 @@
+# terceros-sync-worker (HU031, ADR-042 §8-§10): ejecuta las sincronizaciones manuales
+# (`sync_run` QUEUED) contra la API de Strava con HTTPX (2 s/5 s, ≤ 3 páginas de 50,
+# 429 → RATE_LIMITED, 2 reintentos ante 5xx/timeout, circuito de 60 s). Sin endpoint
+# HTTP. Necesita el Secret `sportapp-third-party` y la base `terceros` (T-HU031-PLAT).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: third-party-management-sync-worker
+  labels:
+    app.kubernetes.io/name: third-party-management-sync-worker
+    app.kubernetes.io/component: sync-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: third-party-management-sync-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: third-party-management-sync-worker
+        app.kubernetes.io/component: sync-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          image: sportapp/third-party-management
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, third_party_management.workers.sync_worker]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+            - name: DATABASE_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: DATABASE_HOST}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: sportapp-database, key: TERCEROS_DB_PASSWORD}
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://terceros:$(DB_PASSWORD)@$(DATABASE_HOST):5432/terceros"
+            # Credenciales de la aplicación de Strava y clave AES-256-GCM (ADR-042): solo Terceros.
+            - name: STRAVA_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: sportapp-third-party, key: STRAVA_CLIENT_ID}
+            - name: STRAVA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: sportapp-third-party, key: STRAVA_CLIENT_SECRET}
+            - name: STRAVA_TOKEN_KEY
+              valueFrom:
+                secretKeyRef: {name: sportapp-third-party, key: STRAVA_TOKEN_KEY}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

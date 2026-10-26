@@ -1,0 +1,63 @@
+# entrenamientos-external-activity-consumer (HU031, ADR-042 §12): consume
+# actividad.importada.v1 por entrenamientos-actividades-externas-v1 y escribe
+# training_session_history (source = STRAVA) en la base de lectura de entrenamientos.
+# El tópico sportapp.terceros.v1, la suscripción y la DLQ sportapp.terceros.actividades.dlq
+# los crea la plataforma (T-HU031-PLAT); sin ellos el worker termina con código 1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training-management-external-activity-consumer
+  labels:
+    app.kubernetes.io/name: training-management-external-activity-consumer
+    app.kubernetes.io/component: external-activity-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: training-management-external-activity-consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: training-management-external-activity-consumer
+        app.kubernetes.io/component: external-activity-consumer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: consumer
+          image: sportapp/training-management
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, training_management.workers.external_activity_consumer]
+          env:
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: APP_ENV}
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: LOG_LEVEL}
+            - name: PUBSUB_PROJECT_ID
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_PROJECT_ID}
+            - name: PUBSUB_EMULATOR_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: PUBSUB_EMULATOR_HOST, optional: true}
+            - name: DATABASE_HOST
+              valueFrom:
+                configMapKeyRef: {name: sportapp-runtime, key: DATABASE_HOST}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: sportapp-database, key: ENTRENAMIENTOS_DB_PASSWORD}
+            - name: DATABASE_READ_URL
+              value: "postgresql+psycopg://entrenamientos:$(DB_PASSWORD)@$(DATABASE_HOST):5432/entrenamientos_read"
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

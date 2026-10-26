@@ -65,3 +65,23 @@ class MeasurementRetentionSettings(ServiceSettings, DatabasePoolSettings):
 
     database_write_url: PostgresUrl
     retention_batch_size: int = Field(default=5000, ge=100, le=50000)
+
+
+# HU031 (ADR-042 §4): actividades importadas de Strava. Terceros publica en su tópico; este
+# servicio las consume por una suscripción ordenada propia con DLQ. Reintentos y DLQ iguales a
+# los del proyector (10 intentos, 10–600 s), fijados por ADR-042.
+THIRD_PARTY_TOPIC = "sportapp.terceros.v1"
+EXTERNAL_ACTIVITY_SUBSCRIPTION = "entrenamientos-actividades-externas-v1"
+EXTERNAL_ACTIVITY_DLQ_TOPIC = "sportapp.terceros.actividades.dlq"
+EXTERNAL_ACTIVITY_DLQ_OPS_SUBSCRIPTION = "sportapp.terceros.actividades.dlq.ops"
+
+
+class ExternalActivityConsumerSettings(ServiceSettings, DatabasePoolSettings):
+    """`entrenamientos-external-activity-consumer` (HU031): consume
+    `entrenamientos-actividades-externas-v1` y escribe en la base de lectura."""
+
+    database_read_url: PostgresUrl
+    pubsub_project_id: Annotated[str, Field(min_length=1)]
+    external_activity_subscription: str = EXTERNAL_ACTIVITY_SUBSCRIPTION
+    # Mensajes en proceso simultáneo por réplica; acota conexiones a PostgreSQL.
+    consumer_max_messages: int = Field(default=10, ge=1, le=100)

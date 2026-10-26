@@ -13,7 +13,7 @@ import json
 import logging
 import unittest
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 import httpx
@@ -84,8 +84,15 @@ ITEM_FIELDS = {
 SENSITIVE = ("INCAPACITY", "ANKLE_FOOT")
 
 
-def utc_seconds(delta: timedelta) -> str:
-    return (datetime.now(UTC) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+def utc_seconds(delta: timedelta, now: datetime | None = None) -> str:
+    return ((now or datetime.now(UTC)) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def one_am_utc(now: datetime) -> datetime:
+    """La última 01:00 UTC no posterior a `now`: un ancla dentro de la ventana de medianoche
+    UTC que no depende de la hora real de ejecución."""
+    anchor = datetime.combine(now.date(), time(1), tzinfo=UTC)
+    return anchor if anchor <= now else anchor - timedelta(days=1)
 
 
 class _Capture(logging.Handler):
@@ -260,14 +267,21 @@ class HealthHistoryFlowTest(unittest.TestCase):
     def auth(self, user: dict[str, str]) -> dict[str, str]:
         return {"Authorization": f"Bearer {user['token']}"}
 
-    def report(self, athlete: dict[str, str], hours_ago: int, **overrides: Any) -> str:
-        """HU042: el reporte nace con la operación real de Entrenamientos."""
+    def report(
+        self,
+        athlete: dict[str, str],
+        hours_ago: float,
+        now: datetime | None = None,
+        **overrides: Any,
+    ) -> str:
+        """HU042: el reporte nace con la operación real de Entrenamientos; `occurred_at` queda
+        `hours_ago` horas antes de `now` (por omisión, el reloj real)."""
         body = {
             "report_id": str(uuid.uuid4()),
             "type": "DISCOMFORT",
             "body_area": "KNEE",
             "severity": "LOW",
-            "occurred_at": utc_seconds(-timedelta(hours=hours_ago)),
+            "occurred_at": utc_seconds(-timedelta(hours=hours_ago), now),
             "consent": {"version": CONSENT},
             **overrides,
         }
@@ -288,9 +302,10 @@ class HealthHistoryFlowTest(unittest.TestCase):
         self.assertEqual(empty.status_code, 200, empty.text)
         self.assertEqual(empty.json(), {"items": [], "next_cursor": None})  # CA4
 
-        oldest = self.report(self.athlete, 50)
-        injury = self.report(self.athlete, 30, type="INJURY", severity="HIGH")
-        newest = self.report(self.athlete, 2, expected_recovery_days=4)
+        now = datetime.now(UTC)
+        oldest = self.report(self.athlete, 50, now)
+        injury = self.report(self.athlete, 30, now, type="INJURY", severity="HIGH")
+        newest = self.report(self.athlete, 2, now, expected_recovery_days=4)
         other = self.register("athlete")
         self.report(other, 1)
         self.project_outbox()
@@ -299,8 +314,11 @@ class HealthHistoryFlowTest(unittest.TestCase):
         second = self.own(limit=2, cursor=first.json()["next_cursor"])
         injuries = self.own(type="INJURY")
         high = self.own(severity="HIGH")
-        today = datetime.now(UTC).date()
-        period = self.own(**{"from": today.isoformat(), "to": today.isoformat()})
+        # El periodo empieza en la fecha UTC de `newest`, que entre las 00:00 y las 02:00 UTC es
+        # la de ayer; `oldest` queda siempre al menos un día antes.
+        period = self.own(
+            **{"from": (now - timedelta(hours=2)).date().isoformat(), "to": now.date().isoformat()}
+        )
         bad_period = self.own(**{"from": "2026-10-09", "to": "2026-10-08"})
         bad_cursor = self.own(cursor="basura")
 
@@ -323,6 +341,27 @@ class HealthHistoryFlowTest(unittest.TestCase):
             self.assertEqual(response.status_code, 422)
             self.assertEqual(response.json()["code"], "validation_error")
             self.assertEqual(response.json()["details"][0]["field"], field)
+
+    def test_period_filter_across_utc_midnight(self) -> None:
+        """CA1: días UTC inclusivos con las marcas ancladas a la 01:00 UTC (regresión del
+        run 40250798170): un reporte de las 23:00 de la víspera no es del día del ancla."""
+        anchor = one_am_utc(datetime.now(UTC))
+        day, eve = anchor.date(), (anchor - timedelta(days=1)).date()
+        oldest = self.report(self.athlete, 50, anchor)
+        eve_late = self.report(self.athlete, 2, anchor)  # 23:00 de la víspera
+        midnight = self.report(self.athlete, 1, anchor)  # 00:00:00 del día del ancla
+        early = self.report(self.athlete, 0.5, anchor)  # 00:30 del día del ancla
+        self.project_outbox()
+
+        def ids(date_from: object, date_to: object) -> list[str]:
+            response = self.own(**{"from": str(date_from), "to": str(date_to)})
+            self.assertEqual(response.status_code, 200, response.text)
+            return [i["report_id"] for i in response.json()["items"]]
+
+        self.assertEqual(ids(day, day), [early, midnight])
+        self.assertEqual(ids(eve, eve), [eve_late])
+        self.assertEqual(ids(eve, day), [early, midnight, eve_late])
+        self.assertNotIn(oldest, ids(eve, day))
 
     def test_professional_history_backend_flow(self) -> None:
         """CA2, CA3 y CA5: autorización proyectada, 403 sin enumeración, auditoría sin datos."""

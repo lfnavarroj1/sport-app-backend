@@ -6,7 +6,26 @@ historial de HU011 y tablero de HU033 con `source = STRAVA`.
 
 Servicios reales con PostgreSQL migrado (requiere `TEST_DATABASE_URL`). El tramo de mensajería
 usa el emulador de Pub/Sub (`PUBSUB_EMULATOR_HOST`) con un proyecto propio. Ningún token de
-Strava, `code` ni `client_secret` puede aparecer en las respuestas del BFF ni en los logs.
+Strava, `code` ni `client_secret` puede aparecer en las respuestas del BFF ni en los logs; el
+`state` tampoco puede aparecer en los logs (solo viaja en la URL de consentimiento).
+
+Trazabilidad de criterios (HU031):
+- CA1: `test_link_sync_and_unlink_through_the_mobile_channel` (URL oficial, scopes, `state`)
+  y `test_actor_and_capability_are_enforced` (solo deportistas con la capacidad del plan).
+- CA2: `test_link_sync_and_unlink_through_the_mobile_channel` (`LINKED`, un canje del `code`,
+  tokens cifrados y `consent_version`).
+- CA3: `test_denied_and_forged_callbacks_redirect_with_the_result` y el `state` repetido de
+  `test_link_sync_and_unlink_through_the_mobile_channel`.
+- CA4: `test_link_sync_and_unlink_through_the_mobile_channel` (`202`, réplica idempotente,
+  `409 sync_in_progress`, corrida del worker) y
+  `test_imported_activities_reach_history_and_dashboard_as_strava` (evento normalizado).
+- CA5: `test_imported_activities_reach_history_and_dashboard_as_strava` (reentrega y nueva
+  corrida sin duplicados).
+- CA8: `test_imported_activities_reach_history_and_dashboard_as_strava` (outbox → Pub/Sub →
+  consumidor → historial de HU011 y tablero de HU033 con `source = STRAVA`).
+- CA9: `test_link_sync_and_unlink_through_the_mobile_channel` (`REVOKED`, revocación, tokens
+  borrados, `409 integration_not_linked`, eventos conservados).
+- CA6, CA7 y CA10 se cubren en las pruebas de Gestión de terceros y en `load/locust`.
 """
 
 import base64
@@ -21,6 +40,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from uuid import NAMESPACE_URL, uuid5
@@ -28,6 +48,7 @@ from uuid import NAMESPACE_URL, uuid5
 import httpx
 from fastapi.testclient import TestClient
 from google.cloud import pubsub_v1
+from jsonschema import Draft202012Validator, FormatChecker
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
@@ -44,6 +65,7 @@ from affiliation_management.settings import AffiliationManagementSettings
 from bff_mobile.main import create_app as create_bff
 from bff_mobile.settings import BffMobileSettings
 from sportapp_platform.migrations import upgrade
+from sportapp_platform.testing.contracts import repository_root
 from sportapp_platform.testing.keys import ed25519_private_key_pem
 from sportapp_platform.testing.postgres import temporary_database
 from third_party_management.infrastructure.messaging.pubsub import (
@@ -104,6 +126,13 @@ STRAVA = "/v1/me/integrations/strava"
 SYNCS = "/v1/me/integrations/strava/syncs"
 CALLBACK = "/v1/integrations/strava/callback"
 DEEP_LINK = "sportapp://integrations/strava?result="
+EVENT_SCHEMA = (
+    repository_root(Path(__file__).resolve())
+    / "contracts"
+    / "events"
+    / "terceros"
+    / "actividad.importada.v1.schema.json"
+)
 
 
 def utc_seconds(delta: timedelta) -> str:
@@ -248,6 +277,10 @@ class StravaFlowTest(unittest.TestCase):
         for engine in self.engines.values():
             self.addCleanup(engine.dispose)
         self.responses: list[httpx.Response] = []
+        # `code` enviados al callback y `state` emitidos: nunca en logs; el `code`, tampoco en
+        # respuestas (el `state` sí viaja en la URL de consentimiento, CA1).
+        self.codes: list[str] = []
+        self.states: list[str] = []
         # La captura se instala después de crear las apps: `create_service_app` reconfigura el
         # log raíz (`configure_logging` reemplaza sus manejadores) y la descartaría.
         self.capture = _Capture()
@@ -308,10 +341,15 @@ class StravaFlowTest(unittest.TestCase):
         self.assertEqual(query["scope"], [SCOPES])
         self.assertEqual(query["redirect_uri"], [REDIRECT_URI])
         self.assertEqual(query["client_id"], [CLIENT_ID])
-        return str(query["state"][0])
+        self.assertEqual(query["response_type"], ["code"])
+        state = str(query["state"][0])
+        self.states.append(state)
+        return state
 
     def callback(self, **params: str) -> str:
         """Callback público que sigue Strava; devuelve el `result` del enlace profundo."""
+        if "code" in params:
+            self.codes.append(params["code"])
         response = self.call("GET", CALLBACK, params=params, follow_redirects=False)
         self.assertEqual(response.status_code, 302, response.text)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
@@ -360,16 +398,37 @@ class StravaFlowTest(unittest.TestCase):
                 or 0
             )
 
-    def assert_no_strava_secrets(self) -> None:
-        sensitive = [*self.strava.sensitive_values(), self.client_secret, self.token_key]
-        self.assertTrue(self.strava.issued_tokens, "el simulador debió emitir tokens")
+    def assert_stored_encrypted(self, user: dict[str, str]) -> None:
+        """CA2: los tokens solo existen cifrados en Terceros y la vinculación `ACTIVE` guarda
+        el consentimiento aceptado."""
+        with sessionmaker(self.engines["third_party"])() as session:
+            stored = session.get(ExternalAccountRow, uuid.UUID(user["user_id"]))
+        assert stored is not None
+        assert stored.access_token_enc is not None
+        assert stored.refresh_token_enc is not None
+        self.assertEqual((stored.status, stored.consent_version), ("ACTIVE", CONSENT_VERSION))
+        ((access, refresh),) = self.strava.issued_tokens
+        for plain in (access, refresh):
+            self.assertNotIn(plain.encode("ascii"), stored.access_token_enc)
+            self.assertNotIn(plain.encode("ascii"), stored.refresh_token_enc)
+
+    def assert_no_strava_secrets(self, *, tokens_issued: bool = True) -> None:
+        sensitive = [
+            *self.strava.sensitive_values(),
+            *self.codes,
+            self.client_secret,
+            self.token_key,
+        ]
+        if tokens_issued:
+            self.assertTrue(self.strava.issued_tokens, "el simulador debió emitir tokens")
+        self.assertTrue(self.capture.lines, "la captura de logs no recibió registros")
         logs = "\n".join(self.capture.lines)
         for response in self.responses:
             exposed = f"{response.headers} {response.text}"
             for value in sensitive:
                 self.assertNotIn(value, exposed, f"{response.request.url.path} expone un secreto")
-        for value in sensitive:
-            self.assertNotIn(value, logs)
+        for value in [*sensitive, *self.states]:
+            self.assertNotIn(value, logs, "un secreto o `state` aparece en los logs")
 
     # ------------------------------------------------------------------- pruebas
 
@@ -399,6 +458,7 @@ class StravaFlowTest(unittest.TestCase):
                 "last_sync": None,
             },
         )
+        self.assert_stored_encrypted(athlete)
 
         self.strava.activities = [
             activity(9001, start_date=utc_seconds(-timedelta(hours=3))),
@@ -445,14 +505,20 @@ class StravaFlowTest(unittest.TestCase):
         self.assert_no_strava_secrets()
 
     def test_denied_and_forged_callbacks_redirect_with_the_result(self) -> None:
-        """CA3: rechazo del usuario → `DENIED`; sin `state` o con uno inventado →
-        `INVALID_STATE`; en todos los casos `302` al enlace profundo, nunca un error JSON."""
+        """CA3: rechazo del usuario o scopes recortados → `DENIED`; sin `state` o con uno
+        inventado → `INVALID_STATE`; en todos los casos `302` al enlace profundo, nunca un error
+        JSON, sin canjear el `code`, sin crear la vinculación y sin detalles sensibles."""
         athlete = self.register("athlete")
 
         denied = self.callback(state=self.authorize(athlete), error="access_denied")
-        no_scope = self.callback(code="x", state=self.authorize(athlete), scope="read")
-        missing = self.callback(code="x")
-        forged = self.callback(code="x", state="no-es-un-state-emitido")
+        # `code` aleatorios: así la búsqueda de secretos en logs y respuestas es significativa.
+        no_scope = self.callback(
+            code=secrets.token_urlsafe(16), state=self.authorize(athlete), scope="read"
+        )
+        missing = self.callback(code=secrets.token_urlsafe(16))
+        forged_state = secrets.token_urlsafe(24)
+        self.states.append(forged_state)
+        forged = self.callback(code=secrets.token_urlsafe(16), state=forged_state)
 
         self.assertEqual(
             (denied, no_scope, missing, forged),
@@ -460,8 +526,14 @@ class StravaFlowTest(unittest.TestCase):
         )
         self.assertEqual(self.strava.calls("token"), [])
         self.assertEqual(self.call("GET", STRAVA, athlete).json()["status"], "NOT_LINKED")
+        with sessionmaker(self.engines["third_party"])() as session:
+            self.assertIsNone(session.get(ExternalAccountRow, uuid.UUID(athlete["user_id"])))
+        self.assert_no_strava_secrets(tokens_issued=False)
 
     def test_actor_and_capability_are_enforced(self) -> None:
+        """CA1 (precondición): solo un deportista con `integrations.strava.connect` inicia la
+        vinculación o sincroniza; otro actor recibe `403 permission_required` en el borde y
+        un deportista sin la capacidad, `403 capability_required`."""
         provider = self.register("service_provider")
         no_plan = self.register("athlete", free_plan=False)
 
@@ -501,6 +573,41 @@ class StravaFlowTest(unittest.TestCase):
             self.consume(project_id, delivered, lambda: self.strava_history_rows() == 2),
             "el consumidor no proyectó las actividades importadas",
         )
+        # CA4 y CA8: lo que llegó por Pub/Sub cumple el contrato normalizado, sin tokens ni
+        # JSON de Strava (el esquema prohíbe campos adicionales).
+        validator = Draft202012Validator(
+            json.loads(EVENT_SCHEMA.read_text(encoding="utf-8")), format_checker=FormatChecker()
+        )
+        events: dict[str, dict[str, Any]] = {}
+        for data in delivered:
+            event = json.loads(data)
+            validator.validate(event)
+            for value in [*self.strava.sensitive_values(), self.client_secret, self.token_key]:
+                self.assertNotIn(value.encode("utf-8"), data, "el evento lleva un secreto")
+            events[event["payload"]["external_activity_id"]] = event["payload"]
+        self.assertEqual(set(events), {"9101", "9102"})
+        running_event = events["9101"]
+        self.assertEqual(
+            (
+                running_event["user_id"],
+                running_event["activity_id"],
+                running_event["sport"],
+                running_event["time_zone"],
+                running_event["duration_seconds"],
+                running_event["distance_meters"],
+                running_event["version"],
+            ),
+            (
+                athlete["user_id"],
+                str(uuid5(NAMESPACE_URL, "strava:9101")),
+                "running",
+                "America/Bogota",
+                3600,
+                10000,
+                1,
+            ),
+        )
+        self.assertEqual(events["9102"]["sport"], "cycling")
 
         history = self.training.get(
             "/v1/training-history", headers={"Authorization": athlete["Authorization"]}

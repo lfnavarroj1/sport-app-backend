@@ -22,9 +22,10 @@ from jsonschema import Draft202012Validator, FormatChecker
 from sportapp_platform.testing.contracts import repository_root
 from third_party_management.application.imports import activity_event
 from third_party_management.application.ports import OutboxMessage
-from third_party_management.domain.activities import next_import, normalize_activity
+from third_party_management.domain.activities import next_import
 from third_party_management.domain.synchronization import SyncRun
 from third_party_management.infrastructure.persistence.outbox import ClaimedEvent
+from third_party_management.infrastructure.strava.mapping import normalize_activity
 from third_party_management.testing.strava_simulator import activity
 from third_party_management.workers.outbox_publisher import build_envelope
 

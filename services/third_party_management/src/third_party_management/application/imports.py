@@ -8,11 +8,14 @@
    renovación rechazada dejan la cuenta `EXPIRED` (`token_expired`). `429` o la cuota
    agotada detienen la corrida en `RATE_LIMITED`; las demás fallas la terminan `FAILED`
    con el `error_code` del catálogo. Las páginas ya recibidas sí se importan.
-4. Normaliza cada actividad (`strava-activity.v1`): una incompleta se omite, se registra
+4. Recibe del puerto `ActivityProviderGateway` actividades ya normalizadas por el adaptador
+   (`strava-activity.v1`) y los rechazos: cada rechazo se registra como
    `sync.activity_skipped` (identificador y motivo, nunca datos del proveedor) y la corrida
    termina `FAILED` `invalid_activity` si no hubo otra falla; las válidas sí se publican.
 5. En una transacción final, solo si la corrida sigue `RUNNING` y es de este worker (una
-   desvinculación concurrente la canceló: no se sobrescribe nada): tokens renovados,
+   desvinculación concurrente la canceló: no se sobrescribe nada). Los tokens renovados o
+   la expiración solo se aplican si la vinculación es la misma que se leyó al inicio (misma
+   `version`): una re-vinculación concurrente conserva sus tokens nuevos. Después,
    `imported_activity` y `actividad.importada.v1` en la outbox en el mismo COMMIT, estado
    final e `imported_count` (= eventos encolados).
 """
@@ -31,6 +34,7 @@ from third_party_management.application.ports import (
     Clock,
     OutboxMessage,
     ProviderTokens,
+    RejectedActivity,
     StravaContext,
     SyncRunClaimer,
     UnitOfWork,
@@ -39,10 +43,8 @@ from third_party_management.domain.activities import (
     MAPPING_VERSION,
     PROVIDER,
     ImportedActivity,
-    InvalidActivity,
     NormalizedActivity,
     next_import,
-    normalize_activity,
 )
 from third_party_management.domain.connections import (
     REFRESH_MARGIN,
@@ -123,11 +125,14 @@ def activity_event(
 class _Fetch:
     """Resultado de consultar al proveedor, antes de escribir nada."""
 
-    records: list[object] = field(default_factory=list)
+    activities: list[NormalizedActivity] = field(default_factory=list)
+    rejected: list[RejectedActivity] = field(default_factory=list)
     error: SyncErrorCode | None = None
     renewed: ProviderTokens | None = None
     expired: bool = False
     pages: int = 0
+    # Versión de la vinculación cuyos tokens se usaron (None si no se consultó al proveedor).
+    account_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -172,8 +177,9 @@ class RunSync:
             fetch = _Fetch(error=_inactive_error(account))
         else:
             fetch = self._fetch(account.user_id, account.tokens, last_start)
-        activities, skipped = self._normalize(run, fetch.records)
-        outcome = self._complete(run, fetch, activities, skipped)
+            fetch.account_version = account.version
+        skipped = self._report_rejected(run, fetch.rejected)
+        outcome = self._complete(run, fetch, fetch.activities, skipped)
         _logger.info(
             "sync.finished",
             extra={
@@ -243,8 +249,9 @@ class RunSync:
                 self._stop(fetch, retry_failure)
                 return None
         fetch.pages += 1
-        fetch.records.extend(result.records)
-        return tokens, len(result.records), result.quota_exhausted
+        fetch.activities.extend(result.activities)
+        fetch.rejected.extend(result.rejected)
+        return tokens, result.received, result.quota_exhausted
 
     def _list(self, tokens: ProviderTokens, after: datetime | None, page: int) -> ActivityPage:
         return self._strava.gateway.list_activities(
@@ -274,29 +281,21 @@ class RunSync:
                 extra={"fields": {"retry_after_seconds": failure.retry_after_seconds}},
             )
 
-    # ---------------------------------------------------------- normalización
+    # -------------------------------------------------------------- rechazos
 
-    def _normalize(
-        self, run: SyncRun, records: list[object]
-    ) -> tuple[list[NormalizedActivity], int]:
-        activities: list[NormalizedActivity] = []
-        skipped = 0
-        for record in records:
-            try:
-                activities.append(normalize_activity(record))
-            except InvalidActivity as invalid:
-                skipped += 1
-                _logger.warning(
-                    "sync.activity_skipped",
-                    extra={
-                        "fields": {
-                            **self._run_fields(run),
-                            "external_activity_id": invalid.external_activity_id,
-                            "reason": invalid.reason.value,
-                        }
-                    },
-                )
-        return activities, skipped
+    def _report_rejected(self, run: SyncRun, rejected: list[RejectedActivity]) -> int:
+        for item in rejected:
+            _logger.warning(
+                "sync.activity_skipped",
+                extra={
+                    "fields": {
+                        **self._run_fields(run),
+                        "external_activity_id": item.external_activity_id,
+                        "reason": item.reason.value,
+                    }
+                },
+            )
+        return len(rejected)
 
     # ---------------------------------------------------------------- cierre
 
@@ -318,7 +317,8 @@ class RunSync:
                 # el arrendamiento): no se escribe nada.
                 return SyncOutcome(run.sync_run_id, "CANCELLED", None, 0, skipped, True)
             account = unit_of_work.get_account(run.user_id, for_update=True)
-            if account is not None and account.is_active:
+            same_link = account is not None and account.version == fetch.account_version
+            if account is not None and account.is_active and same_link:
                 if fetch.expired:
                     unit_of_work.save_account(account.expire(now))
                 elif fetch.renewed is not None:

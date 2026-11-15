@@ -12,6 +12,13 @@ contrato: cuentan en la latencia y no como error. Cualquier otro estado es error
 nunca llama a Strava real: `third-party-management` debe apuntar al simulador o a un ambiente
 sin `terceros-sync-worker`; la autorización solo crea el `state` y devuelve la URL.
 
+Recorrido medido de la sincronización: con deportistas sin vincular todas las respuestas son
+`409 integration_not_linked`; con cuentas vinculadas y sin worker, solo la primera solicitud de
+cada cuenta es `202` y las siguientes, `409 sync_in_progress` (la corrida queda `QUEUED`). Para
+medir el camino `202` hay que usar cuentas vinculadas con el simulador y un worker que drene
+las corridas. Por eso el resumen informa la distribución `202`/`409` medida, que debe quedar
+en la evidencia junto con el dataset.
+
 Uso (fuera de cada PR; datos sintéticos). Corrida de HA012 (10 min a 20 rps):
     uv run --group load locust -f load/locust/strava_integration.py --host http://127.0.0.1:8000 \
         --headless --csv reports/load/ha012 --only-summary
@@ -46,6 +53,7 @@ import os
 import threading
 import time
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from typing import Any
 
@@ -79,6 +87,9 @@ MIN_RATE_RATIO = 0.9
 
 _accounts_lock = threading.Lock()
 _accounts: Iterator[tuple[str, str]] | None = None
+# Distribución de respuestas de la sincronización (estado, código) en la ventana medida.
+_sync_outcomes_lock = threading.Lock()
+_sync_outcomes: Counter[tuple[int, str | None]] = Counter()
 
 
 def _next_account() -> tuple[str, str] | None:
@@ -106,6 +117,8 @@ class Ha012Shape(LoadTestShape):
             return None
         if not self._reset and elapsed >= WARMUP_SECONDS and self.runner is not None:
             self.runner.stats.reset_all()
+            with _sync_outcomes_lock:
+                _sync_outcomes.clear()
             self._reset = True
         users = max(1, math.ceil(RPS / USER_RPS))
         return users, float(users)
@@ -183,7 +196,7 @@ class StravaAthlete(HttpUser):
         expected: set[int],
         conflicts: set[str] | None = None,
         **kwargs: Any,
-    ) -> None:
+    ) -> tuple[int, str | None]:
         self._renew_if_needed()
         headers = {**self.headers, **kwargs.pop("headers", {})}
         with self.client.request(
@@ -196,6 +209,7 @@ class StravaAthlete(HttpUser):
                 response.success()
             else:
                 response.failure(f"{response.status_code} {code or 'sin código'}")
+            return response.status_code, code
 
     @task(30)
     def authorize(self) -> None:
@@ -207,13 +221,15 @@ class StravaAthlete(HttpUser):
 
     @task(30)
     def sync(self) -> None:
-        self._send(
+        outcome = self._send(
             "POST",
             SYNCS,
             {202},
             SYNC_CONFLICTS,
             headers={"Idempotency-Key": str(uuid.uuid4())},
         )
+        with _sync_outcomes_lock:
+            _sync_outcomes[outcome] += 1
 
 
 def _error_code(response: Any) -> str | None:
@@ -244,6 +260,12 @@ def _check_thresholds(environment: Environment, **_: Any) -> None:
             f"error={entry.fail_ratio:.2%} rps={entry.total_rps:.1f}"
         )
         failed = failed or p95 >= P95_MS or entry.fail_ratio >= MAX_ERROR_RATIO
+    with _sync_outcomes_lock:
+        distribution = ", ".join(
+            f"{status}{' ' + code if code else ''}={count}"
+            for (status, code), count in sorted(_sync_outcomes.items(), key=str)
+        )
+    print(f"  respuestas de {SYNCS}: {distribution or 'ninguna'}")
     measured_rps = sum(environment.stats.get(path, method).total_rps for method, path in OPERATIONS)
     print(f"  tasa medida: {measured_rps:.1f} rps (objetivo {RPS:.1f})")
     if measured_rps < RPS * MIN_RATE_RATIO:

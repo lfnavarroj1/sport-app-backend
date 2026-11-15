@@ -483,6 +483,45 @@ class UnlinkTest(_Fixture):
         self.assertIs(run.error_code, SyncErrorCode.INTEGRATION_REVOKED)
         self.assertEqual(len(self.strava.calls(DEAUTHORIZE)), 1)
 
+    def test_renews_an_expiring_token_before_revoking(self) -> None:
+        """CA9: con un access token por vencer se renueva antes de revocar en Strava."""
+        access, refresh = self.strava.issue_tokens()
+        self.store.accounts[self.user_id] = linked_account(
+            self.context,
+            self.user_id,
+            access=access,
+            refresh=refresh,
+            expires_at=NOW + timedelta(minutes=2),
+        )
+
+        response = self.call("DELETE", INTEGRATION, self.auth)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(self.strava.calls("refresh")), 1)
+        [revocation] = self.strava.calls(DEAUTHORIZE)
+        presented = parse_qs(revocation.content.decode("utf-8"))["access_token"][0]
+        self.assertEqual(presented, self.strava.issued_tokens[-1][0])
+        self.assertNotEqual(presented, access)
+        self.assertIs(self.store.accounts[self.user_id].status, AccountStatus.REVOKED)
+
+    def test_failed_renewal_still_revokes_with_the_stored_token(self) -> None:
+        access, refresh = self.strava.issue_tokens()
+        self.store.accounts[self.user_id] = linked_account(
+            self.context,
+            self.user_id,
+            access=access,
+            refresh=refresh,
+            expires_at=NOW - timedelta(minutes=1),
+        )
+        self.strava.queue("refresh", status(400))
+
+        response = self.call("DELETE", INTEGRATION, self.auth)
+
+        self.assertEqual(response.status_code, 204)
+        [revocation] = self.strava.calls(DEAUTHORIZE)
+        self.assertEqual(parse_qs(revocation.content.decode("utf-8"))["access_token"][0], access)
+        self.assertIs(self.store.accounts[self.user_id].status, AccountStatus.REVOKED)
+
 
 class SyncTest(_Fixture):
     def test_202_and_replay_with_the_same_key(self) -> None:

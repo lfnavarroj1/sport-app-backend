@@ -1,4 +1,8 @@
-"""Cliente HTTPX de Strava detrás del puerto neutral `StravaGateway` (ADR-007, ADR-042 §9).
+"""Adaptador HTTPX de Strava detrás del puerto neutral `ActivityProviderGateway` (ADR-007,
+ADR-042 §9-§10).
+
+- Cada actividad recibida se traduce aquí con `strava-activity.v1` (`mapping.py`): hacia la
+  aplicación solo salen `NormalizedActivity` o rechazos con motivo, nunca el JSON de Strava.
 
 - Timeout de conexión 2 s y de lectura 5 s (`STRAVA_TIMEOUT`); un cliente con pool por
   proceso.
@@ -33,9 +37,12 @@ from third_party_management.application.ports import (
     ActivityPage,
     ProviderGrant,
     ProviderTokens,
+    RejectedActivity,
 )
+from third_party_management.domain.activities import InvalidActivity, NormalizedActivity
 from third_party_management.domain.connections import REQUESTED_SCOPES
 from third_party_management.infrastructure.strava.circuit import CircuitBreaker
+from third_party_management.infrastructure.strava.mapping import normalize_activity
 
 STRAVA_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
 DEFAULT_AUTHORIZE_URL = "https://www.strava.com/oauth/mobile/authorize"
@@ -123,6 +130,21 @@ def _tokens(document: dict[str, Any]) -> ProviderTokens:
         access_token=_text(document, "access_token"),
         refresh_token=_text(document, "refresh_token"),
         expires_at=_epoch(document, "expires_at"),
+    )
+
+
+def translate_page(records: list[Any], *, quota_exhausted: bool = False) -> ActivityPage:
+    """Traduce una página de Strava al modelo neutral; un registro intraducible se rechaza
+    con su motivo (CA7) sin detener la página."""
+    activities: list[NormalizedActivity] = []
+    rejected: list[RejectedActivity] = []
+    for record in records:
+        try:
+            activities.append(normalize_activity(record))
+        except InvalidActivity as invalid:
+            rejected.append(RejectedActivity(invalid.external_activity_id, invalid.reason))
+    return ActivityPage(
+        activities=tuple(activities), rejected=tuple(rejected), quota_exhausted=quota_exhausted
     )
 
 
@@ -225,9 +247,7 @@ class StravaHttpGateway:
             raise _failure(ProviderFailureKind.INVALID_RESPONSE) from None
         if not isinstance(document, list):
             raise _failure(ProviderFailureKind.INVALID_RESPONSE)
-        return ActivityPage(
-            records=tuple(document), quota_exhausted=quota_exhausted(response.headers)
-        )
+        return translate_page(document, quota_exhausted=quota_exhausted(response.headers))
 
     # -------------------------------------------------------------- técnica
 

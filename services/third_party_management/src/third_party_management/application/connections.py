@@ -5,8 +5,10 @@ atleta de Strava, `linked_at`, los scopes aceptados y la última corrida.
 
 Desvinculación (`DELETE /v1/me/integrations/strava`, `204` siempre, R):
 1. Si hay tokens y Strava está configurado, `deauthorize` en el proveedor fuera de toda
-   transacción (mejor esfuerzo con un reintento; su falla no impide desvincular). Sin
-   configuración se desvincula igual y se registra (R).
+   transacción (mejor esfuerzo con un reintento; su falla no impide desvincular). Si al
+   access token le faltan menos de 5 minutos se renueva antes (mejor esfuerzo): el
+   proveedor rechazaría la revocación con un token vencido. Sin configuración se desvincula
+   igual y se registra (R).
 2. En una transacción con la cuenta bloqueada: tokens borrados, `REVOKED` con la versión
    siguiente, `revoked_at`; las corridas `QUEUED`/`RUNNING` → `FAILED`
    `integration_revoked`; los `state` pendientes del deportista se borran. Las actividades
@@ -18,6 +20,7 @@ el proveedor.
 
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 
 from third_party_management.application.access import require_strava_capability
@@ -29,7 +32,7 @@ from third_party_management.application.ports import (
     StravaContext,
     UnitOfWork,
 )
-from third_party_management.domain.connections import ExternalAccount
+from third_party_management.domain.connections import REFRESH_MARGIN, ExternalAccount
 from third_party_management.domain.synchronization import SyncRun
 
 _audit = logging.getLogger("sportapp.audit")
@@ -113,7 +116,12 @@ class UnlinkStrava:
             return "skipped"
         try:
             tokens = self._strava.sealer.open(account.user_id, account.tokens)
-            self._strava.gateway.deauthorize(tokens.access_token)
+            access_token = tokens.access_token
+            if tokens.expires_at - self._clock.now() < REFRESH_MARGIN:
+                # Si la renovación falla se intenta igual con el token guardado.
+                with suppress(ProviderFailure):
+                    access_token = self._strava.gateway.refresh(tokens.refresh_token).access_token
+            self._strava.gateway.deauthorize(access_token)
         except ProviderFailure as failure:
             _logger.warning(
                 "strava.deauthorize_failed",

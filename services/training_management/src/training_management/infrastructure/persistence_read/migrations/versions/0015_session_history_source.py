@@ -3,9 +3,11 @@
 Solo expansión, compatible con la versión anterior: `source` es `NOT NULL` con valor por
 defecto `'SPORTAPP'` (las filas existentes son sesiones de HU032; en PostgreSQL ≥ 11 el
 `ADD COLUMN ... DEFAULT` no reescribe la tabla), `external_ref` y `distance_meters` admiten
-nulos (solo las actividades de Strava los tienen). La reversión elimina las columnas; la
-base de lectura es reconstruible reproyectando `sportapp.entrenamientos.v1` y
-`sportapp.terceros.v1`.
+nulos (solo las actividades de Strava los tienen). La reversión elimina las columnas y, con
+ellas, el origen de las filas importadas: Pub/Sub no retiene el historial de
+`sportapp.terceros.v1`, así que recuperarlas exige volver a publicarlas desde Terceros (no
+hay reproyección automática). Las sesiones de HU032 se reconstruyen desde
+`sportapp.entrenamientos.v1` como hasta ahora.
 
 Revision ID: 0015_session_history_source
 Revises: 0014_routine_template_view

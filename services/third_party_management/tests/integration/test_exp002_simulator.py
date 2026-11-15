@@ -4,9 +4,11 @@
 `StravaSimulator` (nunca Strava real) y la base `terceros` real, después de una corrida de
 calentamiento que no se mide. Por corrida se mide por separado:
 
-- `strava`: las llamadas a `list_activities` del adaptador HTTPX (simulador en memoria, sin
-  red: mide el adaptador, no la latencia de Strava real);
-- `transformacion`: `normalize_activity` + `activity_payload` de los registros recibidos;
+- `strava`: las llamadas a `list_activities` del adaptador HTTPX, que ya incluyen la
+  traducción `strava-activity.v1` (simulador en memoria, sin red: mide el adaptador, no la
+  latencia de Strava real);
+- `transformacion`: aislada, el traductor del adaptador (`mapping.normalize_activity`) +
+  `activity_payload` sobre los mismos registros que entregó el simulador;
 - `cierre`: la transacción final de la corrida (bloqueo de la corrida, `imported_activity` y
   `actividad.importada.v1` en la outbox, hasta el COMMIT);
 - `relevo`: `terceros-outbox-publisher` publicando el lote en el emulador de Pub/Sub. Solo con
@@ -14,8 +16,12 @@ calentamiento que no se mide. Por corrida se mide por separado:
   solo el COMMIT de la outbox (`cierre`);
 - `publicacion` = `cierre` + `relevo`, y `total` = corrida completa (`RunSync`) + `relevo`.
 
-Imprime una línea `EXP-002 ...` con p50/p95/p99 en milisegundos (rango más cercano) y exige
-p95 < 2 s en la transformación, la publicación y el total. Sin esperas artificiales.
+Imprime una línea `EXP-002 ...` con p50/p95/p99 en milisegundos (rango más cercano). Exige
+p95 < 2 s solo donde hay un criterio aprobado: EXP-002 §6 («respuesta y transformación en
+menos de 2 segundos») → `strava` (adaptador: HTTP + traducción) y `transformacion`. ADR-042
+§15 pide *medir* la publicación (p50/p95/p99), sin umbral: `cierre`, `relevo`, `publicacion`
+y `total` se miden e informan (el relevo publica en serie con ACK por mensaje, patrón
+CMP-002 común a todos los dominios). Sin esperas artificiales.
 """
 
 import base64
@@ -46,16 +52,16 @@ from test_sync_flow import (
 from third_party_management.application.imports import activity_payload
 from third_party_management.application.ports import (
     ActivityPage,
+    ActivityProviderGateway,
     ProviderGrant,
     ProviderTokens,
-    StravaGateway,
 )
-from third_party_management.domain.activities import normalize_activity
 from third_party_management.domain.synchronization import SyncRun
 from third_party_management.infrastructure.messaging.pubsub import PubSubEventPublisher
 from third_party_management.infrastructure.persistence.models import OutboxEventRow
 from third_party_management.infrastructure.persistence.outbox import SqlAlchemyOutboxStore
 from third_party_management.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
+from third_party_management.infrastructure.strava.mapping import normalize_activity
 from third_party_management.settings import TERCEROS_TOPIC, OutboxPublisherSettings
 from third_party_management.testing.strava_simulator import StravaSimulator
 from third_party_management.workers.outbox_publisher import OutboxRelay
@@ -85,15 +91,15 @@ def _elapsed_ms(started: float) -> float:
 
 
 class _TimedGateway:
-    """Mide `list_activities` y conserva los registros recibidos en la corrida."""
+    """Mide `list_activities` (HTTP + traducción del adaptador) en la corrida."""
 
-    def __init__(self, gateway: StravaGateway) -> None:
+    def __init__(self, gateway: ActivityProviderGateway) -> None:
         self._gateway = gateway
         self.elapsed_ms = 0.0
-        self.records: list[object] = []
+        self.received = 0
 
     def reset(self) -> None:
-        self.elapsed_ms, self.records = 0.0, []
+        self.elapsed_ms, self.received = 0.0, 0
 
     def authorization_url(self, state: str) -> str:
         return self._gateway.authorization_url(state)
@@ -115,7 +121,7 @@ class _TimedGateway:
             access_token, after=after, page=page, per_page=per_page
         )
         self.elapsed_ms += _elapsed_ms(started)
-        self.records.extend(result.records)
+        self.received += result.received
         return result
 
 
@@ -198,7 +204,8 @@ class Exp002SimulatorTest(unittest.TestCase):
         )
 
         started = time.perf_counter()
-        for record in self.gateway.records:
+        self.assertEqual(self.gateway.received, ACTIVITIES_PER_RUN)
+        for record in self.strava.activities:
             activity_payload(normalize_activity(record), self.user_id, 1)
         transform_ms = _elapsed_ms(started)
 
@@ -217,8 +224,9 @@ class Exp002SimulatorTest(unittest.TestCase):
             "total": sync_ms + relay_ms,
         }
 
-    def test_transformation_and_publication_p95_under_two_seconds(self) -> None:
-        """HA012 / EXP-002: p50/p95/p99 de transformación y publicación con el simulador."""
+    def test_response_and_transformation_p95_under_two_seconds(self) -> None:
+        """EXP-002 §6 / ADR-042 §15: p95 < 2 s de respuesta y transformación; p50/p95/p99 de
+        la publicación medidos e informados."""
         self.one_run(0)  # Calentamiento (pool, canal de Pub/Sub): no se mide.
         samples = [self.one_run(number) for number in range(1, RUNS + 1)]
 
@@ -237,7 +245,7 @@ class Exp002SimulatorTest(unittest.TestCase):
         if self.relay is not None:
             unpublished = [row for row in self.db.rows(OutboxEventRow) if row.published_at is None]
             self.assertEqual(unpublished, [])
-        for name in ("transformacion", "publicacion", "total"):
+        for name in ("strava", "transformacion"):
             self.assertLess(percentile(series[name], 0.95), P95_LIMIT_MS, name)
 
 

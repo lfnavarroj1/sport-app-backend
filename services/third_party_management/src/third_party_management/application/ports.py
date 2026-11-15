@@ -1,9 +1,12 @@
 """Puertos de la aplicación de HU031: identidad, capacidades, reloj, proveedor externo
 neutral, cifrado de tokens, `state` OAuth y persistencia.
 
-`StravaGateway` es la interfaz neutral del adaptador (ADR-007): la aplicación no conoce URLs,
-cabeceras ni formatos de Strava, salvo el registro de actividad que normaliza el dominio
-(`strava-activity.v1`) y que nunca sale del servicio.
+`ActivityProviderGateway` es el puerto neutral del patrón Adaptador (ADR-007, guía de
+`third_party_management`): la aplicación no conoce URLs, cabeceras, códigos HTTP ni formatos
+del proveedor. El adaptador de Strava (`infrastructure/strava`) lo implementa: traduce cada
+actividad con `strava-activity.v1` y entrega solo el modelo neutral del dominio
+(`NormalizedActivity`) o un rechazo con su motivo; las fallas llegan como `ProviderFailure`.
+Un proveedor futuro implementaría este mismo puerto, sin condicionales en la aplicación.
 """
 
 from dataclasses import dataclass, field
@@ -12,7 +15,11 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 from uuid import UUID
 
-from third_party_management.domain.activities import ImportedActivity
+from third_party_management.domain.activities import (
+    ImportedActivity,
+    NormalizedActivity,
+    SkipReason,
+)
 from third_party_management.domain.connections import ExternalAccount, SealedTokens
 from third_party_management.domain.synchronization import SyncRun
 
@@ -49,16 +56,31 @@ class ProviderGrant:
 
 
 @dataclass(frozen=True)
-class ActivityPage:
-    """`records` son los registros del proveedor sin interpretar; `quota_exhausted` indica
-    que la cuota de alguna ventana quedó agotada tras esta página."""
+class RejectedActivity:
+    """Registro del proveedor que el adaptador no pudo traducir (CA7): solo el identificador
+    externo (si se pudo leer) y el motivo, nunca datos del proveedor."""
 
-    records: tuple[object, ...] = field(repr=False)
+    external_activity_id: str | None
+    reason: SkipReason
+
+
+@dataclass(frozen=True)
+class ActivityPage:
+    """Una página ya traducida al modelo neutral. `received` es el número de registros que
+    entregó el proveedor (decide si hay más páginas); `quota_exhausted` indica que la cuota
+    de alguna ventana quedó agotada tras esta página."""
+
+    activities: tuple[NormalizedActivity, ...] = ()
+    rejected: tuple[RejectedActivity, ...] = ()
     quota_exhausted: bool = False
 
+    @property
+    def received(self) -> int:
+        return len(self.activities) + len(self.rejected)
 
-class StravaGateway(Protocol):
-    """Adaptador del proveedor. Toda falla se informa como `ProviderFailure`."""
+
+class ActivityProviderGateway(Protocol):
+    """Puerto del adaptador del proveedor. Toda falla se informa como `ProviderFailure`."""
 
     def authorization_url(self, state: str) -> str: ...
 
@@ -96,7 +118,7 @@ class StravaContext:
     """Lo que exige la configuración completa de Strava; sin ella las operaciones que lo
     necesitan responden `503`."""
 
-    gateway: StravaGateway
+    gateway: ActivityProviderGateway
     sealer: TokenSealer
     states: StateCodec
     consent_version: str

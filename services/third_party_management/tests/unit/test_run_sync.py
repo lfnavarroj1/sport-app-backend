@@ -4,6 +4,7 @@ CA6 (`429`, `5xx`, timeout, circuito y renovación), CA7 (parciales) y CA9 (canc
 
 import logging
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -22,7 +23,8 @@ from fakes import (
 from leak_checks import leaks
 
 from third_party_management.application.imports import RunSync, SyncOutcome
-from third_party_management.domain.connections import AccountStatus
+from third_party_management.application.ports import ActivityPage, ProviderTokens
+from third_party_management.domain.connections import AccountStatus, ExternalAccount
 from third_party_management.domain.synchronization import SyncErrorCode, SyncRun, SyncStatus
 from third_party_management.infrastructure.strava.circuit import CircuitBreaker
 from third_party_management.testing.strava_simulator import (
@@ -438,6 +440,86 @@ class CancellationTest(_Fixture):
 
         self.assertTrue(outcome.cancelled)
         self.assertEqual(self.store.outbox, [])
+
+
+class ConcurrentRelinkTest(_Fixture):
+    """HA013: una re-vinculación durante la corrida conserva los tokens nuevos."""
+
+    def relink_during_listing(self) -> tuple[str, str]:
+        """La re-vinculación ocurre en la primera llamada al proveedor, después de que la
+        corrida leyó la vinculación anterior."""
+        # Solo se guardan cifrados; no se presentan al simulador (no invalidan los viejos).
+        new_access, new_refresh = f"nuevo-{uuid4().hex}", f"nuevo-{uuid4().hex}"
+        relinked = False
+
+        def relink() -> None:
+            nonlocal relinked
+            if relinked:
+                return
+            relinked = True
+            current = self.store.accounts[self.user_id]
+            self.store.accounts[self.user_id] = ExternalAccount.link(
+                current=current,
+                user_id=self.user_id,
+                external_athlete_id=current.external_athlete_id,
+                tokens=self.context.sealer.seal(
+                    self.user_id,
+                    ProviderTokens(new_access, new_refresh, NOW + timedelta(hours=6)),
+                ),
+                scopes=current.scopes,
+                consent_version=current.consent_version,
+                now=NOW,
+            )
+
+        gateway = self.context.gateway
+
+        class RelinkingGateway:
+            def __getattr__(self, name: str) -> Any:
+                return getattr(gateway, name)
+
+            def refresh(self, refresh_token: str) -> ProviderTokens:
+                relink()
+                return gateway.refresh(refresh_token)
+
+            def list_activities(
+                self, access_token: str, *, after: datetime | None, page: int, per_page: int
+            ) -> ActivityPage:
+                relink()
+                return gateway.list_activities(
+                    access_token, after=after, page=page, per_page=per_page
+                )
+
+        self.run_sync._strava = replace(self.context, gateway=RelinkingGateway())
+        return new_access, new_refresh
+
+    def opened_tokens(self) -> tuple[str, str]:
+        account = self.store.accounts[self.user_id]
+        assert account.tokens is not None
+        tokens = self.context.sealer.open(self.user_id, account.tokens)
+        return tokens.access_token, tokens.refresh_token
+
+    def test_unauthorized_with_old_tokens_does_not_expire_the_new_link(self) -> None:
+        # Los `401` con los tokens viejos no deben borrar los nuevos.
+        self.strava.queue("activities", status(401), status(401))
+        new_tokens = self.relink_during_listing()
+
+        outcome = self.sync()
+
+        self.assert_finished(outcome, SyncStatus.FAILED, SyncErrorCode.TOKEN_EXPIRED)
+        account = self.store.accounts[self.user_id]
+        self.assertEqual((account.status, account.version), (AccountStatus.ACTIVE, 2))
+        self.assertEqual(self.opened_tokens(), new_tokens)
+
+    def test_renewed_old_tokens_do_not_replace_the_new_ones(self) -> None:
+        self.link(expires_at=NOW + timedelta(minutes=2))
+        self.strava.activities = [activity(1)]
+        new_tokens = self.relink_during_listing()
+
+        outcome = self.sync()
+
+        self.assert_finished(outcome, SyncStatus.SUCCEEDED, None)
+        self.assertEqual(len(self.strava.calls("refresh")), 1)
+        self.assertEqual(self.opened_tokens(), new_tokens)
 
 
 class SyncLogsTest(_Fixture):

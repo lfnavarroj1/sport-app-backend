@@ -12,6 +12,8 @@ from fakes import CLIENT_ID, REDIRECT_URI, ManualMonotonic, NoSleep, gateway
 from leak_checks import leaks
 
 from third_party_management.application.errors import ProviderFailure, ProviderFailureKind
+from third_party_management.application.ports import RejectedActivity
+from third_party_management.domain.activities import NormalizedActivity, SkipReason, Sport
 from third_party_management.infrastructure.strava.circuit import CircuitBreaker
 from third_party_management.infrastructure.strava.client import (
     STRAVA_TIMEOUT,
@@ -135,6 +137,28 @@ class TokenOperationsTest(_Fixture):
 
 
 class ActivitiesTest(_Fixture):
+    def test_page_crosses_the_port_only_as_the_neutral_model(self) -> None:
+        """ADR-007: el adaptador traduce con `strava-activity.v1`; hacia la aplicación solo
+        salen `NormalizedActivity` y rechazos con motivo, nunca el JSON de Strava (CA7)."""
+        broken = activity(2)
+        del broken["start_date"]
+        self.strava.activities = [activity(1, sport_type="TrailRun"), broken, {"id": "x"}]
+
+        result = self.gateway.list_activities(self.access, after=None, page=1, per_page=50)
+
+        self.assertEqual(result.received, 3)
+        [normalized] = result.activities
+        self.assertIsInstance(normalized, NormalizedActivity)
+        self.assertEqual((normalized.external_activity_id, normalized.sport), ("1", Sport.RUNNING))
+        self.assertEqual(
+            list(result.rejected),
+            [
+                RejectedActivity("2", SkipReason.INVALID_START_DATE),
+                RejectedActivity(None, SkipReason.INVALID_ID),
+            ],
+        )
+        self.assertFalse(hasattr(result, "records"))
+
     def test_pages_and_after(self) -> None:
         self.strava.activities = [activity(index) for index in range(1, 61)]
 
@@ -143,7 +167,7 @@ class ActivitiesTest(_Fixture):
             self.access, after=datetime(2026, 10, 1, tzinfo=UTC), page=2, per_page=50
         )
 
-        self.assertEqual((len(first.records), len(second.records)), (50, 10))
+        self.assertEqual((len(first.activities), len(second.activities)), (50, 10))
         self.assertFalse(first.quota_exhausted)
         params = [dict(request.url.params) for request in self.strava.calls("activities")]
         self.assertEqual(params[0], {"per_page": "50", "page": "1"})
@@ -208,7 +232,7 @@ class ActivitiesTest(_Fixture):
 
         result = self.list_page()
 
-        self.assertEqual(len(result.records), 1)  # type: ignore[attr-defined]
+        self.assertEqual(len(result.activities), 1)  # type: ignore[attr-defined]
         self.assertEqual(len(self.strava.calls("activities")), 3)
 
     def test_quota_exhausted_after_a_page(self) -> None:

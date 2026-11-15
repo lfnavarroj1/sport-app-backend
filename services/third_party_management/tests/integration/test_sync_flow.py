@@ -35,11 +35,11 @@ from third_party_management.application.connections import UnlinkStrava
 from third_party_management.application.imports import RunSync, SyncOutcome
 from third_party_management.application.ports import (
     ActivityPage,
+    ActivityProviderGateway,
     Caller,
     ProviderGrant,
     ProviderTokens,
     StravaContext,
-    StravaGateway,
 )
 from third_party_management.domain.connections import ExternalAccount, SealedTokens
 from third_party_management.domain.synchronization import SyncRun
@@ -721,7 +721,7 @@ class _UnlinkDuringFetch:
     """Gateway que desvincula al deportista justo después de recibir la primera página,
     mientras la corrida está `RUNNING` y sin transacción abierta."""
 
-    def __init__(self, gateway: StravaGateway, unlink: Callable[[], None]) -> None:
+    def __init__(self, gateway: ActivityProviderGateway, unlink: Callable[[], None]) -> None:
         self._gateway = gateway
         self._unlink = unlink
         self.unlinked = False

@@ -13,6 +13,8 @@ from third_party_management.domain.activities import (
     SkipReason,
     Sport,
     next_import,
+)
+from third_party_management.infrastructure.strava.mapping import (
     normalize_activity,
     round_meters,
     time_zone_from,

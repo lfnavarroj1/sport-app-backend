@@ -291,7 +291,7 @@ class StravaSimulator:
         access, refresh = self.issue_tokens()
         expires_at = self.now() + self.token_lifetime
         document: dict[str, Any] = {
-            "token_type": "Bearer",
+            "token_type": "Bearer",  # nosec B105 - tipo de token, no un secreto
             "expires_at": int(expires_at.timestamp()),
             "expires_in": int(self.token_lifetime.total_seconds()),
             "refresh_token": refresh,

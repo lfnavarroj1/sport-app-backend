@@ -1,0 +1,12 @@
+# Integración con Strava (HU031, ADR-042). Componente de Kustomize que NO incluyen
+# `deploy/k8s/base` ni `overlays/local`: depende de recursos de T-HU031-PLAT (base y usuario
+# `terceros`, clave TERCEROS_DB_PASSWORD, Secret `sportapp-third-party`, tópico
+# `sportapp.terceros.v1`, suscripción `entrenamientos-actividades-externas-v1` y DLQ
+# `sportapp.terceros.actividades.dlq`). La plataforma lo agrega con `components:` cuando existan.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - third-party-management-migrate.yaml
+  - third-party-management-outbox-publisher.yaml
+  - third-party-management-sync-worker.yaml
+  - training-management-external-activity-consumer.yaml

@@ -19,7 +19,7 @@ HISTORIES = {
     ),
     "read": (
         "training_management.infrastructure.persistence_read:migrations",
-        "0014_routine_template_view",
+        "0015_session_history_source",
     ),
 }
 

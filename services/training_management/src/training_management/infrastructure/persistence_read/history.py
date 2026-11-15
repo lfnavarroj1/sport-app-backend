@@ -58,6 +58,7 @@ class SqlAlchemyHistoryReader:
                     ended_at=item.ended_at,
                     duration_seconds=item.duration_seconds,
                     version=item.version,
+                    source=item.source,
                 )
                 for item in session.scalars(statement)
             ]

@@ -181,6 +181,7 @@ class AppointmentsFlowTest(unittest.TestCase):
                     training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
                     events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
                     complementary_services_base_url="http://complementary-services",  # type: ignore[arg-type]
+                    third_party_management_base_url="http://third-party.invalid",  # type: ignore[arg-type]
                 ),
                 users_http=users,
                 affiliation_http=affiliation,
@@ -198,6 +199,7 @@ class AppointmentsFlowTest(unittest.TestCase):
                     affiliation_management_base_url="http://affiliation-management",  # type: ignore[arg-type]
                     training_management_base_url="http://training.invalid",  # type: ignore[arg-type]
                     complementary_services_base_url="http://complementary-services",  # type: ignore[arg-type]
+                    third_party_management_base_url="http://third-party.invalid",  # type: ignore[arg-type]
                     events_management_base_url="http://events.invalid",  # type: ignore[arg-type]
                     cors_allowed_origins=(ORIGIN,),
                 ),

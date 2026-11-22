@@ -1,6 +1,7 @@
 """API de HU011 en el servicio: rutas del historial con dobles en memoria y tokens firmados."""
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -72,8 +73,17 @@ class TrainingHistoryApiTest(unittest.TestCase):
         self.assertIsNotNone(body["next_cursor"])
         self.assertEqual(
             set(body["items"][0]),
-            {"session_id", "plan_id", "sport", "started_at", "ended_at", "duration_seconds"},
+            {
+                "session_id",
+                "plan_id",
+                "sport",
+                "started_at",
+                "ended_at",
+                "duration_seconds",
+                "source",
+            },
         )
+        self.assertEqual({i["source"] for i in body["items"]}, {"SPORTAPP"})
 
         rest = self.get("/v1/training-history", self.athlete, limit=2, cursor=body["next_cursor"])
         self.assertEqual(len(rest.json()["items"]), 1)
@@ -135,6 +145,36 @@ class TrainingHistoryApiTest(unittest.TestCase):
         self.assertEqual(
             [i["session_id"] for i in response.json()["items"]], [str(inside.session_id)]
         )
+
+    def test_items_declare_their_source(self) -> None:
+        """HU031 (ADR-042 §12): `source` distingue las sesiones de SportApp de las importadas
+        de Strava, en el historial propio y en el del profesional; sin distancia ni
+        `external_ref`."""
+        own = entry(self.athlete_id, NOW - timedelta(days=2))
+        imported = replace(entry(self.athlete_id, NOW - timedelta(days=1)), source="STRAVA")
+        for item in (own, imported):
+            self.read.sessions[item.session_id] = item
+        self.read.authorizations[(self.athlete_id, self.professional_id)] = AuthorizationView(
+            athlete_id=self.athlete_id,
+            professional_id=self.professional_id,
+            status="ACTIVE",
+            version=1,
+            granted_at=NOW,
+            revoked_at=None,
+        )
+
+        for path, headers in (
+            ("/v1/training-history", self.athlete),
+            (f"/v1/athletes/{self.athlete_id}/training-history", self.professional),
+        ):
+            with self.subTest(path=path):
+                items = self.get(path, headers).json()["items"]
+
+                self.assertEqual(
+                    [(i["session_id"], i["source"]) for i in items],
+                    [(str(imported.session_id), "STRAVA"), (str(own.session_id), "SPORTAPP")],
+                )
+                self.assertFalse({"external_ref", "distance_meters"} & set(items[0]))
 
 
 if __name__ == "__main__":

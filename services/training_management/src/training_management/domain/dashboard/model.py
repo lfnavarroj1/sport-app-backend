@@ -5,9 +5,9 @@
   HU011) y un indicador por su `measured_at`.
 - Las semanas son ISO (lunes a domingo) en la zona del `from`: `week_start` es el lunes local.
 - Duraciones en minutos enteros redondeados `ROUND_HALF_UP` a partir de los segundos sumados.
-- `distance_meters` suma solo las filas que la tienen (hoy, ninguna: llegará con las sesiones
-  de Strava de HU031); sin filas con distancia es `None` (decisión del 2026-10-24), nunca un
-  valor inventado.
+- `distance_meters` suma solo las filas que la tienen (las actividades importadas de Strava de
+  HU031; las sesiones de HU032 no registran distancia); sin filas con distancia es `None`
+  (decisión del 2026-10-24), nunca un valor inventado.
 - Sin datos: `has_data = False`, totales en cero y listas vacías (CA2).
 """
 
@@ -30,7 +30,7 @@ _DECODED_PLUS = re.compile(r"^(.*T\d{2}:\d{2}:\d{2}(\.\d{1,6})?) (\d{2}:\d{2})$"
 
 
 class Source(StrEnum):
-    """Origen de una sesión (ADR-043); `STRAVA` llegará con HU031."""
+    """Origen de una sesión (ADR-043): `SPORTAPP` (HU032) o `STRAVA` (importada, HU031)."""
 
     SPORTAPP = "SPORTAPP"
     STRAVA = "STRAVA"
